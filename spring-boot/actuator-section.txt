@@ -1,0 +1,605 @@
+## Actuator
+
+<details>
+  <summary>What is Spring Boot Actuator?</summary>
+  <br/>
+
+  Actuator provides production-ready features for monitoring and managing Spring Boot applications.
+
+  **Add dependency:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+  </dependency>
+  ```
+
+  **What it provides:**
+  + Health checks
+  + Application metrics
+  + Environment information
+  + HTTP trace
+  + Thread dumps
+  + Heap dumps
+  + Logger configuration
+
+  **Default endpoints:**
+  + `/actuator` - List of available endpoints
+  + `/actuator/health` - Application health status
+  + `/actuator/info` - Application information
+
+  **Why use Actuator?**
+  + Monitor application health in production
+  + Collect metrics for performance analysis
+  + Debug issues without redeploying
+  + Integration with monitoring tools (Prometheus, Grafana)
+
+</details>
+
+<details>
+  <summary>Enabling Actuator Endpoints</summary>
+  <br/>
+
+  By default, only `/health` and `/info` are exposed over HTTP.
+
+  **Expose all endpoints:**
+
+  ```properties
+  # application.properties
+  management.endpoints.web.exposure.include=*
+  ```
+
+  **Expose specific endpoints:**
+
+  ```properties
+  management.endpoints.web.exposure.include=health,info,metrics,env
+  ```
+
+  **Exclude endpoints:**
+
+  ```properties
+  management.endpoints.web.exposure.include=*
+  management.endpoints.web.exposure.exclude=shutdown,threaddump
+  ```
+
+  **Change base path:**
+
+  ```properties
+  # Default: /actuator
+  management.endpoints.web.base-path=/monitoring
+  # Access: http://localhost:8080/monitoring/health
+  ```
+
+  **Change port:**
+
+  ```properties
+  # Run actuator on different port
+  management.server.port=9090
+  # Access: http://localhost:9090/actuator/health
+  ```
+
+  **Security:**
+
+  ```java
+  @Configuration
+  public class ActuatorSecurityConfig {
+      
+      @Bean
+      public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+          http
+              .authorizeHttpRequests(auth -> auth
+                  .requestMatchers("/actuator/health").permitAll()
+                  .requestMatchers("/actuator/**").hasRole("ADMIN")
+                  .anyRequest().authenticated()
+              );
+          return http.build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Health Endpoint</summary>
+  <br/>
+
+  The `/actuator/health` endpoint shows application health status.
+
+  **Basic configuration:**
+
+  ```properties
+  # Show detailed health information
+  management.endpoint.health.show-details=always
+  
+  # Show details only when authorized
+  management.endpoint.health.show-details=when-authorized
+  
+  # Show components
+  management.endpoint.health.show-components=always
+  ```
+
+  **Response example:**
+
+  ```json
+  {
+    "status": "UP",
+    "components": {
+      "db": {
+        "status": "UP",
+        "details": {
+          "database": "MySQL",
+          "validationQuery": "isValid()"
+        }
+      },
+      "diskSpace": {
+        "status": "UP",
+        "details": {
+          "total": 499963174912,
+          "free": 336889516032,
+          "threshold": 10485760
+        }
+      },
+      "ping": {
+        "status": "UP"
+      }
+    }
+  }
+  ```
+
+  **Health statuses:**
+  + `UP` - Application is healthy
+  + `DOWN` - Application is unhealthy
+  + `OUT_OF_SERVICE` - Temporarily unavailable
+  + `UNKNOWN` - Status cannot be determined
+
+  **Custom health indicator:**
+
+  ```java
+  @Component
+  public class CustomHealthIndicator implements HealthIndicator {
+      
+      @Override
+      public Health health() {
+          boolean isHealthy = checkExternalService();
+          
+          if (isHealthy) {
+              return Health.up()
+                  .withDetail("service", "available")
+                  .withDetail("responseTime", "50ms")
+                  .build();
+          }
+          
+          return Health.down()
+              .withDetail("service", "unavailable")
+              .withDetail("error", "Connection timeout")
+              .build();
+      }
+      
+      private boolean checkExternalService() {
+          // Check external service
+          return true;
+      }
+  }
+  ```
+
+  **Grouped health indicators:**
+
+  ```properties
+  # Create custom health groups
+  management.endpoint.health.group.liveness.include=livenessProbe
+  management.endpoint.health.group.readiness.include=readinessProbe,db
+  ```
+
+  Access: `/actuator/health/liveness`, `/actuator/health/readiness`
+
+  **Kubernetes liveness/readiness probes:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  spec:
+    containers:
+    - name: app
+      livenessProbe:
+        httpGet:
+          path: /actuator/health/liveness
+          port: 8080
+        initialDelaySeconds: 30
+        periodSeconds: 10
+      readinessProbe:
+        httpGet:
+          path: /actuator/health/readiness
+          port: 8080
+        initialDelaySeconds: 10
+        periodSeconds: 5
+  ```
+
+</details>
+
+<details>
+  <summary>Metrics Endpoint</summary>
+  <br/>
+
+  The `/actuator/metrics` endpoint provides application metrics.
+
+  **List all metrics:**
+
+  ```bash
+  curl http://localhost:8080/actuator/metrics
+  ```
+
+  ```json
+  {
+    "names": [
+      "jvm.memory.used",
+      "jvm.memory.max",
+      "jvm.gc.pause",
+      "http.server.requests",
+      "system.cpu.usage",
+      "process.uptime"
+    ]
+  }
+  ```
+
+  **View specific metric:**
+
+  ```bash
+  curl http://localhost:8080/actuator/metrics/jvm.memory.used
+  ```
+
+  ```json
+  {
+    "name": "jvm.memory.used",
+    "measurements": [
+      {
+        "statistic": "VALUE",
+        "value": 157286400
+      }
+    ],
+    "availableTags": [
+      {
+        "tag": "area",
+        "values": ["heap", "nonheap"]
+      }
+    ]
+  }
+  ```
+
+  **Common metrics:**
+  + `jvm.memory.used` - JVM memory usage
+  + `jvm.memory.max` - Maximum JVM memory
+  + `jvm.gc.pause` - Garbage collection pauses
+  + `http.server.requests` - HTTP request metrics
+  + `system.cpu.usage` - CPU usage
+  + `process.uptime` - Application uptime
+  + `logback.events` - Log events count
+
+  **Custom metrics:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      private final MeterRegistry meterRegistry;
+      private final Counter orderCounter;
+      
+      public OrderService(MeterRegistry meterRegistry) {
+          this.meterRegistry = meterRegistry;
+          this.orderCounter = Counter.builder("orders.created")
+              .description("Total orders created")
+              .tag("type", "online")
+              .register(meterRegistry);
+      }
+      
+      public Order createOrder(Order order) {
+          Order saved = orderRepository.save(order);
+          orderCounter.increment();
+          return saved;
+      }
+      
+      @Timed(value = "order.processing.time", description = "Time to process order")
+      public void processOrder(Long orderId) {
+          // Process order
+      }
+  }
+  ```
+
+  **Timer example:**
+
+  ```java
+  @Service
+  public class PaymentService {
+      
+      private final MeterRegistry meterRegistry;
+      
+      public PaymentService(MeterRegistry meterRegistry) {
+          this.meterRegistry = meterRegistry;
+      }
+      
+      public void processPayment(Payment payment) {
+          Timer.Sample sample = Timer.start(meterRegistry);
+          
+          try {
+              // Process payment
+              Thread.sleep(100);
+          } catch (Exception e) {
+              // Handle error
+          } finally {
+              sample.stop(Timer.builder("payment.processing.time")
+                  .tag("status", "success")
+                  .register(meterRegistry));
+          }
+      }
+  }
+  ```
+
+  **Gauge example (dynamic value):**
+
+  ```java
+  @Component
+  public class CacheMetrics {
+      
+      private final Cache cache;
+      
+      public CacheMetrics(MeterRegistry meterRegistry, Cache cache) {
+          this.cache = cache;
+          
+          Gauge.builder("cache.size", cache, Cache::size)
+              .description("Current cache size")
+              .register(meterRegistry);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Info Endpoint</summary>
+  <br/>
+
+  The `/actuator/info` endpoint displays application information.
+
+  **Configuration:**
+
+  ```properties
+  # application.properties
+  info.app.name=My Application
+  info.app.description=Spring Boot Application
+  info.app.version=1.0.0
+  info.app.encoding=@project.build.sourceEncoding@
+  info.app.java.version=@java.version@
+  ```
+
+  **Response:**
+
+  ```json
+  {
+    "app": {
+      "name": "My Application",
+      "description": "Spring Boot Application",
+      "version": "1.0.0",
+      "encoding": "UTF-8",
+      "java": {
+        "version": "17.0.1"
+      }
+    }
+  }
+  ```
+
+  **Custom info contributor:**
+
+  ```java
+  @Component
+  public class CustomInfoContributor implements InfoContributor {
+      
+      @Override
+      public void contribute(Info.Builder builder) {
+          Map<String, Object> details = new HashMap<>();
+          details.put("activeUsers", 150);
+          details.put("serverTime", LocalDateTime.now());
+          details.put("environment", "production");
+          
+          builder.withDetail("custom", details);
+      }
+  }
+  ```
+
+  **Git information (automatic):**
+
+  ```xml
+  <plugin>
+      <groupId>pl.project13.maven</groupId>
+      <artifactId>git-commit-id-plugin</artifactId>
+  </plugin>
+  ```
+
+  ```properties
+  management.info.git.mode=full
+  ```
+
+  **Response with Git info:**
+
+  ```json
+  {
+    "git": {
+      "branch": "main",
+      "commit": {
+        "id": "abc123",
+        "time": "2024-01-15T10:30:00Z"
+      }
+    }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Other Useful Endpoints</summary>
+  <br/>
+
+  **Environment endpoint (`/actuator/env`):**
+
+  Shows all environment properties.
+
+  ```properties
+  management.endpoints.web.exposure.include=env
+  ```
+
+  **Loggers endpoint (`/actuator/loggers`):**
+
+  View and modify logger levels at runtime.
+
+  ```bash
+  # View all loggers
+  curl http://localhost:8080/actuator/loggers
+  
+  # View specific logger
+  curl http://localhost:8080/actuator/loggers/com.example.service
+  
+  # Change log level at runtime
+  curl -X POST http://localhost:8080/actuator/loggers/com.example.service \
+    -H "Content-Type: application/json" \
+    -d '{"configuredLevel": "DEBUG"}'
+  ```
+
+  **Beans endpoint (`/actuator/beans`):**
+
+  Lists all Spring beans in the application.
+
+  **Mappings endpoint (`/actuator/mappings`):**
+
+  Shows all `@RequestMapping` paths.
+
+  **Thread dump (`/actuator/threaddump`):**
+
+  Generates thread dump for debugging.
+
+  **Heap dump (`/actuator/heapdump`):**
+
+  Downloads heap dump file for memory analysis.
+
+  **Shutdown endpoint (`/actuator/shutdown`):**
+
+  Gracefully shuts down the application (disabled by default).
+
+  ```properties
+  management.endpoint.shutdown.enabled=true
+  ```
+
+  ```bash
+  curl -X POST http://localhost:8080/actuator/shutdown
+  ```
+
+</details>
+
+<details>
+  <summary>Prometheus Integration</summary>
+  <br/>
+
+  Expose metrics in Prometheus format for monitoring.
+
+  **Add dependency:**
+
+  ```xml
+  <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+  </dependency>
+  ```
+
+  **Configuration:**
+
+  ```properties
+  management.endpoints.web.exposure.include=prometheus
+  management.metrics.export.prometheus.enabled=true
+  ```
+
+  **Access metrics:**
+
+  ```bash
+  curl http://localhost:8080/actuator/prometheus
+  ```
+
+  **Prometheus configuration:**
+
+  ```yaml
+  # prometheus.yml
+  scrape_configs:
+    - job_name: 'spring-boot-app'
+      metrics_path: '/actuator/prometheus'
+      static_configs:
+        - targets: ['localhost:8080']
+  ```
+
+  **Grafana dashboard:**
+
+  Import Spring Boot dashboard (ID: 4701) in Grafana to visualize metrics.
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```properties
+  # ✅ DO: Secure actuator endpoints
+  management.endpoints.web.exposure.include=health,info,metrics
+  
+  # ✅ DO: Use different port for actuator in production
+  management.server.port=9090
+  
+  # ✅ DO: Show health details only when authorized
+  management.endpoint.health.show-details=when-authorized
+  
+  # ❌ DON'T: Expose all endpoints in production
+  management.endpoints.web.exposure.include=*  # Dangerous!
+  
+  # ✅ DO: Create custom health indicators
+  @Component
+  public class DatabaseHealthIndicator implements HealthIndicator {
+      @Override
+      public Health health() {
+          // Check database connection
+      }
+  }
+  
+  # ✅ DO: Add custom metrics for business logic
+  Counter.builder("orders.created")
+      .tag("type", "online")
+      .register(meterRegistry);
+  
+  # ✅ DO: Use liveness/readiness probes in Kubernetes
+  management.endpoint.health.group.liveness.include=livenessProbe
+  management.endpoint.health.group.readiness.include=readinessProbe,db
+  
+  # ✅ DO: Integrate with monitoring tools
+  # Prometheus, Grafana, New Relic, Datadog
+  
+  # ❌ DON'T: Expose sensitive information in /info
+  info.database.password=secret  # Bad!
+  
+  # ✅ DO: Enable only needed endpoints
+  management.endpoints.web.exposure.include=health,info,metrics,prometheus
+  ```
+
+  **Key Points**
+  <br/>
+
+  + Actuator provides **production-ready** monitoring features
+  + Default endpoints: `/actuator/health`, `/actuator/info`
+  + Expose endpoints with `management.endpoints.web.exposure.include`
+  + **Secure** actuator endpoints (use Spring Security)
+  + `/health` shows application health status (UP, DOWN, OUT_OF_SERVICE)
+  + Create **custom health indicators** for external dependencies
+  + `/metrics` provides application metrics (JVM, HTTP, custom)
+  + Use **@Timed**, **Counter**, **Gauge** for custom metrics
+  + `/info` displays application information
+  + Change log levels at runtime with `/loggers`
+  + Integrate with **Prometheus** and **Grafana** for monitoring
+  + Use **liveness/readiness** probes for Kubernetes
+  + Run actuator on **separate port** in production
+  + Never expose **all endpoints** in production
+  + Use `/shutdown` carefully (disabled by default)
+
+</details>

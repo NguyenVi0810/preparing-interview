@@ -1,0 +1,501 @@
+## Spring Boot DevTools
+
+<details>
+  <summary>What is Spring Boot DevTools?</summary>
+  <br/>
+
+  DevTools provides development-time features to improve developer productivity.
+
+  **Add dependency:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-devtools</artifactId>
+      <optional>true</optional>
+  </dependency>
+  ```
+
+  **Note:** `<optional>true</optional>` prevents DevTools from being included in production builds.
+
+  **Features:**
+  + **Automatic restart** - Restarts application when classpath changes
+  + **Live reload** - Refreshes browser automatically
+  + **Property defaults** - Development-friendly defaults
+  + **Remote debugging** - Debug applications running remotely
+  + **H2 console** - Automatic H2 database console
+
+  **Why use DevTools?**
+  + Faster development cycle
+  + No manual restart needed
+  + Instant feedback on code changes
+  + Better development experience
+
+  **Automatic exclusion in production:**
+
+  DevTools is automatically disabled when running as a packaged application (`java -jar`).
+
+</details>
+
+<details>
+  <summary>Automatic Restart</summary>
+  <br/>
+
+  DevTools monitors classpath changes and automatically restarts the application.
+
+  **How it works:**
+
+  1. You modify a Java file
+  2. IDE compiles the file (or you run `mvn compile`)
+  3. DevTools detects the change
+  4. Application restarts automatically
+
+  **Two classloaders:**
+  + **Base classloader** - Loads third-party JARs (doesn't change)
+  + **Restart classloader** - Loads your application code (reloads on change)
+
+  This makes restarts much faster than full application restart.
+
+  **Triggering restart:**
+
+  **IntelliJ IDEA:**
+  + Build → Build Project (`Ctrl+F9` / `Cmd+F9`)
+  + Or enable "Build project automatically" in Settings
+
+  **Eclipse:**
+  + Automatic (saves trigger compilation)
+
+  **VS Code:**
+  + Save file (if auto-build enabled)
+
+  **Maven:**
+  ```bash
+  mvn compile
+  ```
+
+  **What triggers restart:**
+  + Java source files (`.java`)
+  + Resources files (`.properties`, `.yml`)
+  + Static resources (if not excluded)
+
+  **Excluding resources from restart:**
+
+  ```properties
+  # application.properties
+  spring.devtools.restart.exclude=static/**,public/**,templates/**
+  ```
+
+  **Additional paths to watch:**
+
+  ```properties
+  spring.devtools.restart.additional-paths=../other-project/src/main/java
+  ```
+
+  **Disable restart:**
+
+  ```properties
+  spring.devtools.restart.enabled=false
+  ```
+
+  **Programmatic restart:**
+
+  ```java
+  @RestController
+  public class RestartController {
+      
+      @Autowired
+      private RestartEndpoint restartEndpoint;
+      
+      @PostMapping("/restart")
+      public void restart() {
+          restartEndpoint.restart();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Live Reload</summary>
+  <br/>
+
+  Live Reload automatically refreshes the browser when resources change.
+
+  **How it works:**
+
+  1. DevTools starts embedded LiveReload server
+  2. Browser connects to LiveReload server
+  3. When files change, server notifies browser
+  4. Browser refreshes automatically
+
+  **Enable Live Reload:**
+
+  ```properties
+  # application.properties (enabled by default)
+  spring.devtools.livereload.enabled=true
+  spring.devtools.livereload.port=35729
+  ```
+
+  **Browser setup:**
+
+  **Option 1: Browser extension (recommended)**
+  + Install LiveReload extension for Chrome/Firefox
+  + Click extension icon to enable
+
+  **Option 2: Manual script (for testing)**
+  ```html
+  <script src="http://localhost:35729/livereload.js"></script>
+  ```
+
+  **What triggers live reload:**
+  + HTML files
+  + CSS files
+  + JavaScript files
+  + Images
+  + Templates (Thymeleaf, Freemarker)
+
+  **Excluding paths:**
+
+  ```properties
+  spring.devtools.restart.exclude=static/**,public/**
+  ```
+
+  **Disable live reload:**
+
+  ```properties
+  spring.devtools.livereload.enabled=false
+  ```
+
+  **Use case:**
+
+  Perfect for frontend development - change HTML/CSS and see results immediately without manual refresh.
+
+</details>
+
+<details>
+  <summary>Property Defaults</summary>
+  <br/>
+
+  DevTools applies development-friendly property defaults.
+
+  **Automatic defaults:**
+
+  ```properties
+  # Caching disabled for templates
+  spring.thymeleaf.cache=false
+  spring.freemarker.cache=false
+  spring.groovy.template.cache=false
+  spring.mustache.cache=false
+  
+  # Web resources caching disabled
+  spring.web.resources.cache.period=0
+  spring.web.resources.chain.cache=false
+  
+  # H2 console enabled
+  spring.h2.console.enabled=true
+  ```
+
+  **Why these defaults?**
+  + See template changes immediately
+  + No need to clear cache during development
+  + H2 console available for database inspection
+
+  **Override defaults:**
+
+  ```properties
+  # application.properties
+  spring.thymeleaf.cache=true  # Override DevTools default
+  ```
+
+  **Custom property defaults:**
+
+  Create `META-INF/spring-devtools.properties`:
+
+  ```properties
+  # Custom defaults for your team
+  logging.level.com.example=DEBUG
+  server.port=8081
+  ```
+
+</details>
+
+<details>
+  <summary>Global Settings</summary>
+  <br/>
+
+  Configure DevTools globally for all projects on your machine.
+
+  **Location:**
+
+  ```
+  ~/.spring-boot-devtools.properties  (Linux/Mac)
+  C:\Users\{user}\.spring-boot-devtools.properties  (Windows)
+  ```
+
+  **Example global settings:**
+
+  ```properties
+  # ~/.spring-boot-devtools.properties
+  spring.devtools.restart.trigger-file=.reloadtrigger
+  spring.devtools.livereload.enabled=true
+  spring.devtools.restart.poll-interval=2s
+  spring.devtools.restart.quiet-period=1s
+  ```
+
+  **Trigger file (recommended for large projects):**
+
+  ```properties
+  spring.devtools.restart.trigger-file=.reloadtrigger
+  ```
+
+  With trigger file:
+  1. Make code changes (no restart)
+  2. Touch trigger file when ready
+  3. Application restarts
+
+  ```bash
+  # Create/update trigger file
+  touch .reloadtrigger
+  ```
+
+  **Why use trigger file?**
+  + Control when restart happens
+  + Avoid multiple restarts during bulk changes
+  + Better for large projects
+
+</details>
+
+<details>
+  <summary>Remote Applications</summary>
+  <br/>
+
+  DevTools can connect to remote applications for debugging and hot-swapping.
+
+  **Enable remote support:**
+
+  ```properties
+  # application.properties
+  spring.devtools.remote.secret=mysecret
+  ```
+
+  **Run remote application:**
+
+  ```bash
+  java -jar myapp.jar --spring.devtools.remote.secret=mysecret
+  ```
+
+  **Connect from IDE:**
+
+  Run `RemoteSpringApplication` with remote URL:
+
+  ```java
+  public class RemoteApp {
+      public static void main(String[] args) {
+          RemoteSpringApplication.run(
+              "http://remote-server:8080",
+              args
+          );
+      }
+  }
+  ```
+
+  **Features:**
+  + Remote restart
+  + Remote live reload
+  + Remote debugging
+
+  **Security warning:**
+
+  Never enable remote DevTools in production! Use only in development/staging environments.
+
+  ```properties
+  # Disable in production
+  spring.devtools.remote.secret=
+  ```
+
+</details>
+
+<details>
+  <summary>H2 Console</summary>
+  <br/>
+
+  DevTools automatically enables H2 database console.
+
+  **Access H2 console:**
+
+  ```
+  http://localhost:8080/h2-console
+  ```
+
+  **Configuration:**
+
+  ```properties
+  # application.properties
+  spring.h2.console.enabled=true
+  spring.h2.console.path=/h2-console
+  
+  # H2 database settings
+  spring.datasource.url=jdbc:h2:mem:testdb
+  spring.datasource.driverClassName=org.h2.Driver
+  spring.datasource.username=sa
+  spring.datasource.password=
+  ```
+
+  **Login details:**
+  + JDBC URL: `jdbc:h2:mem:testdb`
+  + User Name: `sa`
+  + Password: (leave empty)
+
+  **Why use H2 console?**
+  + Inspect database tables
+  + Run SQL queries
+  + Debug data issues
+  + Quick database testing
+
+</details>
+
+<details>
+  <summary>IDE Configuration</summary>
+  <br/>
+
+  **IntelliJ IDEA:**
+
+  **Option 1: Manual build**
+  + Make changes
+  + Press `Ctrl+F9` (Windows) or `Cmd+F9` (Mac)
+  + Application restarts
+
+  **Option 2: Automatic build**
+  1. Settings → Build, Execution, Deployment → Compiler
+  2. Enable "Build project automatically"
+  3. Press `Ctrl+Shift+A` → Search "Registry"
+  4. Enable `compiler.automake.allow.when.app.running`
+
+  **Eclipse:**
+
+  Works automatically - saving triggers compilation and restart.
+
+  **VS Code:**
+
+  1. Install "Spring Boot Extension Pack"
+  2. Enable auto-save or save manually
+  3. Application restarts on save
+
+  **Maven:**
+
+  ```bash
+  # Terminal 1: Run application
+  mvn spring-boot:run
+  
+  # Terminal 2: Compile on changes
+  mvn compile
+  ```
+
+</details>
+
+<details>
+  <summary>Performance Tuning</summary>
+  <br/>
+
+  **Adjust restart timing:**
+
+  ```properties
+  # Wait time before restart (default: 400ms)
+  spring.devtools.restart.quiet-period=1s
+  
+  # Polling interval for file changes (default: 1s)
+  spring.devtools.restart.poll-interval=2s
+  ```
+
+  **Exclude large directories:**
+
+  ```properties
+  spring.devtools.restart.exclude=static/**,public/**,node_modules/**
+  ```
+
+  **Use trigger file for large projects:**
+
+  ```properties
+  spring.devtools.restart.trigger-file=.reloadtrigger
+  ```
+
+  **Disable features you don't need:**
+
+  ```properties
+  # Disable live reload if not using
+  spring.devtools.livereload.enabled=false
+  
+  # Disable restart if too slow
+  spring.devtools.restart.enabled=false
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```xml
+  <!-- ✅ DO: Mark as optional -->
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-devtools</artifactId>
+      <optional>true</optional>
+  </dependency>
+  
+  <!-- ✅ DO: Exclude from production builds -->
+  <plugin>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-maven-plugin</artifactId>
+      <configuration>
+          <excludeDevtools>true</excludeDevtools>
+      </configuration>
+  </plugin>
+  ```
+
+  ```properties
+  # ✅ DO: Use trigger file for large projects
+  spring.devtools.restart.trigger-file=.reloadtrigger
+  
+  # ✅ DO: Exclude static resources from restart
+  spring.devtools.restart.exclude=static/**,public/**,templates/**
+  
+  # ❌ DON'T: Enable remote DevTools in production
+  spring.devtools.remote.secret=  # Keep empty in prod
+  
+  # ✅ DO: Disable DevTools in production
+  # (Automatic when running as packaged JAR)
+  
+  # ✅ DO: Configure IDE for automatic build
+  # IntelliJ: Enable "Build project automatically"
+  # Eclipse: Works automatically
+  
+  # ✅ DO: Use LiveReload for frontend development
+  spring.devtools.livereload.enabled=true
+  
+  # ✅ DO: Adjust timing for your project size
+  spring.devtools.restart.quiet-period=1s
+  spring.devtools.restart.poll-interval=2s
+  ```
+
+  **Key Points**
+  <br/>
+
+  + DevTools improves **development productivity**
+  + **Automatic restart** when code changes (faster than full restart)
+  + **Live reload** refreshes browser automatically
+  + Uses **two classloaders** for fast restart
+  + Trigger restart: Build project in IDE or `mvn compile`
+  + **Exclude** static resources from restart for better performance
+  + **Live reload** requires browser extension or script
+  + Provides **development-friendly defaults** (caching disabled)
+  + **H2 console** enabled automatically
+  + Use **trigger file** for large projects
+  + Configure **global settings** in `~/.spring-boot-devtools.properties`
+  + **Remote DevTools** for debugging remote applications (dev/staging only)
+  + Mark dependency as **optional** to exclude from production
+  + Automatically **disabled** in packaged JAR
+  + Never enable **remote DevTools** in production
+  + Configure IDE for **automatic build** for best experience
+
+</details>

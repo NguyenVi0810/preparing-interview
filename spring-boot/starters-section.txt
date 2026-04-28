@@ -1,0 +1,1041 @@
+## Starters
+
+<details>
+  <summary>What are Spring Boot Starters?</summary>
+  <br/>
+
+  Starters are dependency descriptors that bundle related dependencies together for specific functionality.
+
+  **Without Starter:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-webmvc</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.apache.tomcat.embed</groupId>
+      <artifactId>tomcat-embed-core</artifactId>
+  </dependency>
+  <!-- Many more dependencies... -->
+  ```
+
+  **With Starter:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+  </dependency>
+  ```
+
+  **Benefits:**
+  + Single dependency for complete functionality
+  + Compatible versions managed automatically
+  + Reduces dependency conflicts
+  + Includes auto-configuration
+  + Faster project setup
+
+</details>
+
+<details>
+  <summary>Core Starters</summary>
+  <br/>
+
+  **spring-boot-starter**
+
+  Core starter including auto-configuration, logging, and YAML support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter</artifactId>
+  </dependency>
+  ```
+
+  **Includes:**
+  + spring-boot
+  + spring-boot-autoconfigure
+  + spring-boot-starter-logging
+  + spring-core
+  + snakeyaml (YAML support)
+
+  **Use when:** Building any Spring Boot application (included in all other starters)
+
+  ---
+
+  **spring-boot-starter-test**
+
+  Testing starter with JUnit, Mockito, AssertJ, and Spring Test.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+  </dependency>
+  ```
+
+  **Includes:**
+  + JUnit 5
+  + Spring Test & Spring Boot Test
+  + Mockito
+  + AssertJ
+  + Hamcrest
+  + JSONassert
+  + JsonPath
+
+  **Example:**
+
+  ```java
+  @SpringBootTest
+  class UserServiceTest {
+      
+      @Autowired
+      private UserService userService;
+      
+      @MockBean
+      private UserRepository userRepository;
+      
+      @Test
+      void testFindUser() {
+          when(userRepository.findById(1L))
+              .thenReturn(Optional.of(new User("John")));
+          
+          User user = userService.findUser(1L);
+          assertEquals("John", user.getName());
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Web Starters</summary>
+  <br/>
+
+  **spring-boot-starter-web**
+
+  Build web applications including RESTful APIs using Spring MVC.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+  </dependency>
+  ```
+
+  **Includes:**
+  + Spring MVC
+  + Embedded Tomcat
+  + Jackson (JSON)
+  + Hibernate Validator
+  + spring-boot-starter (core)
+
+  **Example:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findUser(id);
+      }
+      
+      @PostMapping
+      public User createUser(@Valid @RequestBody User user) {
+          return userService.save(user);
+      }
+  }
+  ```
+
+  ---
+
+  **spring-boot-starter-webflux**
+
+  Build reactive web applications using Spring WebFlux.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+  </dependency>
+  ```
+
+  **Includes:**
+  + Spring WebFlux
+  + Reactor Core
+  + Netty (embedded server)
+  + Jackson
+
+  **Example:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public Flux<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @GetMapping("/{id}")
+      public Mono<User> getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  ---
+
+  **spring-boot-starter-thymeleaf**
+
+  Server-side template engine for web applications.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-thymeleaf</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Controller
+  public class HomeController {
+      
+      @GetMapping("/")
+      public String home(Model model) {
+          model.addAttribute("message", "Welcome!");
+          return "home";  // templates/home.html
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Data Access Starters</summary>
+  <br/>
+
+  **spring-boot-starter-data-jpa**
+
+  JPA with Hibernate for relational databases.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+  </dependency>
+  ```
+
+  **Includes:**
+  + Spring Data JPA
+  + Hibernate
+  + Spring ORM
+  + Transaction support
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      private String name;
+      private String email;
+  }
+  
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      List<User> findByName(String name);
+      Optional<User> findByEmail(String email);
+  }
+  ```
+
+  ---
+
+  **spring-boot-starter-data-mongodb**
+
+  MongoDB document database support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-mongodb</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Document(collection = "users")
+  public class User {
+      @Id
+      private String id;
+      private String name;
+      private String email;
+  }
+  
+  @Repository
+  public interface UserRepository extends MongoRepository<User, String> {
+      List<User> findByName(String name);
+  }
+  ```
+
+  ---
+
+  **spring-boot-starter-data-redis**
+
+  Redis key-value store support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Service
+  public class CacheService {
+      
+      @Autowired
+      private RedisTemplate<String, Object> redisTemplate;
+      
+      public void save(String key, Object value) {
+          redisTemplate.opsForValue().set(key, value);
+      }
+      
+      public Object get(String key) {
+          return redisTemplate.opsForValue().get(key);
+      }
+  }
+  ```
+
+  ---
+
+  **spring-boot-starter-jdbc**
+
+  JDBC with connection pooling (without JPA).
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Repository
+  public class UserRepository {
+      
+      @Autowired
+      private JdbcTemplate jdbcTemplate;
+      
+      public User findById(Long id) {
+          return jdbcTemplate.queryForObject(
+              "SELECT * FROM users WHERE id = ?",
+              new BeanPropertyRowMapper<>(User.class),
+              id
+          );
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Security Starter</summary>
+  <br/>
+
+  **spring-boot-starter-security**
+
+  Spring Security for authentication and authorization.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+  </dependency>
+  ```
+
+  **Includes:**
+  + Spring Security Core
+  + Spring Security Config
+  + Spring Security Web
+  + Default security configuration
+
+  **Default behavior:**
+  + Secures all endpoints
+  + Generates default password (printed in console)
+  + Provides login page
+  + Enables CSRF protection
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @EnableWebSecurity
+  public class SecurityConfig {
+      
+      @Bean
+      public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+          http
+              .authorizeHttpRequests(auth -> auth
+                  .requestMatchers("/public/**").permitAll()
+                  .requestMatchers("/admin/**").hasRole("ADMIN")
+                  .anyRequest().authenticated()
+              )
+              .formLogin(form -> form
+                  .loginPage("/login")
+                  .permitAll()
+              )
+              .logout(logout -> logout.permitAll());
+          
+          return http.build();
+      }
+      
+      @Bean
+      public PasswordEncoder passwordEncoder() {
+          return new BCryptPasswordEncoder();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Messaging Starters</summary>
+  <br/>
+
+  **spring-boot-starter-amqp**
+
+  RabbitMQ messaging support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-amqp</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Service
+  public class MessageProducer {
+      
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public void sendMessage(String message) {
+          rabbitTemplate.convertAndSend("myQueue", message);
+      }
+  }
+  
+  @Component
+  public class MessageConsumer {
+      
+      @RabbitListener(queues = "myQueue")
+      public void receiveMessage(String message) {
+          System.out.println("Received: " + message);
+      }
+  }
+  ```
+
+  ---
+
+  **spring-boot-starter-kafka**
+
+  Apache Kafka messaging support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Service
+  public class KafkaProducer {
+      
+      @Autowired
+      private KafkaTemplate<String, String> kafkaTemplate;
+      
+      public void sendMessage(String topic, String message) {
+          kafkaTemplate.send(topic, message);
+      }
+  }
+  
+  @Component
+  public class KafkaConsumer {
+      
+      @KafkaListener(topics = "myTopic", groupId = "myGroup")
+      public void listen(String message) {
+          System.out.println("Received: " + message);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Monitoring & Management Starters</summary>
+  <br/>
+
+  **spring-boot-starter-actuator**
+
+  Production-ready features for monitoring and management.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+  </dependency>
+  ```
+
+  **Provides endpoints:**
+  + `/actuator/health` - Application health
+  + `/actuator/info` - Application info
+  + `/actuator/metrics` - Application metrics
+  + `/actuator/env` - Environment properties
+  + `/actuator/loggers` - Logger configuration
+  + `/actuator/beans` - All Spring beans
+
+  **Configuration:**
+
+  ```properties
+  management.endpoints.web.exposure.include=health,info,metrics
+  management.endpoint.health.show-details=always
+  
+  info.app.name=My Application
+  info.app.version=1.0.0
+  ```
+
+  **Custom health indicator:**
+
+  ```java
+  @Component
+  public class CustomHealthIndicator implements HealthIndicator {
+      
+      @Override
+      public Health health() {
+          boolean isHealthy = checkExternalService();
+          
+          if (isHealthy) {
+              return Health.up()
+                  .withDetail("service", "available")
+                  .build();
+          }
+          return Health.down()
+              .withDetail("service", "unavailable")
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Validation Starter</summary>
+  <br/>
+
+  **spring-boot-starter-validation**
+
+  Bean Validation with Hibernate Validator.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+  </dependency>
+  ```
+
+  **Includes:**
+  + Hibernate Validator
+  + Jakarta Bean Validation API
+  + EL implementation
+
+  **Example:**
+
+  ```java
+  public class User {
+      
+      @NotNull(message = "Name is required")
+      @Size(min = 2, max = 50, message = "Name must be between 2 and 50 characters")
+      private String name;
+      
+      @NotBlank(message = "Email is required")
+      @Email(message = "Invalid email format")
+      private String email;
+      
+      @Min(value = 18, message = "Must be at least 18 years old")
+      private int age;
+  }
+  
+  @RestController
+  public class UserController {
+      
+      @PostMapping("/users")
+      public ResponseEntity<User> createUser(@Valid @RequestBody User user) {
+          return ResponseEntity.ok(userService.save(user));
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Cache Starters</summary>
+  <br/>
+
+  **spring-boot-starter-cache**
+
+  Caching abstraction support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-cache</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @EnableCaching
+  public class CacheConfig {
+      
+      @Bean
+      public CacheManager cacheManager() {
+          return new ConcurrentMapCacheManager("users", "products");
+      }
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Cacheable(value = "users", key = "#id")
+      public User findUser(Long id) {
+          // Expensive database call
+          return userRepository.findById(id);
+      }
+      
+      @CacheEvict(value = "users", key = "#id")
+      public void deleteUser(Long id) {
+          userRepository.deleteById(id);
+      }
+  }
+  ```
+
+  ---
+
+  **With Redis:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-cache</artifactId>
+  </dependency>
+  ```
+
+  ```java
+  @Configuration
+  @EnableCaching
+  public class RedisCacheConfig {
+      
+      @Bean
+      public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+          return RedisCacheManager.builder(connectionFactory)
+              .cacheDefaults(RedisCacheConfiguration.defaultCacheConfig()
+                  .entryTtl(Duration.ofMinutes(10)))
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Mail Starter</summary>
+  <br/>
+
+  **spring-boot-starter-mail**
+
+  Email sending support.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+  </dependency>
+  ```
+
+  **Configuration:**
+
+  ```properties
+  spring.mail.host=smtp.gmail.com
+  spring.mail.port=587
+  spring.mail.username=your-email@gmail.com
+  spring.mail.password=your-password
+  spring.mail.properties.mail.smtp.auth=true
+  spring.mail.properties.mail.smtp.starttls.enable=true
+  ```
+
+  **Example:**
+
+  ```java
+  @Service
+  public class EmailService {
+      
+      @Autowired
+      private JavaMailSender mailSender;
+      
+      public void sendEmail(String to, String subject, String text) {
+          SimpleMailMessage message = new SimpleMailMessage();
+          message.setTo(to);
+          message.setSubject(subject);
+          message.setText(text);
+          mailSender.send(message);
+      }
+      
+      public void sendHtmlEmail(String to, String subject, String html) {
+          MimeMessage message = mailSender.createMimeMessage();
+          MimeMessageHelper helper = new MimeMessageHelper(message, true);
+          helper.setTo(to);
+          helper.setSubject(subject);
+          helper.setText(html, true);
+          mailSender.send(message);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Batch Processing Starter</summary>
+  <br/>
+
+  **spring-boot-starter-batch**
+
+  Spring Batch for batch processing.
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-batch</artifactId>
+  </dependency>
+  ```
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @EnableBatchProcessing
+  public class BatchConfig {
+      
+      @Bean
+      public Job importUserJob(JobRepository jobRepository, Step step1) {
+          return new JobBuilder("importUserJob", jobRepository)
+              .start(step1)
+              .build();
+      }
+      
+      @Bean
+      public Step step1(JobRepository jobRepository, 
+                        PlatformTransactionManager transactionManager,
+                        ItemReader<User> reader,
+                        ItemProcessor<User, User> processor,
+                        ItemWriter<User> writer) {
+          return new StepBuilder("step1", jobRepository)
+              .<User, User>chunk(10, transactionManager)
+              .reader(reader)
+              .processor(processor)
+              .writer(writer)
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Comparison Table</summary>
+  <br/>
+
+  | Starter | Purpose | Key Dependencies | Use Case |
+  |---------|---------|------------------|----------|
+  | **spring-boot-starter-web** | REST APIs, Web apps | Spring MVC, Tomcat, Jackson | Building RESTful services |
+  | **spring-boot-starter-data-jpa** | JPA/Hibernate | Spring Data JPA, Hibernate | Relational database access |
+  | **spring-boot-starter-security** | Authentication/Authorization | Spring Security | Securing applications |
+  | **spring-boot-starter-test** | Testing | JUnit, Mockito, Spring Test | Unit and integration tests |
+  | **spring-boot-starter-actuator** | Monitoring | Actuator endpoints | Production monitoring |
+  | **spring-boot-starter-data-mongodb** | MongoDB | Spring Data MongoDB | NoSQL document database |
+  | **spring-boot-starter-data-redis** | Redis | Spring Data Redis | Caching, session storage |
+  | **spring-boot-starter-amqp** | RabbitMQ | Spring AMQP | Message queuing |
+  | **spring-boot-starter-validation** | Bean Validation | Hibernate Validator | Input validation |
+  | **spring-boot-starter-cache** | Caching | Spring Cache | Application caching |
+  | **spring-boot-starter-mail** | Email | JavaMail | Sending emails |
+  | **spring-boot-starter-webflux** | Reactive web | Spring WebFlux, Reactor | Reactive applications |
+  | **spring-boot-starter-batch** | Batch processing | Spring Batch | Large data processing |
+
+</details>
+
+<details>
+  <summary>Creating Custom Starter</summary>
+  <br/>
+
+  **1. Create starter project structure:**
+
+  ```
+  my-service-spring-boot-starter/
+  ├── pom.xml
+  └── src/main/
+      ├── java/
+      │   └── com/example/starter/
+      │       ├── MyServiceAutoConfiguration.java
+      │       ├── MyServiceProperties.java
+      │       └── MyService.java
+      └── resources/
+          └── META-INF/
+              └── spring.factories
+  ```
+
+  **2. Create service:**
+
+  ```java
+  public class MyService {
+      private final String apiKey;
+      private final int timeout;
+      
+      public MyService(String apiKey, int timeout) {
+          this.apiKey = apiKey;
+          this.timeout = timeout;
+      }
+      
+      public String call(String endpoint) {
+          // Service implementation
+          return "Response from " + endpoint;
+      }
+  }
+  ```
+
+  **3. Create properties:**
+
+  ```java
+  @ConfigurationProperties(prefix = "myservice")
+  public class MyServiceProperties {
+      private String apiKey;
+      private int timeout = 5000;
+      private boolean enabled = true;
+      
+      // getters and setters
+  }
+  ```
+
+  **4. Create auto-configuration:**
+
+  ```java
+  @Configuration
+  @ConditionalOnClass(MyService.class)
+  @ConditionalOnProperty(name = "myservice.enabled", havingValue = "true", matchIfMissing = true)
+  @EnableConfigurationProperties(MyServiceProperties.class)
+  public class MyServiceAutoConfiguration {
+      
+      @Bean
+      @ConditionalOnMissingBean
+      public MyService myService(MyServiceProperties properties) {
+          return new MyService(properties.getApiKey(), properties.getTimeout());
+      }
+  }
+  ```
+
+  **5. Register in spring.factories:**
+
+  ```
+  # META-INF/spring.factories
+  org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  com.example.starter.MyServiceAutoConfiguration
+  ```
+
+  **6. POM configuration:**
+
+  ```xml
+  <project>
+      <groupId>com.example</groupId>
+      <artifactId>my-service-spring-boot-starter</artifactId>
+      <version>1.0.0</version>
+      
+      <dependencies>
+          <dependency>
+              <groupId>org.springframework.boot</groupId>
+              <artifactId>spring-boot-starter</artifactId>
+          </dependency>
+          <dependency>
+              <groupId>org.springframework.boot</groupId>
+              <artifactId>spring-boot-configuration-processor</artifactId>
+              <optional>true</optional>
+          </dependency>
+      </dependencies>
+  </project>
+  ```
+
+  **7. Usage in other projects:**
+
+  ```xml
+  <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>my-service-spring-boot-starter</artifactId>
+      <version>1.0.0</version>
+  </dependency>
+  ```
+
+  ```properties
+  myservice.api-key=abc123
+  myservice.timeout=10000
+  myservice.enabled=true
+  ```
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private MyService myService;  // Auto-configured!
+      
+      public void doSomething() {
+          String response = myService.call("/endpoint");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use appropriate starter for functionality
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+  </dependency>
+  
+  // ✅ DO: Exclude unnecessary dependencies
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <exclusions>
+          <exclusion>
+              <groupId>org.springframework.boot</groupId>
+              <artifactId>spring-boot-starter-tomcat</artifactId>
+          </exclusion>
+      </exclusions>
+  </dependency>
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jetty</artifactId>
+  </dependency>
+  
+  // ✅ DO: Use test starter with test scope
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+  </dependency>
+  
+  // ❌ DON'T: Mix web starters
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>  <!-- Conflict! -->
+  </dependency>
+  
+  // ✅ DO: Name custom starters properly
+  my-service-spring-boot-starter  // Good
+  my-service-starter              // Bad
+  
+  // ✅ DO: Document custom starter properties
+  /**
+   * Configuration properties for MyService.
+   * 
+   * @ConfigurationProperties(prefix = "myservice")
+   */
+  @ConfigurationProperties(prefix = "myservice")
+  public class MyServiceProperties {
+      /**
+       * API key for authentication (required)
+       */
+      private String apiKey;
+      
+      /**
+       * Request timeout in milliseconds (default: 5000)
+       */
+      private int timeout = 5000;
+  }
+  
+  // ✅ DO: Provide sensible defaults
+  @ConfigurationProperties(prefix = "myservice")
+  public class MyServiceProperties {
+      private int timeout = 5000;  // Default value
+      private boolean enabled = true;  // Enabled by default
+  }
+  
+  // ✅ DO: Use @ConditionalOnMissingBean for flexibility
+  @Bean
+  @ConditionalOnMissingBean
+  public MyService myService(MyServiceProperties properties) {
+      return new MyService(properties);
+  }
+  ```
+
+  **Key Points**
+  <br/>
+
+  + Starters are **dependency descriptors** that bundle related dependencies
+  + Single dependency provides **complete functionality**
+  + Includes **auto-configuration** for zero-config setup
+  + **spring-boot-starter-web** for REST APIs and web apps
+  + **spring-boot-starter-data-jpa** for database access with JPA
+  + **spring-boot-starter-security** for authentication/authorization
+  + **spring-boot-starter-test** for testing (use test scope)
+  + **spring-boot-starter-actuator** for production monitoring
+  + Custom starters follow naming: **{name}-spring-boot-starter**
+  + Use **@ConditionalOnMissingBean** for overridable defaults
+  + Exclude dependencies when switching implementations (e.g., Tomcat → Jetty)
+  + Don't mix conflicting starters (web vs webflux)
+  + Document custom starter properties with JavaDoc
+  + Provide **sensible defaults** in @ConfigurationProperties
+  + Register auto-configuration in **META-INF/spring.factories**
+
+</details>
