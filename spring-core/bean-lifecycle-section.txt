@@ -1,0 +1,740 @@
+## Bean Lifecycle
+
+<details>
+  <summary>Bean Lifecycle Overview</summary>
+  <br/>
+
+  Spring manages the complete lifecycle of beans from creation to destruction.
+
+  **Bean Lifecycle Phases:**
+
+  ```
+  1. Instantiation
+     ↓
+  2. Populate Properties (Dependency Injection)
+     ↓
+  3. BeanNameAware.setBeanName()
+     ↓
+  4. BeanFactoryAware.setBeanFactory()
+     ↓
+  5. ApplicationContextAware.setApplicationContext()
+     ↓
+  6. BeanPostProcessor.postProcessBeforeInitialization()
+     ↓
+  7. @PostConstruct
+     ↓
+  8. InitializingBean.afterPropertiesSet()
+     ↓
+  9. Custom init-method
+     ↓
+  10. BeanPostProcessor.postProcessAfterInitialization()
+     ↓
+  11. Bean Ready to Use
+     ↓
+  12. @PreDestroy
+     ↓
+  13. DisposableBean.destroy()
+     ↓
+  14. Custom destroy-method
+  ```
+
+  **Most Common Lifecycle Hooks:**
+  + `@PostConstruct` - After dependency injection
+  + `@PreDestroy` - Before bean destruction
+  + Custom init/destroy methods
+
+</details>
+
+<details>
+  <summary>@PostConstruct - Initialization</summary>
+  <br/>
+
+  **Executed after dependency injection is complete.**
+
+  ```java
+  @Service
+  public class UserService {
+      private final UserRepository repository;
+      private Cache<Long, User> cache;
+      
+      public UserService(UserRepository repository) {
+          this.repository = repository;
+          // cache is null here
+      }
+      
+      @PostConstruct
+      public void init() {
+          // All dependencies injected, safe to initialize
+          this.cache = CacheBuilder.newBuilder()
+              .maximumSize(1000)
+              .build();
+          System.out.println("UserService initialized");
+      }
+      
+      public User findUser(Long id) {
+          return cache.get(id, () -> repository.findById(id));
+      }
+  }
+  ```
+
+  **When to use:**
+  + Initialize resources after dependency injection
+  + Load configuration or data
+  + Set up connections
+  + Validate dependencies
+
+  **Example - Database Connection:**
+
+  ```java
+  @Component
+  public class DatabaseConnection {
+      @Value("${db.url}")
+      private String dbUrl;
+      
+      @Value("${db.username}")
+      private String username;
+      
+      private Connection connection;
+      
+      @PostConstruct
+      public void connect() {
+          try {
+              connection = DriverManager.getConnection(dbUrl, username, password);
+              System.out.println("Database connected");
+          } catch (SQLException e) {
+              throw new RuntimeException("Failed to connect to database", e);
+          }
+      }
+      
+      public Connection getConnection() {
+          return connection;
+      }
+  }
+  ```
+
+  **Rules:**
+  + Method can have any name
+  + Must be void return type
+  + Cannot have parameters
+  + Can throw checked exceptions
+  + Called only once per bean instance
+
+</details>
+
+<details>
+  <summary>@PreDestroy - Cleanup</summary>
+  <br/>
+
+  **Executed before bean is destroyed.**
+
+  ```java
+  @Service
+  public class FileProcessor {
+      private ExecutorService executor;
+      
+      @PostConstruct
+      public void init() {
+          executor = Executors.newFixedThreadPool(10);
+          System.out.println("Executor service started");
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          if (executor != null) {
+              executor.shutdown();
+              try {
+                  if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                      executor.shutdownNow();
+                  }
+                  System.out.println("Executor service stopped");
+              } catch (InterruptedException e) {
+                  executor.shutdownNow();
+              }
+          }
+      }
+      
+      public void processFile(File file) {
+          executor.submit(() -> {
+              // Process file
+          });
+      }
+  }
+  ```
+
+  **When to use:**
+  + Close connections (database, network)
+  + Release resources (files, threads)
+  + Save state
+  + Clean up temporary data
+
+  **Example - Cache Cleanup:**
+
+  ```java
+  @Component
+  public class CacheManager {
+      private Cache<String, Object> cache;
+      
+      @PostConstruct
+      public void init() {
+          cache = CacheBuilder.newBuilder().build();
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          if (cache != null) {
+              cache.invalidateAll();
+              cache.cleanUp();
+              System.out.println("Cache cleared");
+          }
+      }
+  }
+  ```
+
+  **Rules:**
+  + Method can have any name
+  + Must be void return type
+  + Cannot have parameters
+  + Can throw checked exceptions
+  + Not called for prototype-scoped beans
+
+  **Important:** @PreDestroy is NOT called for prototype beans!
+
+  ```java
+  @Component
+  @Scope("prototype")
+  public class PrototypeBean {
+      @PreDestroy
+      public void cleanup() {
+          // This will NEVER be called!
+          System.out.println("Cleaning up");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>InitializingBean Interface</summary>
+  <br/>
+
+  **Alternative to @PostConstruct using interface.**
+
+  ```java
+  @Service
+  public class EmailService implements InitializingBean {
+      private final EmailConfig config;
+      private MailSender mailSender;
+      
+      public EmailService(EmailConfig config) {
+          this.config = config;
+      }
+      
+      @Override
+      public void afterPropertiesSet() throws Exception {
+          // Called after all properties are set
+          mailSender = new MailSender(config.getHost(), config.getPort());
+          System.out.println("Email service initialized");
+      }
+      
+      public void sendEmail(String to, String message) {
+          mailSender.send(to, message);
+      }
+  }
+  ```
+
+  **Comparison with @PostConstruct:**
+
+  | Feature | @PostConstruct | InitializingBean |
+  |---------|---------------|------------------|
+  | Coupling | Low (JSR-250) | High (Spring interface) |
+  | Checked exceptions | ✅ Yes | ✅ Yes |
+  | Multiple methods | ✅ Yes | ❌ No |
+  | Recommended | ✅ Yes | ⚠️ Rarely |
+
+  **Recommendation:** Prefer @PostConstruct over InitializingBean.
+
+</details>
+
+<details>
+  <summary>DisposableBean Interface</summary>
+  <br/>
+
+  **Alternative to @PreDestroy using interface.**
+
+  ```java
+  @Service
+  public class ConnectionPool implements DisposableBean {
+      private List<Connection> connections;
+      
+      @PostConstruct
+      public void init() {
+          connections = new ArrayList<>();
+          // Create connections
+      }
+      
+      @Override
+      public void destroy() throws Exception {
+          // Called before bean destruction
+          for (Connection conn : connections) {
+              conn.close();
+          }
+          System.out.println("Connection pool closed");
+      }
+  }
+  ```
+
+  **Comparison with @PreDestroy:**
+
+  | Feature | @PreDestroy | DisposableBean |
+  |---------|------------|----------------|
+  | Coupling | Low (JSR-250) | High (Spring interface) |
+  | Checked exceptions | ✅ Yes | ✅ Yes |
+  | Multiple methods | ✅ Yes | ❌ No |
+  | Recommended | ✅ Yes | ⚠️ Rarely |
+
+  **Recommendation:** Prefer @PreDestroy over DisposableBean.
+
+</details>
+
+<details>
+  <summary>Custom Init and Destroy Methods</summary>
+  <br/>
+
+  **Define custom initialization and destruction methods in @Bean.**
+
+  ```java
+  public class DataSource {
+      private Connection connection;
+      
+      // Custom init method
+      public void initialize() {
+          connection = createConnection();
+          System.out.println("DataSource initialized");
+      }
+      
+      // Custom destroy method
+      public void close() {
+          if (connection != null) {
+              connection.close();
+              System.out.println("DataSource closed");
+          }
+      }
+      
+      private Connection createConnection() {
+          // Create connection
+          return null;
+      }
+  }
+  
+  @Configuration
+  public class AppConfig {
+      @Bean(initMethod = "initialize", destroyMethod = "close")
+      public DataSource dataSource() {
+          return new DataSource();
+      }
+  }
+  ```
+
+  **When to use:**
+  + Third-party classes (cannot add annotations)
+  + Legacy code
+  + Explicit method naming
+
+  **Example - Thread Pool:**
+
+  ```java
+  public class TaskExecutor {
+      private ExecutorService executor;
+      
+      public void start() {
+          executor = Executors.newFixedThreadPool(5);
+          System.out.println("Executor started");
+      }
+      
+      public void shutdown() {
+          if (executor != null) {
+              executor.shutdown();
+              System.out.println("Executor stopped");
+          }
+      }
+      
+      public void execute(Runnable task) {
+          executor.execute(task);
+      }
+  }
+  
+  @Configuration
+  public class AppConfig {
+      @Bean(initMethod = "start", destroyMethod = "shutdown")
+      public TaskExecutor taskExecutor() {
+          return new TaskExecutor();
+      }
+  }
+  ```
+
+  **Auto-detection of destroy method:**
+
+  Spring automatically detects `close()` or `shutdown()` methods.
+
+  ```java
+  @Bean  // destroyMethod auto-detected
+  public DataSource dataSource() {
+      return new HikariDataSource();  // Has close() method
+  }
+  
+  @Bean(destroyMethod = "")  // Disable auto-detection
+  public DataSource dataSource() {
+      return new HikariDataSource();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Lifecycle Method Execution Order</summary>
+  <br/>
+
+  **When multiple lifecycle methods exist:**
+
+  ```java
+  @Component
+  @Scope("singleton")
+  public class LifecycleBean implements InitializingBean, DisposableBean {
+      
+      public LifecycleBean() {
+          System.out.println("1. Constructor called");
+      }
+      
+      @PostConstruct
+      public void postConstruct() {
+          System.out.println("2. @PostConstruct called");
+      }
+      
+      @Override
+      public void afterPropertiesSet() {
+          System.out.println("3. afterPropertiesSet() called");
+      }
+      
+      public void customInit() {
+          System.out.println("4. customInit() called");
+      }
+      
+      // Bean is now ready to use
+      
+      @PreDestroy
+      public void preDestroy() {
+          System.out.println("5. @PreDestroy called");
+      }
+      
+      @Override
+      public void destroy() {
+          System.out.println("6. destroy() called");
+      }
+      
+      public void customDestroy() {
+          System.out.println("7. customDestroy() called");
+      }
+  }
+  
+  @Configuration
+  public class AppConfig {
+      @Bean(initMethod = "customInit", destroyMethod = "customDestroy")
+      public LifecycleBean lifecycleBean() {
+          return new LifecycleBean();
+      }
+  }
+  ```
+
+  **Output:**
+  ```
+  1. Constructor called
+  2. @PostConstruct called
+  3. afterPropertiesSet() called
+  4. customInit() called
+  5. @PreDestroy called
+  6. destroy() called
+  7. customDestroy() called
+  ```
+
+  **Recommendation:** Use only one initialization and one destruction method to avoid confusion.
+
+</details>
+
+<details>
+  <summary>Lifecycle with Different Scopes</summary>
+  <br/>
+
+  **Singleton Scope:**
+
+  ```java
+  @Component
+  public class SingletonBean {
+      @PostConstruct
+      public void init() {
+          System.out.println("Singleton init - called once at startup");
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          System.out.println("Singleton cleanup - called at shutdown");
+      }
+  }
+  ```
+
+  **Prototype Scope:**
+
+  ```java
+  @Component
+  @Scope("prototype")
+  public class PrototypeBean {
+      @PostConstruct
+      public void init() {
+          System.out.println("Prototype init - called each time bean is created");
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          System.out.println("Prototype cleanup - NEVER CALLED!");
+      }
+  }
+  ```
+
+  **Request Scope:**
+
+  ```java
+  @Component
+  @RequestScope
+  public class RequestBean {
+      @PostConstruct
+      public void init() {
+          System.out.println("Request init - called per HTTP request");
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          System.out.println("Request cleanup - called when request ends");
+      }
+  }
+  ```
+
+  **Key Points:**
+  + Singleton: Init at startup, destroy at shutdown
+  + Prototype: Init each time, destroy NEVER called
+  + Request/Session: Init per request/session, destroy when request/session ends
+
+</details>
+
+<details>
+  <summary>Common Use Cases</summary>
+  <br/>
+
+  **1. Database Connection Pool:**
+
+  ```java
+  @Component
+  public class ConnectionPool {
+      private HikariDataSource dataSource;
+      
+      @PostConstruct
+      public void init() {
+          HikariConfig config = new HikariConfig();
+          config.setJdbcUrl("jdbc:mysql://localhost:3306/db");
+          config.setMaximumPoolSize(10);
+          dataSource = new HikariDataSource(config);
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          if (dataSource != null) {
+              dataSource.close();
+          }
+      }
+  }
+  ```
+
+  **2. Cache Initialization:**
+
+  ```java
+  @Service
+  public class ProductService {
+      private final ProductRepository repository;
+      private Map<Long, Product> cache;
+      
+      public ProductService(ProductRepository repository) {
+          this.repository = repository;
+      }
+      
+      @PostConstruct
+      public void loadCache() {
+          cache = new HashMap<>();
+          List<Product> products = repository.findAll();
+          products.forEach(p -> cache.put(p.getId(), p));
+          System.out.println("Loaded " + cache.size() + " products into cache");
+      }
+      
+      public Product findProduct(Long id) {
+          return cache.get(id);
+      }
+  }
+  ```
+
+  **3. Scheduled Task Setup:**
+
+  ```java
+  @Component
+  public class ScheduledTasks {
+      private ScheduledExecutorService scheduler;
+      
+      @PostConstruct
+      public void startScheduler() {
+          scheduler = Executors.newScheduledThreadPool(1);
+          scheduler.scheduleAtFixedRate(
+              () -> System.out.println("Task executed"),
+              0, 1, TimeUnit.MINUTES
+          );
+      }
+      
+      @PreDestroy
+      public void stopScheduler() {
+          if (scheduler != null) {
+              scheduler.shutdown();
+          }
+      }
+  }
+  ```
+
+  **4. Configuration Validation:**
+
+  ```java
+  @Component
+  public class AppConfig {
+      @Value("${api.key}")
+      private String apiKey;
+      
+      @Value("${api.url}")
+      private String apiUrl;
+      
+      @PostConstruct
+      public void validate() {
+          if (apiKey == null || apiKey.isEmpty()) {
+              throw new IllegalStateException("API key is required");
+          }
+          if (apiUrl == null || apiUrl.isEmpty()) {
+              throw new IllegalStateException("API URL is required");
+          }
+          System.out.println("Configuration validated");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @PostConstruct for initialization
+  @Service
+  public class GoodService {
+      private Cache cache;
+      
+      @PostConstruct
+      public void init() {
+          cache = CacheBuilder.newBuilder().build();
+      }
+  }
+  
+  // ❌ DON'T: Initialize in constructor (dependencies may not be ready)
+  @Service
+  public class BadService {
+      private Cache cache;
+      
+      @Autowired
+      private ConfigService config;
+      
+      public BadService() {
+          // config is null here!
+          cache = CacheBuilder.newBuilder()
+              .maximumSize(config.getCacheSize())  // NullPointerException!
+              .build();
+      }
+  }
+  
+  // ✅ DO: Use @PreDestroy for cleanup
+  @Service
+  public class GoodService {
+      private Connection connection;
+      
+      @PreDestroy
+      public void cleanup() {
+          if (connection != null) {
+              connection.close();
+          }
+      }
+  }
+  
+  // ❌ DON'T: Forget to clean up resources
+  @Service
+  public class BadService {
+      private Connection connection;
+      
+      // No cleanup - connection leak!
+  }
+  
+  // ✅ DO: Handle exceptions in lifecycle methods
+  @Component
+  public class GoodComponent {
+      @PostConstruct
+      public void init() {
+          try {
+              // Initialization logic
+          } catch (Exception e) {
+              throw new RuntimeException("Initialization failed", e);
+          }
+      }
+  }
+  
+  // ✅ DO: Keep lifecycle methods simple
+  @Service
+  public class GoodService {
+      @PostConstruct
+      public void init() {
+          // Simple initialization
+          loadConfiguration();
+      }
+      
+      private void loadConfiguration() {
+          // Complex logic in separate method
+      }
+  }
+  
+  // ❌ DON'T: Use lifecycle methods in prototype beans for cleanup
+  @Component
+  @Scope("prototype")
+  public class BadPrototype {
+      @PreDestroy
+      public void cleanup() {
+          // This will NEVER be called!
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  + **@PostConstruct** runs after dependency injection is complete
+  + **@PreDestroy** runs before bean destruction
+  + Use @PostConstruct for initialization (not constructor)
+  + Use @PreDestroy for resource cleanup
+  + @PreDestroy is **NOT called** for prototype-scoped beans
+  + Prefer **@PostConstruct/@PreDestroy** over InitializingBean/DisposableBean
+  + Use **initMethod/destroyMethod** for third-party classes
+  + Lifecycle methods must be **void** and have **no parameters**
+  + Multiple lifecycle methods execute in specific order
+  + Always handle exceptions in lifecycle methods
+  
+</details>

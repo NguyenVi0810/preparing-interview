@@ -1,0 +1,422 @@
+
+## IoC Container
+
+<details>
+  <summary>IoC Container: ApplicationContext and BeanFactory</summary>
+  <br/>
+
+  The IoC (Inversion of Control) Container is the core of Spring Framework that manages object creation, configuration, and lifecycle.
+
+  **What is Inversion of Control?**
+
+  Traditional programming: Your code creates and manages objects.
+  IoC: Spring creates and manages objects for you.
+
+  ```java
+  // Without IoC - You control object creation
+  public class OrderController {
+      private OrderService orderService = new OrderService();
+      private PaymentService paymentService = new PaymentService();
+  }
+  
+  // With IoC - Spring controls object creation
+  @RestController
+  public class OrderController {
+      private final OrderService orderService;
+      private final PaymentService paymentService;
+      
+      public OrderController(OrderService orderService, PaymentService paymentService) {
+          this.orderService = orderService;
+          this.paymentService = paymentService;
+      }
+  }
+  ```
+
+  **Benefits:**
+  + Loose coupling between components
+  + Easier testing (inject mocks)
+  + Centralized configuration
+  + Better maintainability
+
+  ### BeanFactory vs ApplicationContext
+
+  Spring provides two types of IoC containers:
+
+  | Feature | BeanFactory | ApplicationContext |
+  |---------|-------------|-------------------|
+  | Bean loading | Lazy (on demand) | Eager (at startup) |
+  | Internationalization | ❌ No | ✅ Yes |
+  | Event publishing | ❌ No | ✅ Yes |
+  | Annotation support | ❌ Limited | ✅ Full |
+  | AOP integration | ❌ Manual | ✅ Automatic |
+  | Use case | Legacy/embedded | Modern applications |
+
+  **BeanFactory Example:**
+  ```java
+  BeanFactory factory = new XmlBeanFactory(new ClassPathResource("beans.xml"));
+  UserService service = (UserService) factory.getBean("userService");
+  // Bean created only when getBean() is called (lazy)
+  ```
+
+  **ApplicationContext Example:**
+  ```java
+  ApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);
+  UserService service = context.getBean(UserService.class);
+  // All singleton beans created at startup (eager)
+  ```
+
+  **Recommendation:** Always use ApplicationContext in modern applications.
+
+  ### ApplicationContext Types
+
+  **1. AnnotationConfigApplicationContext**
+
+  Most common in modern Spring applications. Uses Java-based configuration.
+
+  ```java
+  @Configuration
+  @ComponentScan("com.example")
+  public class AppConfig {
+      @Bean
+      public UserService userService() {
+          return new UserService(userRepository());
+      }
+      
+      @Bean
+      public UserRepository userRepository() {
+          return new UserRepository();
+      }
+  }
+  
+  // Create context
+  ApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);
+  UserService service = context.getBean(UserService.class);
+  ```
+
+  **2. ClassPathXmlApplicationContext**
+
+  Legacy approach using XML configuration.
+
+  ```xml
+  <!-- applicationContext.xml -->
+  <beans>
+      <bean id="userRepository" class="com.example.UserRepository"/>
+      <bean id="userService" class="com.example.UserService">
+          <constructor-arg ref="userRepository"/>
+      </bean>
+  </beans>
+  ```
+
+  ```java
+  ApplicationContext context = new ClassPathXmlApplicationContext("applicationContext.xml");
+  UserService service = context.getBean(UserService.class);
+  ```
+
+  **3. WebApplicationContext**
+
+  Used in Spring MVC web applications. Spring Boot creates this automatically.
+
+  ```java
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          // WebApplicationContext created automatically
+          SpringApplication.run(Application.class, args);
+      }
+  }
+  ```
+
+  ### Getting Beans from ApplicationContext
+
+  ```java
+  ApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);
+  
+  // 1. By type
+  UserService service = context.getBean(UserService.class);
+  
+  // 2. By name
+  UserService service2 = (UserService) context.getBean("userService");
+  
+  // 3. By name and type
+  UserService service3 = context.getBean("userService", UserService.class);
+  
+  // 4. Check if bean exists
+  boolean exists = context.containsBean("userService");
+  
+  // 5. Get all beans of type
+  Map<String, UserService> beans = context.getBeansOfType(UserService.class);
+  ```
+
+  **Note:** In practice, let Spring inject dependencies instead of manually getting beans.
+
+  ### Accessing ApplicationContext in Beans
+
+  **Method 1: Constructor Injection (Recommended)**
+
+  ```java
+  @Component
+  public class BeanProvider {
+      private final ApplicationContext context;
+      
+      public BeanProvider(ApplicationContext context) {
+          this.context = context;
+      }
+      
+      public <T> T getBean(Class<T> beanClass) {
+          return context.getBean(beanClass);
+      }
+  }
+  ```
+
+  **Method 2: ApplicationContextAware Interface**
+
+  ```java
+  @Component
+  public class BeanProvider implements ApplicationContextAware {
+      private ApplicationContext context;
+      
+      @Override
+      public void setApplicationContext(ApplicationContext context) {
+          this.context = context;
+      }
+      
+      public <T> T getBean(Class<T> beanClass) {
+          return context.getBean(beanClass);
+      }
+  }
+  ```
+
+  ### Multiple Beans of Same Type
+
+  **Using @Primary:**
+
+  ```java
+  @Configuration
+  public class DatabaseConfig {
+      
+      @Bean
+      @Primary  // Default bean
+      public DataSource primaryDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://localhost:3306/primary")
+              .build();
+      }
+      
+      @Bean
+      public DataSource secondaryDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://localhost:3306/secondary")
+              .build();
+      }
+  }
+  
+  @Service
+  public class UserService {
+      private final DataSource dataSource;
+      
+      // primaryDataSource injected automatically
+      public UserService(DataSource dataSource) {
+          this.dataSource = dataSource;
+      }
+  }
+  ```
+
+  **Using @Qualifier:**
+
+  ```java
+  @Service
+  public class ReportService {
+      private final DataSource primaryDb;
+      private final DataSource secondaryDb;
+      
+      public ReportService(
+          @Qualifier("primaryDataSource") DataSource primaryDb,
+          @Qualifier("secondaryDataSource") DataSource secondaryDb
+      ) {
+          this.primaryDb = primaryDb;
+          this.secondaryDb = secondaryDb;
+      }
+  }
+  ```
+
+  ### Environment Profiles
+
+  Use @Profile to register beans conditionally based on environment.
+
+  ```java
+  @Configuration
+  public class AppConfig {
+      
+      @Bean
+      @Profile("dev")
+      public DataSource devDataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .build();
+      }
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://prod-server:3306/db")
+              .username("admin")
+              .password("secret")
+              .build();
+      }
+  }
+  ```
+
+  Activate profile in application.properties:
+  ```properties
+  spring.profiles.active=dev
+  ```
+
+  Or via command line:
+  ```bash
+  java -jar app.jar --spring.profiles.active=prod
+  ```
+
+  ### Bean Creation Timing
+
+  **Singleton beans (default):** Created at application startup
+
+  ```java
+  @Component
+  public class UserService {
+      public UserService() {
+          System.out.println("Created at startup");
+      }
+  }
+  ```
+
+  **Lazy beans:** Created on first use
+
+  ```java
+  @Component
+  @Lazy
+  public class HeavyService {
+      public HeavyService() {
+          System.out.println("Created on first use");
+      }
+  }
+  ```
+
+  ### ApplicationContext Lifecycle
+
+  **Closing ApplicationContext:**
+
+  ```java
+  // Manual close
+  ConfigurableApplicationContext context = 
+      new AnnotationConfigApplicationContext(AppConfig.class);
+  try {
+      UserService service = context.getBean(UserService.class);
+      service.doSomething();
+  } finally {
+      context.close();
+  }
+  
+  // Try-with-resources
+  try (ConfigurableApplicationContext context = 
+          new AnnotationConfigApplicationContext(AppConfig.class)) {
+      UserService service = context.getBean(UserService.class);
+      service.doSomething();
+  }
+  
+  // Register shutdown hook (closes on JVM shutdown)
+  ConfigurableApplicationContext context = 
+      new AnnotationConfigApplicationContext(AppConfig.class);
+  context.registerShutdownHook();
+  ```
+
+  **Note:** Spring Boot automatically manages ApplicationContext lifecycle.
+
+  ### ApplicationContext Startup Process
+
+  ```
+  1. Load Configuration
+     - Read @Configuration classes or XML
+     - Scan for @Component, @Service, @Repository
+  
+  2. Create BeanDefinitions
+     - Register all bean definitions
+     - Resolve dependencies
+  
+  3. Instantiate Beans
+     - Create singleton beans (unless @Lazy)
+     - Follow dependency order
+  
+  4. Inject Dependencies
+     - Constructor injection
+     - Setter injection
+     - Field injection
+  
+  5. Initialize Beans
+     - @PostConstruct methods
+     - Custom init methods
+  
+  6. Application Ready
+     - All beans initialized
+     - Ready to use
+  ```
+
+  ### Best Practices
+
+  ```java
+  // ✅ DO: Use ApplicationContext (not BeanFactory)
+  ApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);
+  
+  // ✅ DO: Let Spring inject dependencies
+  @Service
+  public class UserService {
+      private final UserRepository repository;
+      
+      public UserService(UserRepository repository) {
+          this.repository = repository;
+      }
+  }
+  
+  // ❌ DON'T: Manually get beans in business logic
+  @Service
+  public class BadService {
+      @Autowired
+      private ApplicationContext context;
+      
+      public void doSomething() {
+          UserService service = context.getBean(UserService.class);  // Bad!
+      }
+  }
+  
+  // ✅ DO: Use @Primary for default bean
+  @Bean
+  @Primary
+  public DataSource primaryDataSource() {
+      return new HikariDataSource();
+  }
+  
+  // ✅ DO: Use @Qualifier for specific bean
+  public UserService(@Qualifier("primaryDataSource") DataSource dataSource) {
+      this.dataSource = dataSource;
+  }
+  
+  // ✅ DO: Use @Profile for environment-specific beans
+  @Bean
+  @Profile("prod")
+  public DataSource prodDataSource() {
+      return DataSourceBuilder.create().build();
+  }
+  ```
+
+  ### Key Points
+
+  + ApplicationContext is the main Spring container
+  + Use ApplicationContext, not BeanFactory
+  + Singleton beans created at startup (eager)
+  + Let Spring inject dependencies (don't use getBean() in business logic)
+  + Use @Primary for default bean when multiple exist
+  + Use @Qualifier to specify which bean to inject
+  + Use @Profile for environment-specific configuration
+  + Spring Boot automatically creates and manages ApplicationContext
+  
+</details>

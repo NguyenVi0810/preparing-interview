@@ -1,0 +1,701 @@
+## AOP (Aspect-Oriented Programming)
+
+<details>
+  <summary>What is AOP?</summary>
+  <br/>
+
+  AOP (Aspect-Oriented Programming) allows you to separate cross-cutting concerns from business logic.
+
+  **What are Cross-Cutting Concerns?**
+
+  Functionality that spans multiple parts of an application:
+  + Logging
+  + Security
+  + Transaction management
+  + Performance monitoring
+  + Error handling
+  + Caching
+
+  **Without AOP:**
+
+  ```java
+  @Service
+  public class UserService {
+      public User createUser(User user) {
+          // Logging
+          logger.info("Creating user: " + user.getName());
+          
+          // Security check
+          if (!securityContext.hasPermission("CREATE_USER")) {
+              throw new SecurityException("Access denied");
+          }
+          
+          // Performance monitoring
+          long startTime = System.currentTimeMillis();
+          
+          // Actual business logic
+          User savedUser = userRepository.save(user);
+          
+          // Performance monitoring
+          long endTime = System.currentTimeMillis();
+          logger.info("Execution time: " + (endTime - startTime) + "ms");
+          
+          return savedUser;
+      }
+  }
+  ```
+
+  **With AOP:**
+
+  ```java
+  @Service
+  public class UserService {
+      @Loggable
+      @Secured("CREATE_USER")
+      @PerformanceMonitored
+      public User createUser(User user) {
+          // Only business logic
+          return userRepository.save(user);
+      }
+  }
+  ```
+
+  **Benefits:**
+  + Clean separation of concerns
+  + Reusable cross-cutting logic
+  + Less code duplication
+  + Easier maintenance
+
+</details>
+
+<details>
+  <summary>AOP Core Concepts</summary>
+  <br/>
+
+  **Key Terms:**
+
+  | Term | Description | Example |
+  |------|-------------|---------|
+  | **Aspect** | Module containing cross-cutting logic | Logging aspect, security aspect |
+  | **Join Point** | Point in program execution | Method execution, exception thrown |
+  | **Pointcut** | Expression matching join points | All methods in service layer |
+  | **Advice** | Action taken at join point | Before, after, around method |
+  | **Target Object** | Object being advised | UserService instance |
+  | **Weaving** | Linking aspects with objects | Compile-time, load-time, runtime |
+
+  **Visual Example:**
+
+  ```
+  Target Object: UserService
+  ├── Method: createUser()
+  │   ├── Join Point: Method execution
+  │   ├── Pointcut: execution(* com.example.service.*.*(..))
+  │   └── Advice: Log before and after
+  └── Aspect: LoggingAspect
+      └── Weaving: Runtime (Spring AOP)
+  ```
+
+</details>
+
+<details>
+  <summary>Advice Types</summary>
+  <br/>
+
+  **1. @Before - Execute before method**
+
+  ```java
+  @Aspect
+  @Component
+  public class LoggingAspect {
+      
+      @Before("execution(* com.example.service.*.*(..))")
+      public void logBefore(JoinPoint joinPoint) {
+          String methodName = joinPoint.getSignature().getName();
+          System.out.println("Before: " + methodName);
+      }
+  }
+  ```
+
+  **2. @After - Execute after method (always)**
+
+  ```java
+  @Aspect
+  @Component
+  public class LoggingAspect {
+      
+      @After("execution(* com.example.service.*.*(..))")
+      public void logAfter(JoinPoint joinPoint) {
+          String methodName = joinPoint.getSignature().getName();
+          System.out.println("After: " + methodName);
+      }
+  }
+  ```
+
+  **3. @AfterReturning - Execute after successful return**
+
+  ```java
+  @Aspect
+  @Component
+  public class LoggingAspect {
+      
+      @AfterReturning(
+          pointcut = "execution(* com.example.service.*.*(..))",
+          returning = "result"
+      )
+      public void logAfterReturning(JoinPoint joinPoint, Object result) {
+          String methodName = joinPoint.getSignature().getName();
+          System.out.println("After returning: " + methodName + ", result: " + result);
+      }
+  }
+  ```
+
+  **4. @AfterThrowing - Execute after exception**
+
+  ```java
+  @Aspect
+  @Component
+  public class ExceptionAspect {
+      
+      @AfterThrowing(
+          pointcut = "execution(* com.example.service.*.*(..))",
+          throwing = "exception"
+      )
+      public void logException(JoinPoint joinPoint, Exception exception) {
+          String methodName = joinPoint.getSignature().getName();
+          System.out.println("Exception in: " + methodName + ", error: " + exception.getMessage());
+      }
+  }
+  ```
+
+  **5. @Around - Execute around method (most powerful)**
+
+  ```java
+  @Aspect
+  @Component
+  public class PerformanceAspect {
+      
+      @Around("execution(* com.example.service.*.*(..))")
+      public Object measurePerformance(ProceedingJoinPoint joinPoint) throws Throwable {
+          long startTime = System.currentTimeMillis();
+          
+          // Execute the method
+          Object result = joinPoint.proceed();
+          
+          long endTime = System.currentTimeMillis();
+          String methodName = joinPoint.getSignature().getName();
+          System.out.println(methodName + " took " + (endTime - startTime) + "ms");
+          
+          return result;
+      }
+  }
+  ```
+
+  **Execution Order:**
+
+  ```
+  @Around (before part)
+  ↓
+  @Before
+  ↓
+  Method Execution
+  ↓
+  @AfterReturning (if success) OR @AfterThrowing (if exception)
+  ↓
+  @After (always)
+  ↓
+  @Around (after part)
+  ```
+
+</details>
+
+<details>
+  <summary>Pointcut Expressions</summary>
+  <br/>
+
+  **Basic Syntax:**
+
+  ```java
+  execution(modifiers? return-type declaring-type? method-name(params) throws?)
+  ```
+
+  **Common Patterns:**
+
+  ```java
+  // All methods in UserService
+  execution(* com.example.service.UserService.*(..))
+  
+  // All methods in service package
+  execution(* com.example.service.*.*(..))
+  
+  // All methods in service package and subpackages
+  execution(* com.example.service..*.*(..))
+  
+  // All public methods
+  execution(public * *(..))
+  
+  // All methods returning User
+  execution(com.example.model.User *(..))
+  
+  // All methods starting with "find"
+  execution(* find*(..))
+  
+  // All methods with single String parameter
+  execution(* *(String))
+  
+  // All methods with any parameters
+  execution(* *(..))
+  
+  // All methods in classes annotated with @Service
+  within(@org.springframework.stereotype.Service *)
+  
+  // All methods annotated with @Transactional
+  @annotation(org.springframework.transaction.annotation.Transactional)
+  ```
+
+  **Combining Pointcuts:**
+
+  ```java
+  @Aspect
+  @Component
+  public class CombinedAspect {
+      
+      // Define reusable pointcuts
+      @Pointcut("execution(* com.example.service.*.*(..))")
+      public void serviceMethods() {}
+      
+      @Pointcut("execution(* com.example.repository.*.*(..))")
+      public void repositoryMethods() {}
+      
+      @Pointcut("@annotation(org.springframework.transaction.annotation.Transactional)")
+      public void transactionalMethods() {}
+      
+      // Combine with AND
+      @Before("serviceMethods() && transactionalMethods()")
+      public void beforeTransactionalService(JoinPoint joinPoint) {
+          System.out.println("Before transactional service method");
+      }
+      
+      // Combine with OR
+      @Before("serviceMethods() || repositoryMethods()")
+      public void beforeServiceOrRepository(JoinPoint joinPoint) {
+          System.out.println("Before service or repository method");
+      }
+      
+      // Combine with NOT
+      @Before("serviceMethods() && !transactionalMethods()")
+      public void beforeNonTransactionalService(JoinPoint joinPoint) {
+          System.out.println("Before non-transactional service method");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Use Case: Logging</summary>
+  <br/>
+
+  ```java
+  @Aspect
+  @Component
+  @Slf4j
+  public class LoggingAspect {
+      
+      @Around("execution(* com.example.service.*.*(..))")
+      public Object logMethodExecution(ProceedingJoinPoint joinPoint) throws Throwable {
+          String className = joinPoint.getTarget().getClass().getSimpleName();
+          String methodName = joinPoint.getSignature().getName();
+          Object[] args = joinPoint.getArgs();
+          
+          log.info("Calling {}.{} with args: {}", className, methodName, Arrays.toString(args));
+          
+          try {
+              Object result = joinPoint.proceed();
+              log.info("{}.{} returned: {}", className, methodName, result);
+              return result;
+          } catch (Exception e) {
+              log.error("{}.{} threw exception: {}", className, methodName, e.getMessage());
+              throw e;
+          }
+      }
+  }
+  ```
+
+  **Output:**
+  ```
+  INFO: Calling UserService.createUser with args: [User(name=John)]
+  INFO: UserService.createUser returned: User(id=1, name=John)
+  ```
+
+</details>
+
+<details>
+  <summary>Common Use Case: Performance Monitoring</summary>
+  <br/>
+
+  ```java
+  @Aspect
+  @Component
+  @Slf4j
+  public class PerformanceAspect {
+      
+      @Around("execution(* com.example.service.*.*(..))")
+      public Object measureExecutionTime(ProceedingJoinPoint joinPoint) throws Throwable {
+          long startTime = System.currentTimeMillis();
+          
+          Object result = joinPoint.proceed();
+          
+          long executionTime = System.currentTimeMillis() - startTime;
+          String methodName = joinPoint.getSignature().toShortString();
+          
+          if (executionTime > 1000) {
+              log.warn("SLOW: {} took {}ms", methodName, executionTime);
+          } else {
+              log.info("{} took {}ms", methodName, executionTime);
+          }
+          
+          return result;
+      }
+  }
+  ```
+
+  **Output:**
+  ```
+  INFO: UserService.findUser() took 45ms
+  WARN: SLOW: OrderService.processOrder() took 2340ms
+  ```
+
+</details>
+
+<details>
+  <summary>Common Use Case: Security/Authorization</summary>
+  <br/>
+
+  **Custom Annotation:**
+
+  ```java
+  @Target(ElementType.METHOD)
+  @Retention(RetentionPolicy.RUNTIME)
+  public @interface RequiresRole {
+      String value();
+  }
+  ```
+
+  **Aspect:**
+
+  ```java
+  @Aspect
+  @Component
+  public class SecurityAspect {
+      
+      @Autowired
+      private SecurityContext securityContext;
+      
+      @Before("@annotation(requiresRole)")
+      public void checkAuthorization(JoinPoint joinPoint, RequiresRole requiresRole) {
+          String requiredRole = requiresRole.value();
+          String currentUserRole = securityContext.getCurrentUserRole();
+          
+          if (!currentUserRole.equals(requiredRole)) {
+              throw new SecurityException("Access denied. Required role: " + requiredRole);
+          }
+      }
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @RequiresRole("ADMIN")
+      public void deleteUser(Long userId) {
+          userRepository.deleteById(userId);
+      }
+      
+      @RequiresRole("USER")
+      public User getProfile(Long userId) {
+          return userRepository.findById(userId);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Use Case: Transaction Management</summary>
+  <br/>
+
+  ```java
+  @Aspect
+  @Component
+  @Slf4j
+  public class TransactionAspect {
+      
+      @Around("@annotation(org.springframework.transaction.annotation.Transactional)")
+      public Object manageTransaction(ProceedingJoinPoint joinPoint) throws Throwable {
+          String methodName = joinPoint.getSignature().getName();
+          
+          log.info("Starting transaction for: {}", methodName);
+          
+          try {
+              Object result = joinPoint.proceed();
+              log.info("Transaction committed for: {}", methodName);
+              return result;
+          } catch (Exception e) {
+              log.error("Transaction rolled back for: {}", methodName);
+              throw e;
+          }
+      }
+  }
+  ```
+
+  **Note:** Spring already provides @Transactional. This is just an example of how it works internally.
+
+</details>
+
+<details>
+  <summary>Common Use Case: Caching</summary>
+  <br/>
+
+  **Custom Annotation:**
+
+  ```java
+  @Target(ElementType.METHOD)
+  @Retention(RetentionPolicy.RUNTIME)
+  public @interface Cacheable {
+      String key();
+  }
+  ```
+
+  **Aspect:**
+
+  ```java
+  @Aspect
+  @Component
+  public class CachingAspect {
+      
+      private final Map<String, Object> cache = new ConcurrentHashMap<>();
+      
+      @Around("@annotation(cacheable)")
+      public Object cacheResult(ProceedingJoinPoint joinPoint, Cacheable cacheable) throws Throwable {
+          Object[] args = joinPoint.getArgs();
+          String cacheKey = cacheable.key() + ":" + Arrays.toString(args);
+          
+          // Check cache
+          if (cache.containsKey(cacheKey)) {
+              System.out.println("Cache hit: " + cacheKey);
+              return cache.get(cacheKey);
+          }
+          
+          // Execute method
+          System.out.println("Cache miss: " + cacheKey);
+          Object result = joinPoint.proceed();
+          
+          // Store in cache
+          cache.put(cacheKey, result);
+          return result;
+      }
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @Cacheable(key = "product")
+      public Product findProduct(Long id) {
+          return productRepository.findById(id);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Use Case: Exception Handling</summary>
+  <br/>
+
+  ```java
+  @Aspect
+  @Component
+  @Slf4j
+  public class ExceptionHandlingAspect {
+      
+      @AfterThrowing(
+          pointcut = "execution(* com.example.service.*.*(..))",
+          throwing = "exception"
+      )
+      public void handleException(JoinPoint joinPoint, Exception exception) {
+          String className = joinPoint.getTarget().getClass().getSimpleName();
+          String methodName = joinPoint.getSignature().getName();
+          Object[] args = joinPoint.getArgs();
+          
+          log.error("Exception in {}.{} with args: {}", 
+              className, methodName, Arrays.toString(args), exception);
+          
+          // Send alert, save to database, etc.
+          alertService.sendAlert("Exception in " + className + "." + methodName);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Accessing Method Parameters</summary>
+  <br/>
+
+  ```java
+  @Aspect
+  @Component
+  public class ParameterAspect {
+      
+      @Before("execution(* com.example.service.UserService.createUser(..)) && args(user)")
+      public void validateUser(User user) {
+          if (user.getName() == null || user.getName().isEmpty()) {
+              throw new IllegalArgumentException("User name cannot be empty");
+          }
+          System.out.println("Validating user: " + user.getName());
+      }
+      
+      @Around("execution(* com.example.service.*.*(..)) && args(id,..)")
+      public Object logId(ProceedingJoinPoint joinPoint, Long id) throws Throwable {
+          System.out.println("Method called with ID: " + id);
+          return joinPoint.proceed();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Enabling AOP in Spring Boot</summary>
+  <br/>
+
+  **1. Add Dependency:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+  </dependency>
+  ```
+
+  **2. Enable AspectJ (Optional - enabled by default in Spring Boot):**
+
+  ```java
+  @SpringBootApplication
+  @EnableAspectJAutoProxy
+  public class Application {
+      public static void main(String[] args) {
+          SpringApplication.run(Application.class, args);
+      }
+  }
+  ```
+
+  **3. Create Aspect:**
+
+  ```java
+  @Aspect
+  @Component
+  public class MyAspect {
+      @Before("execution(* com.example.service.*.*(..))")
+      public void beforeMethod(JoinPoint joinPoint) {
+          System.out.println("Before: " + joinPoint.getSignature().getName());
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @Around for full control
+  @Around("execution(* com.example.service.*.*(..))")
+  public Object aroundMethod(ProceedingJoinPoint joinPoint) throws Throwable {
+      // Before logic
+      Object result = joinPoint.proceed();
+      // After logic
+      return result;
+  }
+  
+  // ✅ DO: Define reusable pointcuts
+  @Pointcut("execution(* com.example.service.*.*(..))")
+  public void serviceMethods() {}
+  
+  @Before("serviceMethods()")
+  public void beforeService() { }
+  
+  // ✅ DO: Use specific pointcuts
+  @Before("execution(* com.example.service.UserService.createUser(..))")
+  public void beforeCreateUser() { }
+  
+  // ❌ DON'T: Use overly broad pointcuts
+  @Before("execution(* *(..))")  // Matches EVERYTHING!
+  public void beforeEverything() { }
+  
+  // ✅ DO: Handle exceptions in @Around
+  @Around("serviceMethods()")
+  public Object handleExceptions(ProceedingJoinPoint joinPoint) throws Throwable {
+      try {
+          return joinPoint.proceed();
+      } catch (Exception e) {
+          log.error("Exception caught", e);
+          throw e;
+      }
+  }
+  
+  // ❌ DON'T: Forget to call proceed() in @Around
+  @Around("serviceMethods()")
+  public Object badAround(ProceedingJoinPoint joinPoint) {
+      // Method never executes!
+      return null;
+  }
+  
+  // ✅ DO: Use custom annotations for clarity
+  @Target(ElementType.METHOD)
+  @Retention(RetentionPolicy.RUNTIME)
+  public @interface Audited { }
+  
+  @Before("@annotation(Audited)")
+  public void audit() { }
+  
+  // ✅ DO: Keep aspects focused on one concern
+  @Aspect
+  @Component
+  public class LoggingAspect {
+      // Only logging logic
+  }
+  
+  @Aspect
+  @Component
+  public class SecurityAspect {
+      // Only security logic
+  }
+  ```
+
+  **Key Points**
+  <br/>
+
+  + AOP separates **cross-cutting concerns** from business logic
+  + Use **@Aspect** to define an aspect class
+  + **@Before** runs before method execution
+  + **@After** runs after method (always, even if exception)
+  + **@AfterReturning** runs after successful return
+  + **@AfterThrowing** runs after exception
+  + **@Around** is most powerful (can control method execution)
+  + Use **pointcut expressions** to match methods
+  + Define **reusable pointcuts** with @Pointcut
+  + Common use cases: logging, security, performance, caching, transactions
+  + Always call **proceed()** in @Around advice
+  + Keep aspects **focused** on single concern
+  + Use **custom annotations** for better readability
+
+</details>

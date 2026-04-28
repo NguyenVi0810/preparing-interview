@@ -1,0 +1,665 @@
+## Spring Core Annotations Summary
+
+<details>
+  <summary>Component Scanning & Bean Definition</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Component` | Generic stereotype for any Spring-managed component | `@Component public class MyComponent { }` |
+  | `@Service` | Specialization of @Component for service layer | `@Service public class UserService { }` |
+  | `@Repository` | Specialization of @Component for data access layer | `@Repository public class UserRepository { }` |
+  | `@Controller` | Specialization of @Component for MVC controllers | `@Controller public class UserController { }` |
+  | `@RestController` | Combines @Controller + @ResponseBody | `@RestController public class ApiController { }` |
+  | `@Configuration` | Indicates class contains @Bean definitions | `@Configuration public class AppConfig { }` |
+  | `@Bean` | Declares a method produces a bean | `@Bean public DataSource dataSource() { }` |
+  | `@ComponentScan` | Configures component scanning | `@ComponentScan("com.example")` |
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @ComponentScan("com.example")
+  public class AppConfig {
+      
+      @Bean
+      public DataSource dataSource() {
+          return new HikariDataSource();
+      }
+  }
+  
+  @Service
+  public class UserService { }
+  
+  @Repository
+  public class UserRepository { }
+  
+  @RestController
+  public class UserController { }
+  ```
+
+</details>
+
+<details>
+  <summary>Dependency Injection</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Autowired` | Injects dependency automatically | `@Autowired private UserService service;` |
+  | `@Inject` | JSR-330 alternative to @Autowired | `@Inject private UserService service;` |
+  | `@Qualifier` | Specifies which bean to inject | `@Qualifier("primary") DataSource ds;` |
+  | `@Primary` | Marks bean as primary choice | `@Bean @Primary public DataSource ds() { }` |
+  | `@Resource` | JSR-250 injection by name | `@Resource(name="userService") private UserService service;` |
+  | `@Value` | Injects values from properties | `@Value("${app.name}") private String name;` |
+
+  **Example:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      // Constructor injection (recommended)
+      private final UserService userService;
+      
+      @Autowired
+      public OrderService(UserService userService) {
+          this.userService = userService;
+      }
+      
+      // Field injection with @Qualifier
+      @Autowired
+      @Qualifier("primaryDataSource")
+      private DataSource dataSource;
+      
+      // Property injection
+      @Value("${order.timeout}")
+      private int timeout;
+  }
+  
+  @Configuration
+  public class DataSourceConfig {
+      
+      @Bean
+      @Primary
+      public DataSource primaryDataSource() {
+          return new HikariDataSource();
+      }
+      
+      @Bean
+      public DataSource secondaryDataSource() {
+          return new HikariDataSource();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Bean Scope & Lifecycle</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Scope` | Defines bean scope | `@Scope("prototype")` |
+  | `@RequestScope` | Bean per HTTP request | `@RequestScope public class RequestContext { }` |
+  | `@SessionScope` | Bean per HTTP session | `@SessionScope public class ShoppingCart { }` |
+  | `@ApplicationScope` | Bean per ServletContext | `@ApplicationScope public class AppMetrics { }` |
+  | `@PostConstruct` | Method called after dependency injection | `@PostConstruct public void init() { }` |
+  | `@PreDestroy` | Method called before bean destruction | `@PreDestroy public void cleanup() { }` |
+  | `@Lazy` | Delays bean initialization | `@Lazy @Component public class HeavyService { }` |
+  | `@DependsOn` | Specifies bean initialization order | `@DependsOn("dataSource")` |
+
+  **Example:**
+
+  ```java
+  @Component
+  @Scope("prototype")
+  public class ReportGenerator {
+      
+      @PostConstruct
+      public void init() {
+          System.out.println("ReportGenerator initialized");
+      }
+      
+      @PreDestroy
+      public void cleanup() {
+          System.out.println("ReportGenerator destroyed");
+      }
+  }
+  
+  @Component
+  @RequestScope
+  public class RequestContext {
+      private String requestId;
+  }
+  
+  @Component
+  @Lazy
+  public class HeavyService {
+      // Created only when first used
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Configuration & Profiles</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Profile` | Activates bean for specific profile | `@Profile("dev")` |
+  | `@PropertySource` | Loads properties file | `@PropertySource("classpath:app.properties")` |
+  | `@PropertySources` | Multiple property sources | `@PropertySources({@PropertySource("a.properties")})` |
+  | `@Import` | Imports other configuration classes | `@Import(DatabaseConfig.class)` |
+  | `@ImportResource` | Imports XML configuration | `@ImportResource("classpath:beans.xml")` |
+  | `@Conditional` | Conditional bean registration | `@Conditional(OnWindowsCondition.class)` |
+  | `@ConditionalOnProperty` | Conditional on property value | `@ConditionalOnProperty("feature.enabled")` |
+  | `@ConditionalOnClass` | Conditional on class presence | `@ConditionalOnClass(DataSource.class)` |
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @PropertySource("classpath:application.properties")
+  @Import(DatabaseConfig.class)
+  public class AppConfig {
+      
+      @Bean
+      @Profile("dev")
+      public DataSource devDataSource() {
+          return new EmbeddedDatabaseBuilder().build();
+      }
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          return new HikariDataSource();
+      }
+      
+      @Bean
+      @ConditionalOnProperty(name = "cache.enabled", havingValue = "true")
+      public CacheManager cacheManager() {
+          return new CaffeineCacheManager();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>AOP (Aspect-Oriented Programming)</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Aspect` | Declares an aspect class | `@Aspect @Component public class LoggingAspect { }` |
+  | `@Before` | Advice before method execution | `@Before("execution(* com.example.*.*(..))") ` |
+  | `@After` | Advice after method execution | `@After("execution(* com.example.*.*(..))") ` |
+  | `@AfterReturning` | Advice after successful return | `@AfterReturning(pointcut="...", returning="result")` |
+  | `@AfterThrowing` | Advice after exception | `@AfterThrowing(pointcut="...", throwing="ex")` |
+  | `@Around` | Advice around method execution | `@Around("execution(* com.example.*.*(..))")` |
+  | `@Pointcut` | Defines reusable pointcut | `@Pointcut("execution(* com.example.*.*(..))")` |
+  | `@EnableAspectJAutoProxy` | Enables AspectJ support | `@EnableAspectJAutoProxy` |
+
+  **Example:**
+
+  ```java
+  @Aspect
+  @Component
+  public class LoggingAspect {
+      
+      @Pointcut("execution(* com.example.service.*.*(..))")
+      public void serviceMethods() {}
+      
+      @Before("serviceMethods()")
+      public void logBefore(JoinPoint joinPoint) {
+          System.out.println("Before: " + joinPoint.getSignature().getName());
+      }
+      
+      @Around("serviceMethods()")
+      public Object logAround(ProceedingJoinPoint joinPoint) throws Throwable {
+          long start = System.currentTimeMillis();
+          Object result = joinPoint.proceed();
+          long time = System.currentTimeMillis() - start;
+          System.out.println("Execution time: " + time + "ms");
+          return result;
+      }
+      
+      @AfterThrowing(pointcut = "serviceMethods()", throwing = "ex")
+      public void logException(JoinPoint joinPoint, Exception ex) {
+          System.out.println("Exception in: " + joinPoint.getSignature().getName());
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Spring Boot Specific</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@SpringBootApplication` | Combines @Configuration, @EnableAutoConfiguration, @ComponentScan | `@SpringBootApplication public class App { }` |
+  | `@EnableAutoConfiguration` | Enables Spring Boot auto-configuration | `@EnableAutoConfiguration` |
+  | `@ConfigurationProperties` | Binds properties to POJO | `@ConfigurationProperties(prefix="app")` |
+  | `@EnableConfigurationProperties` | Enables @ConfigurationProperties | `@EnableConfigurationProperties(AppProps.class)` |
+  | `@ConditionalOnBean` | Conditional on bean existence | `@ConditionalOnBean(DataSource.class)` |
+  | `@ConditionalOnMissingBean` | Conditional on bean absence | `@ConditionalOnMissingBean(DataSource.class)` |
+  | `@ConditionalOnWebApplication` | Conditional on web application | `@ConditionalOnWebApplication` |
+
+  **Example:**
+
+  ```java
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          SpringApplication.run(Application.class, args);
+      }
+  }
+  
+  @ConfigurationProperties(prefix = "app")
+  public class AppProperties {
+      private String name;
+      private int timeout;
+      // getters and setters
+  }
+  
+  @Configuration
+  @EnableConfigurationProperties(AppProperties.class)
+  public class AppConfig {
+      
+      @Bean
+      @ConditionalOnMissingBean
+      public DataSource dataSource() {
+          return new HikariDataSource();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Validation</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Valid` | Triggers validation | `public void create(@Valid User user)` |
+  | `@Validated` | Spring's variant of @Valid | `@Validated public class UserService { }` |
+  | `@NotNull` | Field cannot be null | `@NotNull private String name;` |
+  | `@NotEmpty` | Collection/String not empty | `@NotEmpty private String email;` |
+  | `@NotBlank` | String not blank | `@NotBlank private String username;` |
+  | `@Size` | Size constraints | `@Size(min=2, max=50) private String name;` |
+  | `@Min` / `@Max` | Numeric min/max | `@Min(18) private int age;` |
+  | `@Email` | Valid email format | `@Email private String email;` |
+  | `@Pattern` | Regex pattern | `@Pattern(regexp="[0-9]+") private String phone;` |
+
+  **Example:**
+
+  ```java
+  public class User {
+      
+      @NotNull(message = "Name cannot be null")
+      @Size(min = 2, max = 50, message = "Name must be between 2 and 50 characters")
+      private String name;
+      
+      @NotBlank(message = "Email is required")
+      @Email(message = "Invalid email format")
+      private String email;
+      
+      @Min(value = 18, message = "Must be at least 18 years old")
+      private int age;
+      
+      @Pattern(regexp = "^[0-9]{10}$", message = "Phone must be 10 digits")
+      private String phone;
+  }
+  
+  @RestController
+  public class UserController {
+      
+      @PostMapping("/users")
+      public ResponseEntity<User> createUser(@Valid @RequestBody User user) {
+          return ResponseEntity.ok(userService.create(user));
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Scheduling & Async</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@EnableScheduling` | Enables scheduled tasks | `@EnableScheduling` |
+  | `@Scheduled` | Schedules method execution | `@Scheduled(fixedRate = 5000)` |
+  | `@EnableAsync` | Enables async execution | `@EnableAsync` |
+  | `@Async` | Executes method asynchronously | `@Async public void sendEmail() { }` |
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @EnableScheduling
+  @EnableAsync
+  public class SchedulingConfig { }
+  
+  @Service
+  public class TaskService {
+      
+      // Run every 5 seconds
+      @Scheduled(fixedRate = 5000)
+      public void runEvery5Seconds() {
+          System.out.println("Task executed");
+      }
+      
+      // Run at 2 AM every day
+      @Scheduled(cron = "0 0 2 * * ?")
+      public void runDaily() {
+          System.out.println("Daily task");
+      }
+      
+      // Async method
+      @Async
+      public CompletableFuture<String> processAsync() {
+          // Long running task
+          return CompletableFuture.completedFuture("Done");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Transaction Management</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@Transactional` | Declares transaction boundaries | `@Transactional public void save(User user) { }` |
+  | `@EnableTransactionManagement` | Enables transaction support | `@EnableTransactionManagement` |
+
+  **@Transactional Attributes:**
+
+  | Attribute | Purpose | Example |
+  |-----------|---------|---------|
+  | `propagation` | Transaction propagation | `@Transactional(propagation = Propagation.REQUIRED)` |
+  | `isolation` | Transaction isolation | `@Transactional(isolation = Isolation.READ_COMMITTED)` |
+  | `readOnly` | Read-only transaction | `@Transactional(readOnly = true)` |
+  | `timeout` | Transaction timeout | `@Transactional(timeout = 30)` |
+  | `rollbackFor` | Rollback on exception | `@Transactional(rollbackFor = Exception.class)` |
+  | `noRollbackFor` | Don't rollback on exception | `@Transactional(noRollbackFor = ValidationException.class)` |
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @EnableTransactionManagement
+  public class TransactionConfig { }
+  
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void createUser(User user) {
+          userRepository.save(user);
+          emailService.sendWelcomeEmail(user);
+      }
+      
+      @Transactional(readOnly = true)
+      public User findUser(Long id) {
+          return userRepository.findById(id);
+      }
+      
+      @Transactional(
+          propagation = Propagation.REQUIRES_NEW,
+          isolation = Isolation.SERIALIZABLE,
+          timeout = 30,
+          rollbackFor = Exception.class
+      )
+      public void complexTransaction() {
+          // Complex transaction logic
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Caching</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@EnableCaching` | Enables caching support | `@EnableCaching` |
+  | `@Cacheable` | Caches method result | `@Cacheable("users")` |
+  | `@CachePut` | Updates cache | `@CachePut(value="users", key="#user.id")` |
+  | `@CacheEvict` | Removes from cache | `@CacheEvict(value="users", key="#id")` |
+  | `@Caching` | Groups multiple cache operations | `@Caching(evict={@CacheEvict("users")})` |
+  | `@CacheConfig` | Class-level cache configuration | `@CacheConfig(cacheNames="users")` |
+
+  **Example:**
+
+  ```java
+  @Configuration
+  @EnableCaching
+  public class CacheConfig { }
+  
+  @Service
+  @CacheConfig(cacheNames = "users")
+  public class UserService {
+      
+      @Cacheable(key = "#id")
+      public User findUser(Long id) {
+          System.out.println("Fetching from database");
+          return userRepository.findById(id);
+      }
+      
+      @CachePut(key = "#user.id")
+      public User updateUser(User user) {
+          return userRepository.save(user);
+      }
+      
+      @CacheEvict(key = "#id")
+      public void deleteUser(Long id) {
+          userRepository.deleteById(id);
+      }
+      
+      @CacheEvict(allEntries = true)
+      public void clearCache() {
+          System.out.println("Cache cleared");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Testing</summary>
+  <br/>
+
+  | Annotation | Purpose | Example |
+  |------------|---------|---------|
+  | `@SpringBootTest` | Loads full application context | `@SpringBootTest public class AppTest { }` |
+  | `@WebMvcTest` | Tests MVC controllers | `@WebMvcTest(UserController.class)` |
+  | `@DataJpaTest` | Tests JPA repositories | `@DataJpaTest public class UserRepoTest { }` |
+  | `@MockBean` | Adds mock to context | `@MockBean private UserService service;` |
+  | `@SpyBean` | Adds spy to context | `@SpyBean private UserService service;` |
+  | `@TestConfiguration` | Test-specific configuration | `@TestConfiguration public class TestConfig { }` |
+  | `@ActiveProfiles` | Activates profiles for test | `@ActiveProfiles("test")` |
+  | `@DirtiesContext` | Marks context as dirty | `@DirtiesContext` |
+  | `@Sql` | Executes SQL scripts | `@Sql("/test-data.sql")` |
+
+  **Example:**
+
+  ```java
+  @SpringBootTest
+  @ActiveProfiles("test")
+  public class UserServiceTest {
+      
+      @Autowired
+      private UserService userService;
+      
+      @MockBean
+      private UserRepository userRepository;
+      
+      @Test
+      public void testFindUser() {
+          User user = new User("John");
+          when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+          
+          User result = userService.findUser(1L);
+          assertEquals("John", result.getName());
+      }
+  }
+  
+  @WebMvcTest(UserController.class)
+  public class UserControllerTest {
+      
+      @Autowired
+      private MockMvc mockMvc;
+      
+      @MockBean
+      private UserService userService;
+      
+      @Test
+      public void testGetUser() throws Exception {
+          mockMvc.perform(get("/users/1"))
+              .andExpect(status().isOk());
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Quick Reference by Category</summary>
+  <br/>
+
+  **Bean Definition:**
+  - `@Component`, `@Service`, `@Repository`, `@Controller`, `@RestController`
+  - `@Configuration`, `@Bean`, `@ComponentScan`
+
+  **Dependency Injection:**
+  - `@Autowired`, `@Qualifier`, `@Primary`, `@Value`
+
+  **Scope & Lifecycle:**
+  - `@Scope`, `@RequestScope`, `@SessionScope`, `@ApplicationScope`
+  - `@PostConstruct`, `@PreDestroy`, `@Lazy`, `@DependsOn`
+
+  **Configuration:**
+  - `@Profile`, `@PropertySource`, `@Import`, `@Conditional`
+
+  **AOP:**
+  - `@Aspect`, `@Before`, `@After`, `@Around`, `@Pointcut`
+
+  **Spring Boot:**
+  - `@SpringBootApplication`, `@ConfigurationProperties`, `@EnableAutoConfiguration`
+
+  **Validation:**
+  - `@Valid`, `@NotNull`, `@NotEmpty`, `@Size`, `@Email`
+
+  **Async & Scheduling:**
+  - `@Async`, `@Scheduled`, `@EnableAsync`, `@EnableScheduling`
+
+  **Transaction:**
+  - `@Transactional`, `@EnableTransactionManagement`
+
+  **Caching:**
+  - `@Cacheable`, `@CachePut`, `@CacheEvict`, `@EnableCaching`
+
+  **Testing:**
+  - `@SpringBootTest`, `@WebMvcTest`, `@DataJpaTest`, `@MockBean`, `@ActiveProfiles`
+
+</details>
+
+<details>
+  <summary>Most Commonly Used Annotations</summary>
+  <br/>
+
+  **Top 20 annotations you'll use daily:**
+
+  1. `@SpringBootApplication` - Main application class
+  2. `@RestController` - REST API controllers
+  3. `@Service` - Service layer
+  4. `@Repository` - Data access layer
+  5. `@Autowired` - Dependency injection
+  6. `@GetMapping` / `@PostMapping` / `@PutMapping` / `@DeleteMapping` - HTTP endpoints
+  7. `@RequestBody` - Request body binding
+  8. `@PathVariable` - URL path variables
+  9. `@RequestParam` - Query parameters
+  10. `@Configuration` - Configuration classes
+  11. `@Bean` - Bean definitions
+  12. `@Value` - Property injection
+  13. `@Transactional` - Transaction management
+  14. `@Valid` - Validation
+  15. `@Profile` - Environment profiles
+  16. `@Qualifier` - Bean selection
+  17. `@Async` - Asynchronous execution
+  18. `@Scheduled` - Scheduled tasks
+  19. `@Cacheable` - Caching
+  20. `@SpringBootTest` - Testing
+
+  **Example combining multiple annotations:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  @Validated
+  public class UserController {
+      
+      private final UserService userService;
+      
+      @Autowired
+      public UserController(UserService userService) {
+          this.userService = userService;
+      }
+      
+      @GetMapping("/{id}")
+      public ResponseEntity<User> getUser(@PathVariable Long id) {
+          return ResponseEntity.ok(userService.findUser(id));
+      }
+      
+      @PostMapping
+      public ResponseEntity<User> createUser(@Valid @RequestBody User user) {
+          return ResponseEntity.ok(userService.createUser(user));
+      }
+  }
+  
+  @Service
+  @Transactional
+  public class UserService {
+      
+      private final UserRepository userRepository;
+      
+      @Value("${app.user.max-age}")
+      private int maxAge;
+      
+      @Autowired
+      public UserService(UserRepository userRepository) {
+          this.userRepository = userRepository;
+      }
+      
+      @Cacheable(value = "users", key = "#id")
+      public User findUser(Long id) {
+          return userRepository.findById(id).orElseThrow();
+      }
+      
+      @CachePut(value = "users", key = "#user.id")
+      public User createUser(User user) {
+          return userRepository.save(user);
+      }
+      
+      @Async
+      @Scheduled(cron = "0 0 2 * * ?")
+      public void cleanupOldUsers() {
+          userRepository.deleteOldUsers(maxAge);
+      }
+  }
+  ```
+
+</details>

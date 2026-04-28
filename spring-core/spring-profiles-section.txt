@@ -1,0 +1,779 @@
+## Spring Profiles
+
+<details>
+  <summary>What are Spring Profiles?</summary>
+  <br/>
+
+  Spring Profiles allow you to configure different beans and properties for different environments (dev, test, prod).
+
+  **Why Use Profiles?**
+
+  + Different database configurations per environment
+  + Enable/disable features based on environment
+  + Different logging levels
+  + Mock services in development
+  + Environment-specific security settings
+
+  **Without Profiles:**
+
+  ```java
+  @Configuration
+  public class DatabaseConfig {
+      @Bean
+      public DataSource dataSource() {
+          // Hard-coded for one environment
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://localhost:3306/dev_db")
+              .build();
+      }
+  }
+  ```
+
+  **With Profiles:**
+
+  ```java
+  @Configuration
+  public class DatabaseConfig {
+      
+      @Bean
+      @Profile("dev")
+      public DataSource devDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://localhost:3306/dev_db")
+              .build();
+      }
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://prod-server:3306/prod_db")
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Activating Profiles</summary>
+  <br/>
+
+  **1. In application.properties:**
+
+  ```properties
+  spring.profiles.active=dev
+  ```
+
+  **2. In application.yml:**
+
+  ```yaml
+  spring:
+    profiles:
+      active: dev
+  ```
+
+  **3. Command Line:**
+
+  ```bash
+  java -jar app.jar --spring.profiles.active=prod
+  
+  # Multiple profiles
+  java -jar app.jar --spring.profiles.active=prod,monitoring
+  ```
+
+  **4. Environment Variable:**
+
+  ```bash
+  export SPRING_PROFILES_ACTIVE=prod
+  java -jar app.jar
+  ```
+
+  **5. Programmatically:**
+
+  ```java
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          SpringApplication app = new SpringApplication(Application.class);
+          app.setAdditionalProfiles("dev");
+          app.run(args);
+      }
+  }
+  ```
+
+  **6. In Tests:**
+
+  ```java
+  @SpringBootTest
+  @ActiveProfiles("test")
+  public class UserServiceTest {
+      @Test
+      public void testCreateUser() {
+          // Test with 'test' profile active
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Profile-Specific Beans</summary>
+  <br/>
+
+  **Method 1: @Profile on @Bean methods:**
+
+  ```java
+  @Configuration
+  public class AppConfig {
+      
+      @Bean
+      @Profile("dev")
+      public DataSource devDataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .build();
+      }
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://prod-server:3306/db")
+              .username("admin")
+              .password("secret")
+              .build();
+      }
+  }
+  ```
+
+  **Method 2: @Profile on @Configuration classes:**
+
+  ```java
+  @Configuration
+  @Profile("dev")
+  public class DevConfig {
+      @Bean
+      public DataSource dataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .build();
+      }
+  }
+  
+  @Configuration
+  @Profile("prod")
+  public class ProdConfig {
+      @Bean
+      public DataSource dataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://prod-server:3306/db")
+              .build();
+      }
+  }
+  ```
+
+  **Method 3: @Profile on @Component classes:**
+
+  ```java
+  @Service
+  @Profile("dev")
+  public class MockEmailService implements EmailService {
+      @Override
+      public void sendEmail(String to, String message) {
+          System.out.println("Mock email to: " + to);
+      }
+  }
+  
+  @Service
+  @Profile("prod")
+  public class RealEmailService implements EmailService {
+      @Override
+      public void sendEmail(String to, String message) {
+          // Send real email via SMTP
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Profile Expressions</summary>
+  <br/>
+
+  **NOT operator (!):**
+
+  ```java
+  @Configuration
+  @Profile("!prod")
+  public class NonProdConfig {
+      // Active in all profiles EXCEPT prod
+      @Bean
+      public DebugService debugService() {
+          return new DebugService();
+      }
+  }
+  ```
+
+  **OR operator (|):**
+
+  ```java
+  @Configuration
+  @Profile("dev | test")
+  public class DevOrTestConfig {
+      // Active in dev OR test
+      @Bean
+      public MockService mockService() {
+          return new MockService();
+      }
+  }
+  ```
+
+  **AND operator (&):**
+
+  ```java
+  @Configuration
+  @Profile("prod & monitoring")
+  public class ProdMonitoringConfig {
+      // Active only when BOTH prod AND monitoring are active
+      @Bean
+      public MetricsService metricsService() {
+          return new MetricsService();
+      }
+  }
+  ```
+
+  **Complex expressions:**
+
+  ```java
+  @Configuration
+  @Profile("(dev | test) & !ci")
+  public class ComplexConfig {
+      // Active in (dev OR test) AND NOT ci
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Profile-Specific Properties Files</summary>
+  <br/>
+
+  **File naming convention:**
+
+  ```
+  application.properties          # Default properties
+  application-dev.properties      # Dev profile
+  application-test.properties     # Test profile
+  application-prod.properties     # Prod profile
+  ```
+
+  **application.properties (default):**
+
+  ```properties
+  spring.application.name=myapp
+  server.port=8080
+  ```
+
+  **application-dev.properties:**
+
+  ```properties
+  spring.datasource.url=jdbc:h2:mem:testdb
+  spring.datasource.username=sa
+  spring.datasource.password=
+  logging.level.root=DEBUG
+  ```
+
+  **application-prod.properties:**
+
+  ```properties
+  spring.datasource.url=jdbc:mysql://prod-server:3306/db
+  spring.datasource.username=admin
+  spring.datasource.password=${DB_PASSWORD}
+  logging.level.root=WARN
+  ```
+
+  **Activate profile:**
+
+  ```properties
+  # application.properties
+  spring.profiles.active=dev
+  ```
+
+  **YAML format:**
+
+  ```yaml
+  # application.yml
+  spring:
+    application:
+      name: myapp
+    profiles:
+      active: dev
+  
+  ---
+  # application-dev.yml
+  spring:
+    config:
+      activate:
+        on-profile: dev
+    datasource:
+      url: jdbc:h2:mem:testdb
+      username: sa
+      password:
+  
+  ---
+  # application-prod.yml
+  spring:
+    config:
+      activate:
+        on-profile: prod
+    datasource:
+      url: jdbc:mysql://prod-server:3306/db
+      username: admin
+      password: ${DB_PASSWORD}
+  ```
+
+</details>
+
+<details>
+  <summary>Multiple Profiles</summary>
+  <br/>
+
+  **Activate multiple profiles:**
+
+  ```properties
+  spring.profiles.active=dev,monitoring,debug
+  ```
+
+  **Example configuration:**
+
+  ```java
+  @Configuration
+  @Profile("dev")
+  public class DevConfig {
+      @Bean
+      public DataSource dataSource() {
+          return new EmbeddedDatabaseBuilder().build();
+      }
+  }
+  
+  @Configuration
+  @Profile("monitoring")
+  public class MonitoringConfig {
+      @Bean
+      public MetricsCollector metricsCollector() {
+          return new MetricsCollector();
+      }
+  }
+  
+  @Configuration
+  @Profile("debug")
+  public class DebugConfig {
+      @Bean
+      public DebugInterceptor debugInterceptor() {
+          return new DebugInterceptor();
+      }
+  }
+  ```
+
+  **Result:** All three configurations are active simultaneously.
+
+</details>
+
+<details>
+  <summary>Default Profile</summary>
+  <br/>
+
+  **Set default profile (used when no profile is active):**
+
+  ```properties
+  spring.profiles.default=dev
+  ```
+
+  **Using @Profile("default"):**
+
+  ```java
+  @Configuration
+  @Profile("default")
+  public class DefaultConfig {
+      @Bean
+      public DataSource dataSource() {
+          // Used when no profile is explicitly set
+          return new EmbeddedDatabaseBuilder().build();
+      }
+  }
+  ```
+
+  **Fallback behavior:**
+
+  ```java
+  @Configuration
+  public class AppConfig {
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://prod-server:3306/db")
+              .build();
+      }
+      
+      @Bean
+      @Profile("!prod")  // Active in all profiles except prod
+      public DataSource devDataSource() {
+          return new EmbeddedDatabaseBuilder().build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Checking Active Profile Programmatically</summary>
+  <br/>
+
+  ```java
+  @Service
+  public class ProfileService {
+      
+      @Autowired
+      private Environment environment;
+      
+      public void checkProfile() {
+          String[] activeProfiles = environment.getActiveProfiles();
+          System.out.println("Active profiles: " + Arrays.toString(activeProfiles));
+          
+          if (environment.acceptsProfiles(Profiles.of("dev"))) {
+              System.out.println("Dev profile is active");
+          }
+          
+          if (environment.acceptsProfiles(Profiles.of("prod"))) {
+              System.out.println("Prod profile is active");
+          }
+      }
+  }
+  ```
+
+  **Conditional logic based on profile:**
+
+  ```java
+  @Service
+  public class EmailService {
+      
+      @Autowired
+      private Environment environment;
+      
+      public void sendEmail(String to, String message) {
+          if (environment.acceptsProfiles(Profiles.of("dev"))) {
+              System.out.println("Mock email to: " + to);
+          } else {
+              // Send real email
+              smtpClient.send(to, message);
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Profile Patterns</summary>
+  <br/>
+
+  **1. Database Configuration:**
+
+  ```java
+  @Configuration
+  public class DatabaseConfig {
+      
+      @Bean
+      @Profile("dev")
+      public DataSource devDataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .addScript("schema.sql")
+              .addScript("test-data.sql")
+              .build();
+      }
+      
+      @Bean
+      @Profile("test")
+      public DataSource testDataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .addScript("schema.sql")
+              .build();
+      }
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          HikariConfig config = new HikariConfig();
+          config.setJdbcUrl(System.getenv("DB_URL"));
+          config.setUsername(System.getenv("DB_USER"));
+          config.setPassword(System.getenv("DB_PASSWORD"));
+          config.setMaximumPoolSize(20);
+          return new HikariDataSource(config);
+      }
+  }
+  ```
+
+  **2. External Services:**
+
+  ```java
+  @Service
+  @Profile("dev")
+  public class MockPaymentService implements PaymentService {
+      @Override
+      public PaymentResult processPayment(Payment payment) {
+          System.out.println("Mock payment: " + payment.getAmount());
+          return new PaymentResult(true, "MOCK-" + UUID.randomUUID());
+      }
+  }
+  
+  @Service
+  @Profile("prod")
+  public class StripePaymentService implements PaymentService {
+      @Override
+      public PaymentResult processPayment(Payment payment) {
+          // Real Stripe API call
+          return stripeClient.charge(payment);
+      }
+  }
+  ```
+
+  **3. Logging Configuration:**
+
+  ```properties
+  # application-dev.properties
+  logging.level.root=DEBUG
+  logging.level.com.example=TRACE
+  logging.pattern.console=%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+  
+  # application-prod.properties
+  logging.level.root=WARN
+  logging.level.com.example=INFO
+  logging.file.name=/var/log/myapp.log
+  ```
+
+  **4. Feature Flags:**
+
+  ```java
+  @Configuration
+  @Profile("beta")
+  public class BetaFeaturesConfig {
+      @Bean
+      public NewFeatureService newFeatureService() {
+          return new NewFeatureService();
+      }
+  }
+  
+  @RestController
+  public class FeatureController {
+      
+      @Autowired(required = false)
+      private NewFeatureService newFeatureService;
+      
+      @GetMapping("/feature")
+      public ResponseEntity<String> getFeature() {
+          if (newFeatureService != null) {
+              return ResponseEntity.ok(newFeatureService.getFeature());
+          }
+          return ResponseEntity.status(404).body("Feature not available");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Profile Groups (Spring Boot 2.4+)</summary>
+  <br/>
+
+  **Define profile groups:**
+
+  ```properties
+  # application.properties
+  spring.profiles.group.production=prod,monitoring,security
+  spring.profiles.group.development=dev,debug,mock-services
+  ```
+
+  **Activate a group:**
+
+  ```bash
+  java -jar app.jar --spring.profiles.active=production
+  # This activates: prod, monitoring, security
+  ```
+
+  **YAML format:**
+
+  ```yaml
+  spring:
+    profiles:
+      group:
+        production:
+          - prod
+          - monitoring
+          - security
+        development:
+          - dev
+          - debug
+          - mock-services
+  ```
+
+  **Usage:**
+
+  ```bash
+  # Activate all development profiles at once
+  java -jar app.jar --spring.profiles.active=development
+  ```
+
+</details>
+
+<details>
+  <summary>Testing with Profiles</summary>
+  <br/>
+
+  **Activate profile in test:**
+
+  ```java
+  @SpringBootTest
+  @ActiveProfiles("test")
+  public class UserServiceTest {
+      
+      @Autowired
+      private UserService userService;
+      
+      @Test
+      public void testCreateUser() {
+          // Test with 'test' profile configuration
+          User user = userService.createUser(new User("John"));
+          assertNotNull(user.getId());
+      }
+  }
+  ```
+
+  **Multiple profiles in test:**
+
+  ```java
+  @SpringBootTest
+  @ActiveProfiles({"test", "mock-services"})
+  public class IntegrationTest {
+      // Test with both profiles active
+  }
+  ```
+
+  **Test-specific configuration:**
+
+  ```java
+  @TestConfiguration
+  @Profile("test")
+  public class TestConfig {
+      @Bean
+      public DataSource testDataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use clear profile names
+  @Profile("dev")
+  @Profile("prod")
+  @Profile("test")
+  
+  // ❌ DON'T: Use ambiguous names
+  @Profile("profile1")
+  @Profile("config2")
+  
+  // ✅ DO: Use profile-specific properties files
+  application-dev.properties
+  application-prod.properties
+  
+  // ✅ DO: Use environment variables for sensitive data
+  @Bean
+  @Profile("prod")
+  public DataSource prodDataSource() {
+      return DataSourceBuilder.create()
+          .url(System.getenv("DB_URL"))
+          .username(System.getenv("DB_USER"))
+          .password(System.getenv("DB_PASSWORD"))
+          .build();
+  }
+  
+  // ❌ DON'T: Hard-code sensitive data
+  @Bean
+  @Profile("prod")
+  public DataSource badDataSource() {
+      return DataSourceBuilder.create()
+          .url("jdbc:mysql://prod-server:3306/db")
+          .username("admin")
+          .password("secret123")  // BAD!
+          .build();
+  }
+  
+  // ✅ DO: Use @Profile on configuration classes
+  @Configuration
+  @Profile("dev")
+  public class DevConfig {
+      // All beans in this class are dev-only
+  }
+  
+  // ✅ DO: Use NOT operator for non-production
+  @Configuration
+  @Profile("!prod")
+  public class NonProdConfig {
+      // Active in all profiles except prod
+  }
+  
+  // ✅ DO: Use profile groups for related profiles
+  spring.profiles.group.production=prod,monitoring,security
+  
+  // ✅ DO: Set default profile
+  spring.profiles.default=dev
+  
+  // ✅ DO: Use @ActiveProfiles in tests
+  @SpringBootTest
+  @ActiveProfiles("test")
+  public class MyTest { }
+  
+  // ❌ DON'T: Mix profile logic with business logic
+  @Service
+  public class BadService {
+      @Autowired
+      private Environment environment;
+      
+      public void doSomething() {
+          if (environment.acceptsProfiles(Profiles.of("dev"))) {
+              // Business logic should not depend on profiles
+          }
+      }
+  }
+  ```
+
+  **Key Points**
+  <br/>
+
+  + Profiles allow **environment-specific** configurations
+  + Activate profiles via **properties, command line, or environment variables**
+  + Use **@Profile** on beans, methods, or configuration classes
+  + Profile expressions support **NOT (!), OR (|), AND (&)** operators
+  + Use **profile-specific properties files**: application-{profile}.properties
+  + Multiple profiles can be **active simultaneously**
+  + Set **default profile** with spring.profiles.default
+  + Use **profile groups** to activate multiple profiles at once (Spring Boot 2.4+)
+  + Check active profiles with **Environment.getActiveProfiles()**
+  + Use **@ActiveProfiles** in tests
+  + Common use cases: database config, external services, logging, feature flags
+  + Never hard-code **sensitive data** - use environment variables
+  + Keep profile logic in **configuration**, not business logic
+
+</details>

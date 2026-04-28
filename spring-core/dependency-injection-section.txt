@@ -1,0 +1,600 @@
+
+## Dependency Injection
+
+<details>
+  <summary>Dependency Injection: Constructor vs Setter vs Field Injection</summary>
+  <br/>
+
+  Dependency Injection (DI) is a design pattern where Spring provides dependencies to a class instead of the class creating them itself.
+
+  **Why Use Dependency Injection?**
+
+  + **Loose Coupling:** Classes don't create their dependencies
+  + **Testability:** Easy to mock dependencies in tests
+  + **Maintainability:** Easy to change implementations
+  + **Reusability:** Components can be reused with different dependencies
+
+  **Three Types of Dependency Injection:**
+
+  ### 1. Constructor Injection (Recommended ✅)
+
+  Dependencies are provided through the class constructor.
+
+  ```java
+  @Service
+  public class UserService {
+      private final UserRepository userRepository;
+      private final EmailService emailService;
+      
+      // Constructor injection
+      @Autowired  // Optional in Spring 4.3+ if only one constructor
+      public UserService(UserRepository userRepository, EmailService emailService) {
+          this.userRepository = userRepository;
+          this.emailService = emailService;
+      }
+      
+      public void registerUser(User user) {
+          userRepository.save(user);
+          emailService.sendWelcomeEmail(user.getEmail());
+      }
+  }
+  ```
+
+  **Advantages:**
+  + ✅ **Immutable:** Dependencies are final (thread-safe)
+  + ✅ **Required dependencies:** Compiler ensures all dependencies are provided
+  + ✅ **Testability:** Easy to create instances in tests without Spring
+  + ✅ **No reflection:** Clear what dependencies are needed
+  + ✅ **Prevents circular dependencies:** Fails fast at startup
+
+  **Example Test:**
+  ```java
+  @Test
+  public void testRegisterUser() {
+      // Easy to test - no Spring needed
+      UserRepository mockRepo = mock(UserRepository.class);
+      EmailService mockEmail = mock(EmailService.class);
+      
+      UserService service = new UserService(mockRepo, mockEmail);
+      
+      User user = new User("john@example.com");
+      service.registerUser(user);
+      
+      verify(mockRepo).save(user);
+      verify(mockEmail).sendWelcomeEmail("john@example.com");
+  }
+  ```
+
+  ### 2. Setter Injection
+
+  Dependencies are provided through setter methods.
+
+  ```java
+  @Service
+  public class OrderService {
+      private OrderRepository orderRepository;
+      private PaymentService paymentService;
+      
+      // Setter injection
+      @Autowired
+      public void setOrderRepository(OrderRepository orderRepository) {
+          this.orderRepository = orderRepository;
+      }
+      
+      @Autowired
+      public void setPaymentService(PaymentService paymentService) {
+          this.paymentService = paymentService;
+      }
+      
+      public void processOrder(Order order) {
+          orderRepository.save(order);
+          paymentService.processPayment(order.getAmount());
+      }
+  }
+  ```
+
+  **Advantages:**
+  + ✅ **Optional dependencies:** Can have default values
+  + ✅ **Reconfiguration:** Dependencies can be changed after creation
+  + ✅ **Circular dependencies:** Can resolve some circular dependency issues
+
+  **Disadvantages:**
+  + ❌ **Mutable:** Dependencies can be changed (not thread-safe)
+  + ❌ **Incomplete object:** Object can exist without all dependencies
+  + ❌ **Verbose:** More code than constructor injection
+
+  **When to use:**
+  + Optional dependencies with sensible defaults
+  + Legacy code that requires reconfiguration
+
+  ### 3. Field Injection (Not Recommended ❌)
+
+  Dependencies are injected directly into fields using `@Autowired`.
+
+  ```java
+  @Service
+  public class ProductService {
+      @Autowired
+      private ProductRepository productRepository;
+      
+      @Autowired
+      private InventoryService inventoryService;
+      
+      public void addProduct(Product product) {
+          productRepository.save(product);
+          inventoryService.updateStock(product.getId(), product.getQuantity());
+      }
+  }
+  ```
+
+  **Advantages:**
+  + ✅ **Concise:** Less boilerplate code
+  + ✅ **Quick:** Fast to write
+
+  **Disadvantages:**
+  + ❌ **Hard to test:** Cannot create instance without Spring
+  + ❌ **Hidden dependencies:** Not clear what dependencies are needed
+  + ❌ **Immutability:** Cannot make fields final
+  + ❌ **Tight coupling:** Depends on Spring framework
+  + ❌ **Circular dependencies:** Harder to detect
+
+  **Why it's not recommended:**
+  ```java
+  @Test
+  public void testAddProduct() {
+      // ❌ Cannot test without Spring
+      ProductService service = new ProductService();
+      // productRepository and inventoryService are null!
+      
+      // Need to use reflection or Spring test context
+  }
+  ```
+
+  ### Comparison Table
+
+  | Feature | Constructor | Setter | Field |
+  |---------|-------------|--------|-------|
+  | **Immutability** | ✅ Yes (final) | ❌ No | ❌ No |
+  | **Required dependencies** | ✅ Yes | ❌ No | ❌ No |
+  | **Testability** | ✅ Easy | ⚠️ Medium | ❌ Hard |
+  | **Circular dependencies** | ❌ Fails fast | ✅ Can resolve | ⚠️ Hidden |
+  | **Code verbosity** | ⚠️ More code | ⚠️ Most code | ✅ Least code |
+  | **Spring coupling** | ✅ Low | ✅ Low | ❌ High |
+  | **Recommended** | ✅ Yes | ⚠️ Rarely | ❌ No |
+
+  ### Circular Dependency Problem
+
+  ```java
+  // ❌ Circular dependency with constructor injection
+  @Service
+  public class ServiceA {
+      private final ServiceB serviceB;
+      
+      public ServiceA(ServiceB serviceB) {
+          this.serviceB = serviceB;
+      }
+  }
+  
+  @Service
+  public class ServiceB {
+      private final ServiceA serviceA;
+      
+      public ServiceB(ServiceA serviceA) {
+          this.serviceA = serviceA;
+      }
+  }
+  // Error: The dependencies of some beans in the application context form a cycle
+  ```
+
+  **Solutions:**
+
+  **1. Redesign (Best):**
+  ```java
+  // Extract common logic to a third service
+  @Service
+  public class ServiceA {
+      private final CommonService commonService;
+      
+      public ServiceA(CommonService commonService) {
+          this.commonService = commonService;
+      }
+  }
+  
+  @Service
+  public class ServiceB {
+      private final CommonService commonService;
+      
+      public ServiceB(CommonService commonService) {
+          this.commonService = commonService;
+      }
+  }
+  ```
+
+  **2. Use @Lazy (Temporary fix):**
+  ```java
+  @Service
+  public class ServiceA {
+      private final ServiceB serviceB;
+      
+      public ServiceA(@Lazy ServiceB serviceB) {
+          this.serviceB = serviceB;
+      }
+  }
+  ```
+
+  ### Best Practices
+
+  ```java
+  // ✅ DO: Use constructor injection for required dependencies
+  @Service
+  public class GoodService {
+      private final DependencyA dependencyA;
+      private final DependencyB dependencyB;
+      
+      public GoodService(DependencyA dependencyA, DependencyB dependencyB) {
+          this.dependencyA = dependencyA;
+          this.dependencyB = dependencyB;
+      }
+  }
+  
+  // ❌ DON'T: Use field injection
+  @Service
+  public class BadService {
+      @Autowired
+      private DependencyA dependencyA;
+      
+      @Autowired
+      private DependencyB dependencyB;
+  }
+  
+  // ✅ DO: Make dependencies final
+  private final UserRepository userRepository;
+  
+  // ❌ DON'T: Make dependencies mutable
+  private UserRepository userRepository;
+  
+  // ✅ DO: Keep constructors simple (just assignment)
+  public UserService(UserRepository userRepository) {
+      this.userRepository = userRepository;
+  }
+  
+  // ❌ DON'T: Put logic in constructors
+  public UserService(UserRepository userRepository) {
+      this.userRepository = userRepository;
+      this.userRepository.initialize();  // Bad!
+  }
+  ```
+
+  ### Key Takeaways
+
+  + **Always prefer constructor injection** for required dependencies
+  + Make injected fields **final** for immutability
+  + Use **setter injection** only for optional dependencies
+  + **Avoid field injection** - it makes testing difficult
+  + Constructor injection **prevents circular dependencies** by failing fast
+  + Use **Lombok's @RequiredArgsConstructor** to reduce boilerplate
+  + If you have circular dependencies, **redesign your classes**
+  
+</details>
+
+<details>
+  <summary>IoC Container: ApplicationContext vs BeanFactory</summary>
+  <br/>
+
+  The IoC (Inversion of Control) Container is the core of Spring Framework. It manages object creation, configuration, and lifecycle.
+
+  **What is IoC?**
+
+  Instead of your code creating objects, Spring creates and manages them for you.
+
+  ```java
+  // ❌ Without IoC - You create objects
+  public class OrderController {
+      private OrderService orderService = new OrderService();
+      private PaymentService paymentService = new PaymentService();
+  }
+  
+  // ✅ With IoC - Spring creates and injects objects
+  @RestController
+  public class OrderController {
+      private final OrderService orderService;
+      private final PaymentService paymentService;
+      
+      public OrderController(OrderService orderService, PaymentService paymentService) {
+          this.orderService = orderService;
+          this.paymentService = paymentService;
+      }
+  }
+  ```
+
+  ### BeanFactory vs ApplicationContext
+
+  **BeanFactory** - Basic container (rarely used directly)
+  **ApplicationContext** - Advanced container (recommended)
+
+  | Feature | BeanFactory | ApplicationContext |
+  |---------|-------------|-------------------|
+  | Bean instantiation | Lazy (on demand) | Eager (at startup) |
+  | Internationalization | ❌ No | ✅ Yes |
+  | Event publishing | ❌ No | ✅ Yes |
+  | Annotation support | ❌ Limited | ✅ Full |
+  | AOP support | ❌ Manual | ✅ Automatic |
+  | Use case | Legacy/embedded | Modern applications |
+
+  ### ApplicationContext Types
+
+  **1. AnnotationConfigApplicationContext** (Most common)
+
+  ```java
+  // Configuration class
+  @Configuration
+  @ComponentScan("com.example")
+  public class AppConfig {
+      @Bean
+      public UserService userService() {
+          return new UserService(userRepository());
+      }
+      
+      @Bean
+      public UserRepository userRepository() {
+          return new UserRepository();
+      }
+  }
+  
+  // Create container
+  public class Main {
+      public static void main(String[] args) {
+          ApplicationContext context = 
+              new AnnotationConfigApplicationContext(AppConfig.class);
+          
+          UserService userService = context.getBean(UserService.class);
+          userService.registerUser(new User("john@example.com"));
+      }
+  }
+  ```
+
+  **2. ClassPathXmlApplicationContext** (XML-based, legacy)
+
+  ```xml
+  <!-- applicationContext.xml -->
+  <beans>
+      <bean id="userRepository" class="com.example.UserRepository"/>
+      <bean id="userService" class="com.example.UserService">
+          <constructor-arg ref="userRepository"/>
+      </bean>
+  </beans>
+  ```
+
+  ```java
+  ApplicationContext context = 
+      new ClassPathXmlApplicationContext("applicationContext.xml");
+  ```
+
+  **3. WebApplicationContext** (Spring MVC/Boot)
+
+  ```java
+  // Spring Boot automatically creates this
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          SpringApplication.run(Application.class, args);
+          // ApplicationContext created automatically
+      }
+  }
+  ```
+
+  ### Getting Beans from Context
+
+  ```java
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          ApplicationContext context = SpringApplication.run(Application.class, args);
+          
+          // 1. By type
+          UserService userService = context.getBean(UserService.class);
+          
+          // 2. By name
+          UserService userService2 = (UserService) context.getBean("userService");
+          
+          // 3. By name and type
+          UserService userService3 = context.getBean("userService", UserService.class);
+          
+          // 4. Check if bean exists
+          boolean exists = context.containsBean("userService");
+          
+          // 5. Get all beans of type
+          Map<String, UserService> beans = context.getBeansOfType(UserService.class);
+      }
+  }
+  ```
+
+  ### Accessing ApplicationContext in Beans
+
+  **Method 1: Implement ApplicationContextAware**
+
+  ```java
+  @Component
+  public class BeanProvider implements ApplicationContextAware {
+      private ApplicationContext context;
+      
+      @Override
+      public void setApplicationContext(ApplicationContext context) {
+          this.context = context;
+      }
+      
+      public <T> T getBean(Class<T> beanClass) {
+          return context.getBean(beanClass);
+      }
+  }
+  ```
+
+  **Method 2: Inject ApplicationContext**
+
+  ```java
+  @Component
+  public class BeanProvider {
+      private final ApplicationContext context;
+      
+      public BeanProvider(ApplicationContext context) {
+          this.context = context;
+      }
+      
+      public <T> T getBean(Class<T> beanClass) {
+          return context.getBean(beanClass);
+      }
+  }
+  ```
+
+  ### Practical Example: Multi-Database Configuration
+
+  ```java
+  @Configuration
+  public class DatabaseConfig {
+      
+      @Bean
+      @Primary  // Default database
+      public DataSource primaryDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://localhost:3306/primary")
+              .username("user")
+              .password("pass")
+              .build();
+      }
+      
+      @Bean
+      public DataSource secondaryDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://localhost:3306/secondary")
+              .username("user")
+              .password("pass")
+              .build();
+      }
+  }
+  
+  @Service
+  public class UserService {
+      private final DataSource primaryDb;
+      private final DataSource secondaryDb;
+      
+      public UserService(
+          @Qualifier("primaryDataSource") DataSource primaryDb,
+          @Qualifier("secondaryDataSource") DataSource secondaryDb
+      ) {
+          this.primaryDb = primaryDb;
+          this.secondaryDb = secondaryDb;
+      }
+  }
+  ```
+
+  ### Environment and Profiles
+
+  ```java
+  @Configuration
+  public class AppConfig {
+      
+      @Bean
+      @Profile("dev")
+      public DataSource devDataSource() {
+          return new EmbeddedDatabaseBuilder()
+              .setType(EmbeddedDatabaseType.H2)
+              .build();
+      }
+      
+      @Bean
+      @Profile("prod")
+      public DataSource prodDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:mysql://prod-server:3306/db")
+              .build();
+      }
+  }
+  ```
+
+  ```properties
+  # application.properties
+  spring.profiles.active=dev
+  ```
+
+  ### Key Differences: BeanFactory vs ApplicationContext
+
+  ```java
+  // BeanFactory - Basic, lazy loading
+  BeanFactory factory = new XmlBeanFactory(new ClassPathResource("beans.xml"));
+  UserService service = (UserService) factory.getBean("userService");
+  // Bean created only when getBean() is called
+  
+  // ApplicationContext - Advanced, eager loading
+  ApplicationContext context = new ClassPathXmlApplicationContext("beans.xml");
+  // All singleton beans created at startup
+  UserService service = context.getBean(UserService.class);
+  ```
+
+  ### Best Practices
+
+  ```java
+  // ✅ DO: Use ApplicationContext (not BeanFactory)
+  ApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);
+  
+  // ✅ DO: Use constructor injection (let Spring manage dependencies)
+  @Service
+  public class UserService {
+      private final UserRepository repository;
+      
+      public UserService(UserRepository repository) {
+          this.repository = repository;
+      }
+  }
+  
+  // ❌ DON'T: Get beans manually from context in business logic
+  @Service
+  public class BadService {
+      @Autowired
+      private ApplicationContext context;
+      
+      public void doSomething() {
+          UserService service = context.getBean(UserService.class);  // Bad!
+      }
+  }
+  
+  // ✅ DO: Let Spring inject dependencies
+  @Service
+  public class GoodService {
+      private final UserService userService;
+      
+      public GoodService(UserService userService) {
+          this.userService = userService;
+      }
+  }
+  
+  // ✅ DO: Use @PostConstruct for initialization
+  @Component
+  public class CacheService {
+      @PostConstruct
+      public void init() {
+          // Initialize cache
+      }
+  }
+  
+  // ❌ DON'T: Put initialization logic in constructor
+  @Component
+  public class BadCacheService {
+      public BadCacheService() {
+          // Don't do heavy initialization here
+      }
+  }
+  ```
+
+  ### Key Takeaways
+
+  + **ApplicationContext** is the main Spring container (use this, not BeanFactory)
+  + Spring creates and manages beans for you (IoC)
+  + **Singleton** is the default scope (one instance per container)
+  + Use **@PostConstruct** for initialization, **@PreDestroy** for cleanup
+  + **Don't manually get beans** from context in business logic
+  + Let Spring **inject dependencies** via constructor
+  + Use **@Profile** for environment-specific beans
+  + **@Primary** marks the default bean when multiple exist
+  + **@Qualifier** selects specific bean by name
+  
+</details>

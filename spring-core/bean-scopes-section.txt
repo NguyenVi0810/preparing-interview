@@ -1,0 +1,628 @@
+
+## Bean Scopes
+
+<details>
+  <summary>Bean Scopes Overview</summary>
+  <br/>
+
+  Bean scope defines the lifecycle and visibility of a bean in the Spring container.
+
+  **Available Scopes:**
+
+  | Scope | Instances | Lifecycle | Use Case |
+  |-------|-----------|-----------|----------|
+  | singleton | 1 per container | Application lifetime | Stateless services, repositories |
+  | prototype | New each time | Per request | Stateful objects, commands |
+  | request | 1 per HTTP request | HTTP request | Request-specific data |
+  | session | 1 per HTTP session | HTTP session | User session data |
+  | application | 1 per ServletContext | Application lifetime | Global application state |
+  | websocket | 1 per WebSocket | WebSocket lifetime | WebSocket session data |
+
+  **Note:** request, session, application, and websocket scopes are only available in web applications.
+
+</details>
+
+<details>
+  <summary>Singleton Scope (Default)</summary>
+  <br/>
+
+  **One instance per Spring container.** This is the default scope.
+
+  ```java
+  @Component
+  @Scope("singleton")  // Optional, this is default
+  public class UserService {
+      private final UserRepository repository;
+      
+      public UserService(UserRepository repository) {
+          this.repository = repository;
+      }
+      
+      public User findUser(Long id) {
+          return repository.findById(id);
+      }
+  }
+  ```
+
+  **Characteristics:**
+  + Created once when ApplicationContext starts (eager initialization)
+  + Shared across entire application
+  + Thread-safe if stateless
+  + Best for stateless services
+
+  **Example:**
+
+  ```java
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          ApplicationContext context = SpringApplication.run(Application.class, args);
+          
+          UserService service1 = context.getBean(UserService.class);
+          UserService service2 = context.getBean(UserService.class);
+          
+          System.out.println(service1 == service2);  // true - same instance
+      }
+  }
+  ```
+
+  **When to use:**
+  + Services, repositories, controllers
+  + Configuration classes
+  + Stateless components
+  + Thread-safe objects
+
+  **Thread Safety:**
+
+  ```java
+  // ✅ Thread-safe singleton (stateless)
+  @Service
+  public class OrderService {
+      private final OrderRepository repository;  // Immutable dependency
+      
+      public OrderService(OrderRepository repository) {
+          this.repository = repository;
+      }
+      
+      public Order createOrder(OrderRequest request) {
+          // No instance variables modified
+          return repository.save(new Order(request));
+      }
+  }
+  
+  // ❌ NOT thread-safe singleton (stateful)
+  @Service
+  public class BadOrderService {
+      private OrderRequest currentRequest;  // Mutable state - BAD!
+      
+      public Order createOrder(OrderRequest request) {
+          this.currentRequest = request;  // Race condition!
+          return processOrder();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Prototype Scope</summary>
+  <br/>
+
+  **New instance created every time the bean is requested.**
+
+  ```java
+  @Component
+  @Scope("prototype")
+  public class ReportGenerator {
+      private String reportData;
+      
+      public void setReportData(String data) {
+          this.reportData = data;
+      }
+      
+      public String generateReport() {
+          return "Report: " + reportData;
+      }
+  }
+  ```
+
+  **Characteristics:**
+  + New instance created each time
+  + Not managed after creation (Spring doesn't call @PreDestroy)
+  + Can have state (not shared)
+  + More memory overhead
+
+  **Example:**
+
+  ```java
+  @SpringBootApplication
+  public class Application {
+      public static void main(String[] args) {
+          ApplicationContext context = SpringApplication.run(Application.class, args);
+          
+          ReportGenerator gen1 = context.getBean(ReportGenerator.class);
+          ReportGenerator gen2 = context.getBean(ReportGenerator.class);
+          
+          System.out.println(gen1 == gen2);  // false - different instances
+      }
+  }
+  ```
+
+  **When to use:**
+  + Stateful objects
+  + Objects that maintain state per operation
+  + Command objects
+  + Objects with different configurations
+
+  **Prototype with Singleton:**
+
+  ```java
+  // Problem: Singleton holding prototype
+  @Service
+  public class OrderService {
+      @Autowired
+      private ReportGenerator reportGenerator;  // Only injected once!
+      
+      public String generateReport() {
+          return reportGenerator.generateReport();  // Same instance always
+      }
+  }
+  
+  // Solution 1: Inject ApplicationContext
+  @Service
+  public class OrderService {
+      private final ApplicationContext context;
+      
+      public OrderService(ApplicationContext context) {
+          this.context = context;
+      }
+      
+      public String generateReport() {
+          ReportGenerator generator = context.getBean(ReportGenerator.class);
+          return generator.generateReport();  // New instance each time
+      }
+  }
+  
+  // Solution 2: Use ObjectFactory
+  @Service
+  public class OrderService {
+      private final ObjectFactory<ReportGenerator> generatorFactory;
+      
+      public OrderService(ObjectFactory<ReportGenerator> generatorFactory) {
+          this.generatorFactory = generatorFactory;
+      }
+      
+      public String generateReport() {
+          ReportGenerator generator = generatorFactory.getObject();
+          return generator.generateReport();  // New instance each time
+      }
+  }
+  
+  // Solution 3: Use @Lookup (method injection)
+  @Service
+  public abstract class OrderService {
+      public String generateReport() {
+          ReportGenerator generator = createReportGenerator();
+          return generator.generateReport();
+      }
+      
+      @Lookup
+      protected abstract ReportGenerator createReportGenerator();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Request Scope (Web Only)</summary>
+  <br/>
+
+  **One instance per HTTP request.** Only available in web applications.
+
+  ```java
+  @Component
+  @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+  public class RequestContext {
+      private String requestId;
+      private String userId;
+      
+      public void setRequestId(String requestId) {
+          this.requestId = requestId;
+      }
+      
+      public String getRequestId() {
+          return requestId;
+      }
+      
+      public void setUserId(String userId) {
+          this.userId = userId;
+      }
+      
+      public String getUserId() {
+          return userId;
+      }
+  }
+  ```
+
+  **Or using annotation:**
+
+  ```java
+  @Component
+  @RequestScope
+  public class RequestContext {
+      private String requestId;
+      private String userId;
+      
+      // getters and setters
+  }
+  ```
+
+  **Characteristics:**
+  + New instance for each HTTP request
+  + Destroyed when request completes
+  + Shared within single request
+  + Requires proxy mode for injection into singletons
+
+  **Example Usage:**
+
+  ```java
+  @RestController
+  public class UserController {
+      private final RequestContext requestContext;
+      
+      public UserController(RequestContext requestContext) {
+          this.requestContext = requestContext;  // Proxy injected
+      }
+      
+      @GetMapping("/users/{id}")
+      public User getUser(@PathVariable Long id, HttpServletRequest request) {
+          requestContext.setRequestId(request.getHeader("X-Request-ID"));
+          requestContext.setUserId(String.valueOf(id));
+          
+          return userService.findUser(id);
+      }
+  }
+  
+  @Service
+  public class UserService {
+      private final RequestContext requestContext;
+      
+      public UserService(RequestContext requestContext) {
+          this.requestContext = requestContext;
+      }
+      
+      public User findUser(Long id) {
+          String requestId = requestContext.getRequestId();
+          System.out.println("Processing request: " + requestId);
+          return repository.findById(id);
+      }
+  }
+  ```
+
+  **When to use:**
+  + Request-specific data (request ID, correlation ID)
+  + User information for current request
+  + Request metadata
+  + Temporary data needed across multiple components in same request
+
+  **Why proxyMode is needed:**
+
+  ```java
+  // Without proxy: ERROR!
+  @Component
+  @RequestScope  // No proxyMode
+  public class RequestContext { }
+  
+  @Service  // Singleton
+  public class UserService {
+      @Autowired
+      private RequestContext context;  // Error: Cannot inject request-scoped bean into singleton
+  }
+  
+  // With proxy: Works!
+  @Component
+  @Scope(value = "request", proxyMode = ScopedProxyMode.TARGET_CLASS)
+  public class RequestContext { }
+  
+  @Service  // Singleton
+  public class UserService {
+      @Autowired
+      private RequestContext context;  // OK: Proxy injected, delegates to actual bean
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Session Scope (Web Only)</summary>
+  <br/>
+
+  **One instance per HTTP session.** Only available in web applications.
+
+  ```java
+  @Component
+  @Scope(value = WebApplicationContext.SCOPE_SESSION, proxyMode = ScopedProxyMode.TARGET_CLASS)
+  public class ShoppingCart {
+      private List<CartItem> items = new ArrayList<>();
+      
+      public void addItem(CartItem item) {
+          items.add(item);
+      }
+      
+      public List<CartItem> getItems() {
+          return items;
+      }
+      
+      public void clear() {
+          items.clear();
+      }
+  }
+  ```
+
+  **Or using annotation:**
+
+  ```java
+  @Component
+  @SessionScope
+  public class ShoppingCart {
+      private List<CartItem> items = new ArrayList<>();
+      
+      // methods
+  }
+  ```
+
+  **Characteristics:**
+  + One instance per user session
+  + Persists across multiple requests from same user
+  + Destroyed when session expires
+  + Requires proxy mode for injection into singletons
+
+  **Example Usage:**
+
+  ```java
+  @RestController
+  public class CartController {
+      private final ShoppingCart cart;
+      
+      public CartController(ShoppingCart cart) {
+          this.cart = cart;  // Proxy injected
+      }
+      
+      @PostMapping("/cart/add")
+      public ResponseEntity<Void> addToCart(@RequestBody CartItem item) {
+          cart.addItem(item);
+          return ResponseEntity.ok().build();
+      }
+      
+      @GetMapping("/cart")
+      public List<CartItem> getCart() {
+          return cart.getItems();  // Same cart for this user's session
+      }
+      
+      @DeleteMapping("/cart")
+      public ResponseEntity<Void> clearCart() {
+          cart.clear();
+          return ResponseEntity.ok().build();
+      }
+  }
+  ```
+
+  **When to use:**
+  + Shopping cart
+  + User preferences
+  + Multi-step forms
+  + User session data
+  + Temporary user state
+
+  **Session Timeout:**
+
+  ```properties
+  # application.properties
+  server.servlet.session.timeout=30m
+  ```
+
+</details>
+
+<details>
+  <summary>Application Scope (Web Only)</summary>
+  <br/>
+
+  **One instance per ServletContext.** Similar to singleton but specific to web applications.
+
+  ```java
+  @Component
+  @ApplicationScope
+  public class ApplicationMetrics {
+      private final AtomicLong requestCount = new AtomicLong(0);
+      private final AtomicLong errorCount = new AtomicLong(0);
+      
+      public void incrementRequestCount() {
+          requestCount.incrementAndGet();
+      }
+      
+      public void incrementErrorCount() {
+          errorCount.incrementAndGet();
+      }
+      
+      public long getRequestCount() {
+          return requestCount.get();
+      }
+      
+      public long getErrorCount() {
+          return errorCount.get();
+      }
+  }
+  ```
+
+  **Characteristics:**
+  + One instance per web application
+  + Shared across all sessions and requests
+  + Similar to singleton but web-specific
+  + Lifecycle tied to ServletContext
+
+  **When to use:**
+  + Application-wide counters
+  + Global configuration
+  + Shared cache
+  + Application metrics
+
+</details>
+
+<details>
+  <summary>Scope Comparison</summary>
+  <br/>
+
+  ```java
+  @Configuration
+  public class ScopeExamples {
+      
+      // Singleton - one instance for entire application
+      @Bean
+      @Scope("singleton")
+      public ConfigService configService() {
+          return new ConfigService();
+      }
+      
+      // Prototype - new instance every time
+      @Bean
+      @Scope("prototype")
+      public ReportGenerator reportGenerator() {
+          return new ReportGenerator();
+      }
+      
+      // Request - one instance per HTTP request
+      @Bean
+      @RequestScope
+      public RequestLogger requestLogger() {
+          return new RequestLogger();
+      }
+      
+      // Session - one instance per HTTP session
+      @Bean
+      @SessionScope
+      public UserPreferences userPreferences() {
+          return new UserPreferences();
+      }
+      
+      // Application - one instance per ServletContext
+      @Bean
+      @ApplicationScope
+      public AppMetrics appMetrics() {
+          return new AppMetrics();
+      }
+  }
+  ```
+
+  **Lifecycle Comparison:**
+
+  ```
+  Application Start
+  ├── Singleton beans created
+  └── Application scope beans created
+  
+  HTTP Request 1 (User A, Session 1)
+  ├── Request scope bean created
+  ├── Session scope bean created (first request in session)
+  └── Request ends → Request scope bean destroyed
+  
+  HTTP Request 2 (User A, Session 1)
+  ├── Request scope bean created (new)
+  ├── Session scope bean reused (same session)
+  └── Request ends → Request scope bean destroyed
+  
+  HTTP Request 3 (User B, Session 2)
+  ├── Request scope bean created (new)
+  ├── Session scope bean created (new session)
+  └── Request ends → Request scope bean destroyed
+  
+  Session 1 expires
+  └── Session scope bean destroyed
+  
+  Application Shutdown
+  ├── Singleton beans destroyed
+  └── Application scope beans destroyed
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use singleton for stateless services
+  @Service
+  public class UserService {
+      private final UserRepository repository;
+      
+      public UserService(UserRepository repository) {
+          this.repository = repository;
+      }
+  }
+  
+  // ✅ DO: Use prototype for stateful objects
+  @Component
+  @Scope("prototype")
+  public class OrderProcessor {
+      private Order currentOrder;
+      
+      public void process(Order order) {
+          this.currentOrder = order;
+          // Process order
+      }
+  }
+  
+  // ✅ DO: Use request scope for request-specific data
+  @Component
+  @RequestScope
+  public class RequestContext {
+      private String correlationId;
+      // Request-specific data
+  }
+  
+  // ✅ DO: Use session scope for user session data
+  @Component
+  @SessionScope
+  public class ShoppingCart {
+      private List<Item> items = new ArrayList<>();
+      // User's cart
+  }
+  
+  // ❌ DON'T: Store mutable state in singleton
+  @Service
+  public class BadService {
+      private String currentUser;  // BAD! Not thread-safe
+      
+      public void setCurrentUser(String user) {
+          this.currentUser = user;  // Race condition!
+      }
+  }
+  
+  // ✅ DO: Use proxyMode for narrower scopes in singletons
+  @Component
+  @Scope(value = "request", proxyMode = ScopedProxyMode.TARGET_CLASS)
+  public class RequestContext { }
+  
+  // ❌ DON'T: Inject narrower scope without proxy
+  @Component
+  @RequestScope  // No proxyMode - will fail!
+  public class BadRequestContext { }
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  + **Singleton** is the default scope (one instance per container)
+  + **Prototype** creates new instance each time (not managed after creation)
+  + **Request** scope is per HTTP request (web only)
+  + **Session** scope is per HTTP session (web only)
+  + **Application** scope is per ServletContext (web only)
+  + Use **proxyMode** when injecting narrower scopes into singletons
+  + Singleton beans should be **stateless** for thread safety
+  + Prototype beans are **not destroyed** by Spring (@PreDestroy not called)
+  + Request/Session scopes require **web application context**
+  
+</details>
