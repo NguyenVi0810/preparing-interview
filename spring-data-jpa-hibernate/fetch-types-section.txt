@@ -1,0 +1,747 @@
+## Fetch Types
+
+<details>
+  <summary>LAZY vs EAGER Loading</summary>
+  <br/>
+
+  Fetch type determines when related entities are loaded from the database.
+
+  **LAZY Loading:**
+  + Related entities loaded on-demand (when accessed)
+  + Default for @OneToMany and @ManyToMany
+  + Better performance (loads only what you need)
+  + Requires active session/transaction
+
+  **EAGER Loading:**
+  + Related entities loaded immediately with parent
+  + Default for @ManyToOne and @OneToOne
+  + Can cause performance issues (loads unnecessary data)
+  + Works outside transaction
+
+  **Default fetch types:**
+
+  ```
+  @OneToOne   → EAGER
+  @ManyToOne  → EAGER
+  @OneToMany  → LAZY
+  @ManyToMany → LAZY
+  ```
+
+</details>
+
+<details>
+  <summary>LAZY Loading Example</summary>
+  <br/>
+
+  **Entity with LAZY relationship:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+      private List<Order> orders = new ArrayList<>();
+  }
+  
+  @Entity
+  public class Order {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private BigDecimal total;
+      
+      @ManyToOne
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **LAZY loading behavior:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void lazyLoadingExample() {
+          // Load user - executes SELECT for User only
+          User user = userRepository.findById(1L).orElseThrow();
+          // SQL: SELECT * FROM users WHERE id = 1
+          
+          System.out.println(user.getUsername());  // Works fine
+          
+          // Access orders - triggers second query
+          List<Order> orders = user.getOrders();
+          // SQL: SELECT * FROM orders WHERE user_id = 1
+          
+          System.out.println(orders.size());  // Now orders are loaded
+      }
+  }
+  ```
+
+  **Benefits of LAZY:**
+  + Loads only needed data
+  + Better performance for large collections
+  + Reduces memory usage
+
+  **Drawbacks of LAZY:**
+  + Requires active session
+  + Can cause LazyInitializationException
+  + Can cause N+1 problem
+
+</details>
+
+<details>
+  <summary>EAGER Loading Example</summary>
+  <br/>
+
+  **Entity with EAGER relationship:**
+
+  ```java
+  @Entity
+  public class Order {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private BigDecimal total;
+      
+      @ManyToOne(fetch = FetchType.EAGER)
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **EAGER loading behavior:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private OrderRepository orderRepository;
+      
+      public void eagerLoadingExample() {
+          // Load order - executes JOIN to load User immediately
+          Order order = orderRepository.findById(1L).orElseThrow();
+          // SQL: SELECT o.*, u.* FROM orders o 
+          //      LEFT JOIN users u ON o.user_id = u.id 
+          //      WHERE o.id = 1
+          
+          // User already loaded - no additional query
+          System.out.println(order.getUser().getUsername());
+      }
+  }
+  ```
+
+  **Benefits of EAGER:**
+  + No LazyInitializationException
+  + Works outside transaction
+  + Simpler code
+
+  **Drawbacks of EAGER:**
+  + Loads unnecessary data
+  + Performance issues with large collections
+  + Can cause memory issues
+  + Multiple EAGER relationships cause Cartesian product
+
+</details>
+
+<details>
+  <summary>Proxy Objects</summary>
+  <br/>
+
+  Hibernate uses proxy objects for LAZY loading.
+
+  **What is a proxy?**
+  + Placeholder object that looks like the real entity
+  + Contains only the ID initially
+  + Loads actual data when you access fields
+  + Created by Hibernate using bytecode manipulation
+
+  **Proxy example:**
+
+  ```java
+  @Entity
+  public class Order {
+      
+      @Id
+      private Long id;
+      
+      @ManyToOne(fetch = FetchType.LAZY)
+      @JoinColumn(name = "user_id")
+      private User user;  // This is a proxy
+  }
+  
+  @Transactional
+  public void proxyExample() {
+      Order order = orderRepository.findById(1L).orElseThrow();
+      
+      User user = order.getUser();
+      // user is a proxy object (User$HibernateProxy$...)
+      
+      System.out.println(user.getClass().getName());
+      // Output: com.example.User$HibernateProxy$abc123
+      
+      // Accessing field triggers database query
+      System.out.println(user.getUsername());
+      // SQL: SELECT * FROM users WHERE id = ?
+  }
+  ```
+
+  **Check if object is proxy:**
+
+  ```java
+  @Transactional
+  public void checkProxy() {
+      Order order = orderRepository.findById(1L).orElseThrow();
+      User user = order.getUser();
+      
+      // Method 1: Check class name
+      boolean isProxy = user.getClass().getName().contains("HibernateProxy");
+      
+      // Method 2: Use Hibernate utility
+      boolean isProxy2 = user instanceof HibernateProxy;
+      
+      // Method 3: Check if initialized
+      boolean isInitialized = Hibernate.isInitialized(user);
+  }
+  ```
+
+  **Force proxy initialization:**
+
+  ```java
+  @Transactional
+  public void initializeProxy() {
+      Order order = orderRepository.findById(1L).orElseThrow();
+      User user = order.getUser();
+      
+      // Force initialization
+      Hibernate.initialize(user);
+      
+      // Now user is fully loaded
+  }
+  ```
+
+  **getReferenceById() returns proxy:**
+
+  ```java
+  @Transactional
+  public void referenceExample() {
+      // Returns proxy without database query
+      User userProxy = entityManager.getReference(User.class, 1L);
+      
+      // No query executed yet
+      System.out.println("Got reference");
+      
+      // Query executed when accessing field
+      System.out.println(userProxy.getUsername());
+      // SQL: SELECT * FROM users WHERE id = 1
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>LazyInitializationException</summary>
+  <br/>
+
+  **LazyInitializationException** occurs when accessing LAZY collection outside transaction.
+
+  **Common scenario:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public User getUser(Long id) {
+          return userRepository.findById(id).orElseThrow();
+      }  // Transaction ends here, session closes
+  }
+  
+  @RestController
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @GetMapping("/users/{id}")
+      public UserDTO getUser(@PathVariable Long id) {
+          User user = userService.getUser(id);  // User is now detached
+          
+          // LazyInitializationException!
+          List<Order> orders = user.getOrders();
+          // Error: could not initialize proxy - no Session
+          
+          return new UserDTO(user);
+      }
+  }
+  ```
+
+  **Why it happens:**
+  + LAZY collection not loaded within transaction
+  + Transaction ends, session closes
+  + Accessing collection outside session fails
+
+</details>
+
+<details>
+  <summary>Solution 1: Fetch Join</summary>
+  <br/>
+
+  Use JPQL fetch join to load related entities.
+
+  **Repository with fetch join:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+      Optional<User> findByIdWithOrders(@Param("id") Long id);
+      
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders")
+      List<User> findAllWithOrders();
+      
+      // Multiple joins
+      @Query("SELECT u FROM User u " +
+             "LEFT JOIN FETCH u.orders o " +
+             "LEFT JOIN FETCH o.items " +
+             "WHERE u.id = :id")
+      Optional<User> findByIdWithOrdersAndItems(@Param("id") Long id);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public User getUserWithOrders(Long id) {
+          return userRepository.findByIdWithOrders(id).orElseThrow();
+      }  // Orders are loaded, no LazyInitializationException
+  }
+  
+  @RestController
+  public class UserController {
+      
+      @GetMapping("/users/{id}")
+      public UserDTO getUser(@PathVariable Long id) {
+          User user = userService.getUserWithOrders(id);
+          
+          // Works fine - orders already loaded
+          List<Order> orders = user.getOrders();
+          
+          return new UserDTO(user);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Solution 2: Entity Graph</summary>
+  <br/>
+
+  Use @EntityGraph to specify which relationships to load.
+
+  **Define entity graph:**
+
+  ```java
+  @Entity
+  @NamedEntityGraph(
+      name = "User.orders",
+      attributeNodes = @NamedAttributeNode("orders")
+  )
+  public class User {
+      
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+      private List<Order> orders;
+  }
+  ```
+
+  **Use entity graph in repository:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @EntityGraph(value = "User.orders")
+      Optional<User> findById(Long id);
+      
+      @EntityGraph(attributePaths = {"orders"})
+      List<User> findAll();
+      
+      @EntityGraph(attributePaths = {"orders", "orders.items"})
+      Optional<User> findByUsername(String username);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public User getUser(Long id) {
+          return userRepository.findById(id).orElseThrow();
+          // Orders loaded due to @EntityGraph
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Solution 3: Force Initialization</summary>
+  <br/>
+
+  Access collection within transaction to force loading.
+
+  **Method 1: Access collection:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public User getUser(Long id) {
+          User user = userRepository.findById(id).orElseThrow();
+          
+          // Force load orders
+          user.getOrders().size();
+          
+          return user;
+      }
+  }
+  ```
+
+  **Method 2: Use Hibernate.initialize():**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public User getUser(Long id) {
+          User user = userRepository.findById(id).orElseThrow();
+          
+          // Force initialization
+          Hibernate.initialize(user.getOrders());
+          
+          return user;
+      }
+  }
+  ```
+
+  **Method 3: Iterate collection:**
+
+  ```java
+  @Transactional
+  public User getUser(Long id) {
+      User user = userRepository.findById(id).orElseThrow();
+      
+      // Force load by iterating
+      for (Order order : user.getOrders()) {
+          // Just accessing is enough
+      }
+      
+      return user;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Solution 4: Open Session in View</summary>
+  <br/>
+
+  Keep session open until view rendering completes.
+
+  **Enable in application.properties:**
+
+  ```properties
+  spring.jpa.open-in-view=true
+  ```
+
+  **How it works:**
+  + Opens Hibernate session at start of request
+  + Keeps session open until response is sent
+  + Allows lazy loading in controller/view layer
+
+  **Pros:**
+  + Simple solution
+  + No code changes needed
+  + Works with existing code
+
+  **Cons:**
+  + Performance issues (long-lived sessions)
+  + Database connections held longer
+  + Hides lazy loading problems
+  + Not recommended for production
+
+  **Better approach - disable and fix properly:**
+
+  ```properties
+  spring.jpa.open-in-view=false
+  ```
+
+</details>
+
+<details>
+  <summary>Solution 5: DTO Projection</summary>
+  <br/>
+
+  Use DTOs to fetch only needed data.
+
+  **DTO class:**
+
+  ```java
+  public class UserDTO {
+      private Long id;
+      private String username;
+      private List<OrderDTO> orders;
+      
+      public UserDTO(Long id, String username) {
+          this.id = id;
+          this.username = username;
+      }
+  }
+  
+  public class OrderDTO {
+      private Long id;
+      private BigDecimal total;
+      
+      public OrderDTO(Long id, BigDecimal total) {
+          this.id = id;
+          this.total = total;
+      }
+  }
+  ```
+
+  **Repository with DTO projection:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) " +
+             "FROM User u WHERE u.id = :id")
+      UserDTO findUserDTOById(@Param("id") Long id);
+      
+      @Query("SELECT new com.example.dto.OrderDTO(o.id, o.total) " +
+             "FROM Order o WHERE o.user.id = :userId")
+      List<OrderDTO> findOrderDTOsByUserId(@Param("userId") Long userId);
+  }
+  ```
+
+  **Service:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional(readOnly = true)
+      public UserDTO getUserWithOrders(Long id) {
+          UserDTO user = userRepository.findUserDTOById(id);
+          List<OrderDTO> orders = userRepository.findOrderDTOsByUserId(id);
+          user.setOrders(orders);
+          return user;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>N+1 Problem</summary>
+  <br/>
+
+  N+1 problem occurs when loading collection triggers additional queries.
+
+  **Example of N+1 problem:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void printAllUsersWithOrders() {
+          List<User> users = userRepository.findAll();
+          // SQL: SELECT * FROM users (1 query)
+          
+          for (User user : users) {
+              System.out.println(user.getUsername());
+              System.out.println(user.getOrders().size());
+              // SQL: SELECT * FROM orders WHERE user_id = ? (N queries)
+          }
+          
+          // Total: 1 + N queries (if 100 users, 101 queries!)
+      }
+  }
+  ```
+
+  **Solution 1: Fetch join:**
+
+  ```java
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  List<User> findAllWithOrders();
+  
+  @Transactional
+  public void printAllUsersWithOrders() {
+      List<User> users = userRepository.findAllWithOrders();
+      // SQL: SELECT u.*, o.* FROM users u LEFT JOIN orders o ON u.id = o.user_id
+      // Only 1 query!
+      
+      for (User user : users) {
+          System.out.println(user.getOrders().size());
+      }
+  }
+  ```
+
+  **Solution 2: Entity graph:**
+
+  ```java
+  @EntityGraph(attributePaths = {"orders"})
+  List<User> findAll();
+  ```
+
+  **Solution 3: Batch fetching:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)  // Load 10 users' orders at once
+      private List<Order> orders;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use LAZY by default
+  @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+  private List<Order> orders;
+  
+  // ❌ DON'T: Use EAGER for collections
+  @OneToMany(fetch = FetchType.EAGER)
+  private List<Order> orders;  // Performance issues
+  
+  // ✅ DO: Use fetch join when you need related entities
+  @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+  Optional<User> findByIdWithOrders(@Param("id") Long id);
+  
+  // ✅ DO: Use @EntityGraph for flexible loading
+  @EntityGraph(attributePaths = {"orders"})
+  Optional<User> findById(Long id);
+  
+  // ✅ DO: Force initialization within transaction
+  @Transactional
+  public User getUser(Long id) {
+      User user = userRepository.findById(id).orElseThrow();
+      user.getOrders().size();  // Force load
+      return user;
+  }
+  
+  // ❌ DON'T: Access lazy collection outside transaction
+  public User getUser(Long id) {
+      User user = userRepository.findById(id).orElseThrow();
+      return user;
+  }
+  // Later: user.getOrders() → LazyInitializationException!
+  
+  // ✅ DO: Use DTO projection for read-only operations
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  List<UserDTO> findAllUserDTOs();
+  
+  // ✅ DO: Use @Transactional(readOnly = true) for read operations
+  @Transactional(readOnly = true)
+  public User getUser(Long id) {
+      return userRepository.findById(id).orElseThrow();
+  }
+  
+  // ✅ DO: Use batch fetching to reduce N+1 problem
+  @OneToMany(mappedBy = "user")
+  @BatchSize(size = 10)
+  private List<Order> orders;
+  
+  // ❌ DON'T: Use Open Session in View in production
+  spring.jpa.open-in-view=false  // Disable it
+  
+  // ✅ DO: Use DISTINCT with fetch join for collections
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  List<User> findAllWithOrders();
+  
+  // ✅ DO: Check if collection is initialized
+  if (Hibernate.isInitialized(user.getOrders())) {
+      // Safe to access
+  }
+  
+  // ✅ DO: Use multiple queries instead of complex joins
+  @Transactional(readOnly = true)
+  public UserDTO getUserWithOrders(Long id) {
+      User user = userRepository.findById(id).orElseThrow();
+      List<Order> orders = orderRepository.findByUserId(id);
+      return new UserDTO(user, orders);
+  }
+  ```
+
+  **Summary:**
+  + **LAZY** loads on-demand (default for @OneToMany, @ManyToMany) - use by default
+  + **EAGER** loads immediately (default for @ManyToOne, @OneToOne) - avoid for collections
+  + **Proxy** is a placeholder object for lazy loading
+  + **LazyInitializationException** occurs when accessing lazy collection outside transaction
+  + Use **fetch join** or **@EntityGraph** to load related entities in single query
+  + Use **Hibernate.initialize()** to force loading within transaction
+  + Use **DTO projection** for read-only operations
+  + Use **@BatchSize** to reduce N+1 problem
+  + Use **DISTINCT** with fetch join to avoid duplicates
+  + **Disable Open Session in View** in production
+  + Always use **@Transactional** when accessing lazy collections
+  + Check if initialized with **Hibernate.isInitialized()**
+  + Prefer **LAZY** over EAGER for better performance
+
+</details>

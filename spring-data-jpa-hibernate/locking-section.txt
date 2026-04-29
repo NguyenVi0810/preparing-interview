@@ -1,0 +1,686 @@
+## Locking
+
+<details>
+  <summary>What is Locking?</summary>
+  <br/>
+
+  Locking prevents concurrent modification conflicts in multi-user environments.
+
+  **Why use locking?**
+  + Prevent lost updates
+  + Maintain data consistency
+  + Handle concurrent access
+  + Avoid race conditions
+
+  **Problem without locking:**
+
+  ```java
+  // User A reads product (stock = 10)
+  Product product = productRepository.findById(1L).orElseThrow();
+  
+  // User B reads same product (stock = 10)
+  Product product = productRepository.findById(1L).orElseThrow();
+  
+  // User A decrements stock (stock = 9)
+  product.setStock(product.getStock() - 1);
+  productRepository.save(product);
+  
+  // User B decrements stock (stock = 9) - Lost update!
+  product.setStock(product.getStock() - 1);
+  productRepository.save(product);
+  
+  // Final stock = 9 (should be 8)
+  ```
+
+  **Two types of locking:**
+  + **Optimistic Locking** - Assumes conflicts are rare, checks at commit
+  + **Pessimistic Locking** - Assumes conflicts are common, locks immediately
+
+</details>
+
+<details>
+  <summary>Optimistic Locking (@Version)</summary>
+  <br/>
+
+  Optimistic locking uses a version field to detect concurrent modifications.
+
+  **How it works:**
+  + Entity has a version field (@Version)
+  + Version increments on each update
+  + Update fails if version changed (OptimisticLockException)
+
+  **Entity with @Version:**
+
+  ```java
+  @Entity
+  public class Product {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String name;
+      private Integer stock;
+      
+      @Version
+      private Long version;  // Managed by JPA
+      
+      // Constructors, getters, setters
+  }
+  ```
+
+  **How version works:**
+
+  ```java
+  // Initial state: version = 0
+  Product product = new Product("Laptop", 10);
+  productRepository.save(product);
+  // After save: version = 0
+  
+  // Update 1
+  product.setStock(9);
+  productRepository.save(product);
+  // After save: version = 1
+  
+  // Update 2
+  product.setStock(8);
+  productRepository.save(product);
+  // After save: version = 2
+  ```
+
+  **Concurrent modification detection:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @Autowired
+      private ProductRepository productRepository;
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          // User A: Load product (version = 1)
+          Product product = productRepository.findById(productId).orElseThrow();
+          
+          // User B: Load same product (version = 1)
+          // User B: Update stock (version = 2)
+          
+          // User A: Try to update
+          product.setStock(product.getStock() - quantity);
+          productRepository.save(product);
+          // SQL: UPDATE products SET stock = ?, version = 2 WHERE id = ? AND version = 1
+          // Fails! Version is now 2, not 1
+          // Throws OptimisticLockException
+      }
+  }
+  ```
+
+  **Handle OptimisticLockException:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @Autowired
+      private ProductRepository productRepository;
+      
+      @Transactional
+      public void updateStockWithRetry(Long productId, Integer quantity) {
+          int maxRetries = 3;
+          int attempt = 0;
+          
+          while (attempt < maxRetries) {
+              try {
+                  Product product = productRepository.findById(productId).orElseThrow();
+                  product.setStock(product.getStock() - quantity);
+                  productRepository.save(product);
+                  return;  // Success
+              } catch (OptimisticLockException e) {
+                  attempt++;
+                  if (attempt >= maxRetries) {
+                      throw new RuntimeException("Failed after " + maxRetries + " attempts", e);
+                  }
+                  // Retry
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Optimistic Locking - When to Use</summary>
+  <br/>
+
+  **Use optimistic locking when:**
+  + Conflicts are rare ✅
+  + Read operations are frequent ✅
+  + Performance is important ✅
+  + Long-running transactions ✅
+  + Web applications (stateless) ✅
+
+  **Don't use optimistic locking when:**
+  + Conflicts are common ❌
+  + High contention on same records ❌
+  + Cannot handle retry logic ❌
+
+  **Example use cases:**
+  + E-commerce product updates
+  + User profile updates
+  + Blog post editing
+  + Configuration changes
+
+  **Advantages:**
+  + No database locks
+  + Better performance
+  + No deadlocks
+  + Scalable
+
+  **Disadvantages:**
+  + Requires retry logic
+  + Can fail at commit time
+  + User may lose work
+
+</details>
+
+<details>
+  <summary>Pessimistic Locking</summary>
+  <br/>
+
+  Pessimistic locking acquires database locks to prevent concurrent access.
+
+  **How it works:**
+  + Locks row immediately when read
+  + Other transactions wait or fail
+  + Lock released when transaction commits/rolls back
+
+  **Lock modes:**
+
+  ```
+  PESSIMISTIC_READ  - Shared lock (others can read, not write)
+  PESSIMISTIC_WRITE - Exclusive lock (others cannot read or write)
+  PESSIMISTIC_FORCE_INCREMENT - Exclusive lock + increment version
+  ```
+
+  **PESSIMISTIC_WRITE (most common):**
+
+  ```java
+  @Repository
+  public interface ProductRepository extends JpaRepository<Product, Long> {
+      
+      @Lock(LockModeType.PESSIMISTIC_WRITE)
+      @Query("SELECT p FROM Product p WHERE p.id = :id")
+      Optional<Product> findByIdWithLock(@Param("id") Long id);
+  }
+  
+  @Service
+  public class ProductService {
+      
+      @Autowired
+      private ProductRepository productRepository;
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          // Acquires exclusive lock
+          Product product = productRepository.findByIdWithLock(productId).orElseThrow();
+          // SQL: SELECT * FROM products WHERE id = ? FOR UPDATE
+          
+          // Other transactions wait here
+          
+          product.setStock(product.getStock() - quantity);
+          productRepository.save(product);
+          
+          // Lock released when transaction commits
+      }
+  }
+  ```
+
+  **Using EntityManager:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          // Pessimistic write lock
+          Product product = entityManager.find(
+              Product.class,
+              productId,
+              LockModeType.PESSIMISTIC_WRITE
+          );
+          
+          product.setStock(product.getStock() - quantity);
+          entityManager.merge(product);
+      }
+  }
+  ```
+
+  **PESSIMISTIC_READ:**
+
+  ```java
+  @Repository
+  public interface ProductRepository extends JpaRepository<Product, Long> {
+      
+      @Lock(LockModeType.PESSIMISTIC_READ)
+      @Query("SELECT p FROM Product p WHERE p.id = :id")
+      Optional<Product> findByIdWithReadLock(@Param("id") Long id);
+  }
+  
+  @Service
+  public class ProductService {
+      
+      @Transactional
+      public Product getProduct(Long productId) {
+          // Shared lock (others can read, not write)
+          return productRepository.findByIdWithReadLock(productId).orElseThrow();
+          // SQL: SELECT * FROM products WHERE id = ? FOR SHARE (PostgreSQL)
+          // SQL: SELECT * FROM products WHERE id = ? LOCK IN SHARE MODE (MySQL)
+      }
+  }
+  ```
+
+  **PESSIMISTIC_FORCE_INCREMENT:**
+
+  ```java
+  @Entity
+  public class Product {
+      @Id
+      private Long id;
+      
+      @Version
+      private Long version;
+      
+      private Integer stock;
+  }
+  
+  @Repository
+  public interface ProductRepository extends JpaRepository<Product, Long> {
+      
+      @Lock(LockModeType.PESSIMISTIC_FORCE_INCREMENT)
+      @Query("SELECT p FROM Product p WHERE p.id = :id")
+      Optional<Product> findByIdWithForceIncrement(@Param("id") Long id);
+  }
+  
+  @Service
+  public class ProductService {
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          // Exclusive lock + increment version
+          Product product = productRepository.findByIdWithForceIncrement(productId).orElseThrow();
+          
+          product.setStock(product.getStock() - quantity);
+          productRepository.save(product);
+          
+          // Version incremented even if no changes
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Pessimistic Locking - When to Use</summary>
+  <br/>
+
+  **Use pessimistic locking when:**
+  + Conflicts are common ✅
+  + High contention on same records ✅
+  + Cannot afford retry logic ✅
+  + Critical operations (money transfer) ✅
+  + Short transactions ✅
+
+  **Don't use pessimistic locking when:**
+  + Conflicts are rare ❌
+  + Long-running transactions ❌
+  + High read volume ❌
+  + Can cause deadlocks ❌
+
+  **Example use cases:**
+  + Bank account transfers
+  + Inventory management
+  + Ticket booking
+  + Seat reservation
+
+  **Advantages:**
+  + Guaranteed consistency
+  + No retry logic needed
+  + Prevents conflicts upfront
+
+  **Disadvantages:**
+  + Reduced concurrency
+  + Potential deadlocks
+  + Performance impact
+  + Locks held during transaction
+
+</details>
+
+<details>
+  <summary>Lock Timeout</summary>
+  <br/>
+
+  Set timeout for acquiring locks.
+
+  **Using @QueryHints:**
+
+  ```java
+  @Repository
+  public interface ProductRepository extends JpaRepository<Product, Long> {
+      
+      @Lock(LockModeType.PESSIMISTIC_WRITE)
+      @QueryHints({
+          @QueryHint(name = "javax.persistence.lock.timeout", value = "5000")
+      })
+      @Query("SELECT p FROM Product p WHERE p.id = :id")
+      Optional<Product> findByIdWithLock(@Param("id") Long id);
+      // Timeout after 5 seconds
+  }
+  ```
+
+  **Using EntityManager:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          Map<String, Object> properties = new HashMap<>();
+          properties.put("javax.persistence.lock.timeout", 5000);
+          
+          Product product = entityManager.find(
+              Product.class,
+              productId,
+              LockModeType.PESSIMISTIC_WRITE,
+              properties
+          );
+          
+          product.setStock(product.getStock() - quantity);
+      }
+  }
+  ```
+
+  **Handle timeout:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          try {
+              Product product = productRepository.findByIdWithLock(productId).orElseThrow();
+              product.setStock(product.getStock() - quantity);
+              productRepository.save(product);
+          } catch (LockTimeoutException e) {
+              throw new RuntimeException("Could not acquire lock", e);
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Optimistic vs Pessimistic Locking</summary>
+  <br/>
+
+  **Comparison:**
+
+  | Aspect | Optimistic | Pessimistic |
+  |--------|-----------|-------------|
+  | **When locks** | At commit | At read |
+  | **Database locks** | No | Yes |
+  | **Performance** | Better | Worse |
+  | **Concurrency** | Higher | Lower |
+  | **Conflicts** | Detected late | Prevented early |
+  | **Retry logic** | Required | Not required |
+  | **Deadlocks** | No | Possible |
+  | **Use case** | Low contention | High contention |
+  | **Transaction length** | Long | Short |
+
+  **Example comparison:**
+
+  ```java
+  // Optimistic locking
+  @Entity
+  public class Product {
+      @Id
+      private Long id;
+      
+      @Version
+      private Long version;
+      
+      private Integer stock;
+  }
+  
+  @Transactional
+  public void updateStockOptimistic(Long id, Integer quantity) {
+      Product product = productRepository.findById(id).orElseThrow();
+      // No lock acquired
+      
+      product.setStock(product.getStock() - quantity);
+      productRepository.save(product);
+      // Check version at commit
+      // Throws OptimisticLockException if version changed
+  }
+  
+  // Pessimistic locking
+  @Transactional
+  public void updateStockPessimistic(Long id, Integer quantity) {
+      Product product = productRepository.findByIdWithLock(id).orElseThrow();
+      // Lock acquired immediately
+      // Other transactions wait
+      
+      product.setStock(product.getStock() - quantity);
+      productRepository.save(product);
+      // Lock released at commit
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Combining Both Locks</summary>
+  <br/>
+
+  You can use both optimistic and pessimistic locking together.
+
+  **Entity with @Version:**
+
+  ```java
+  @Entity
+  public class Product {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String name;
+      private Integer stock;
+      
+      @Version
+      private Long version;  // Optimistic locking
+  }
+  ```
+
+  **Repository with pessimistic lock:**
+
+  ```java
+  @Repository
+  public interface ProductRepository extends JpaRepository<Product, Long> {
+      
+      @Lock(LockModeType.PESSIMISTIC_WRITE)  // Pessimistic locking
+      @Query("SELECT p FROM Product p WHERE p.id = :id")
+      Optional<Product> findByIdWithLock(@Param("id") Long id);
+  }
+  ```
+
+  **Service using both:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @Transactional
+      public void updateStock(Long productId, Integer quantity) {
+          // Pessimistic lock acquired
+          Product product = productRepository.findByIdWithLock(productId).orElseThrow();
+          
+          product.setStock(product.getStock() - quantity);
+          productRepository.save(product);
+          
+          // Version checked at commit (optimistic)
+          // Both locks provide double protection
+      }
+  }
+  ```
+
+  **When to combine:**
+  + Extra safety for critical operations
+  + Prevent both concurrent access and lost updates
+  + Financial transactions
+  + Inventory management
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use optimistic locking by default
+  @Entity
+  public class Product {
+      @Id
+      private Long id;
+      
+      @Version
+      private Long version;
+  }
+  
+  // ✅ DO: Handle OptimisticLockException
+  @Transactional
+  public void updateProduct(Product product) {
+      try {
+          productRepository.save(product);
+      } catch (OptimisticLockException e) {
+          // Retry or inform user
+          throw new ConcurrentModificationException("Product was modified by another user");
+      }
+  }
+  
+  // ✅ DO: Use pessimistic locking for high contention
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("SELECT p FROM Product p WHERE p.id = :id")
+  Optional<Product> findByIdWithLock(@Param("id") Long id);
+  
+  // ✅ DO: Set lock timeout
+  @QueryHints({
+      @QueryHint(name = "javax.persistence.lock.timeout", value = "5000")
+  })
+  
+  // ✅ DO: Keep pessimistic lock duration short
+  @Transactional
+  public void updateStock(Long id, Integer quantity) {
+      Product product = productRepository.findByIdWithLock(id).orElseThrow();
+      product.setStock(product.getStock() - quantity);
+      productRepository.save(product);
+      // Transaction ends quickly
+  }
+  
+  // ❌ DON'T: Hold pessimistic lock for long time
+  @Transactional
+  public void badMethod(Long id) {
+      Product product = productRepository.findByIdWithLock(id).orElseThrow();
+      
+      // BAD: External API call while holding lock
+      externalService.call();
+      
+      product.setStock(product.getStock() - 1);
+      productRepository.save(product);
+  }
+  
+  // ✅ DO: Use PESSIMISTIC_WRITE for updates
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  Optional<Product> findByIdWithLock(Long id);
+  
+  // ✅ DO: Use PESSIMISTIC_READ for reads (if needed)
+  @Lock(LockModeType.PESSIMISTIC_READ)
+  Optional<Product> findByIdWithReadLock(Long id);
+  
+  // ✅ DO: Choose appropriate locking strategy
+  // Low contention → Optimistic locking
+  // High contention → Pessimistic locking
+  // Critical operations → Pessimistic locking
+  
+  // ✅ DO: Test for deadlocks
+  // Pessimistic locking can cause deadlocks
+  // Always acquire locks in same order
+  
+  // ✅ DO: Use @Version with Long or Integer
+  @Version
+  private Long version;  // Recommended
+  
+  @Version
+  private Integer version;  // Also works
+  
+  // ❌ DON'T: Manually modify version field
+  product.setVersion(5);  // BAD: Let JPA manage it
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  **Optimistic Locking:**
+  + Uses **@Version** field
+  + No database locks
+  + Checks version at **commit time**
+  + Throws **OptimisticLockException** if conflict
+  + Better **performance**
+  + Higher **concurrency**
+  + Requires **retry logic**
+  + Use for **low contention**
+
+  **Pessimistic Locking:**
+  + Uses database locks (**FOR UPDATE**)
+  + Locks at **read time**
+  + Blocks other transactions
+  + Three modes: **READ**, **WRITE**, **FORCE_INCREMENT**
+  + Lower **performance**
+  + Lower **concurrency**
+  + No retry logic needed
+  + Use for **high contention**
+  + Can cause **deadlocks**
+
+  **Lock Modes:**
+  + **PESSIMISTIC_READ** - Shared lock (others can read)
+  + **PESSIMISTIC_WRITE** - Exclusive lock (others wait)
+  + **PESSIMISTIC_FORCE_INCREMENT** - Exclusive lock + increment version
+
+  **When to Use:**
+  + **Optimistic** - Web apps, low contention, long transactions
+  + **Pessimistic** - High contention, critical operations, short transactions
+
+  **Best Practices:**
+  + Use **optimistic locking by default**
+  + Handle **OptimisticLockException**
+  + Use **pessimistic locking** for high contention
+  + Set **lock timeout**
+  + Keep pessimistic lock duration **short**
+  + Don't hold locks during **external calls**
+  + Test for **deadlocks**
+  + Let JPA manage **@Version** field
+
+</details>

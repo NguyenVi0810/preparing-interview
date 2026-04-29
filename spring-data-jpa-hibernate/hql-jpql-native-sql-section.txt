@@ -1,0 +1,673 @@
+## HQL vs JPQL vs Native SQL
+
+<details>
+  <summary>Overview</summary>
+  <br/>
+
+  Three query languages for database access in JPA/Hibernate.
+
+  **HQL (Hibernate Query Language):**
+  + Hibernate-specific query language
+  + Object-oriented query language
+  + Works with entities, not tables
+
+  **JPQL (Java Persistence Query Language):**
+  + JPA standard query language
+  + Subset of HQL
+  + Portable across JPA providers
+
+  **Native SQL:**
+  + Database-specific SQL
+  + Works with tables and columns
+  + Full database features available
+
+  **Relationship:**
+
+  ```
+  HQL (Hibernate-specific)
+   ↓
+  JPQL (JPA standard, subset of HQL)
+   ↓
+  Native SQL (Database-specific)
+  ```
+
+</details>
+
+<details>
+  <summary>JPQL (Java Persistence Query Language)</summary>
+  <br/>
+
+  JPQL is the JPA standard query language.
+
+  **Characteristics:**
+  + Object-oriented (uses entity names and properties)
+  + Database-independent
+  + Portable across JPA providers
+  + Type-safe
+  + Supports entity relationships
+
+  **Basic JPQL queries:**
+
+  ```java
+  @Repository
+  public class UserRepository {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      // Simple query
+      public List<User> findAll() {
+          return entityManager
+              .createQuery("SELECT u FROM User u", User.class)
+              .getResultList();
+      }
+      
+      // Query with parameter
+      public User findByUsername(String username) {
+          return entityManager
+              .createQuery("SELECT u FROM User u WHERE u.username = :username", User.class)
+              .setParameter("username", username)
+              .getSingleResult();
+      }
+      
+      // Query with multiple parameters
+      public List<User> findByAgeRange(Integer minAge, Integer maxAge) {
+          return entityManager
+              .createQuery("SELECT u FROM User u WHERE u.age BETWEEN :minAge AND :maxAge", User.class)
+              .setParameter("minAge", minAge)
+              .setParameter("maxAge", maxAge)
+              .getResultList();
+      }
+  }
+  ```
+
+  **JPQL with joins:**
+
+  ```java
+  // Inner join
+  public List<User> findUsersWithOrders() {
+      return entityManager
+          .createQuery("SELECT u FROM User u JOIN u.orders o", User.class)
+          .getResultList();
+  }
+  
+  // Left join
+  public List<User> findAllUsersWithOrders() {
+      return entityManager
+          .createQuery("SELECT u FROM User u LEFT JOIN u.orders o", User.class)
+          .getResultList();
+  }
+  
+  // Fetch join (load related entities)
+  public User findByIdWithOrders(Long id) {
+      return entityManager
+          .createQuery("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id", User.class)
+          .setParameter("id", id)
+          .getSingleResult();
+  }
+  ```
+
+  **JPQL aggregate functions:**
+
+  ```java
+  // Count
+  public long countActiveUsers() {
+      return entityManager
+          .createQuery("SELECT COUNT(u) FROM User u WHERE u.active = true", Long.class)
+          .getSingleResult();
+  }
+  
+  // Sum
+  public BigDecimal getTotalOrderAmount(Long userId) {
+      return entityManager
+          .createQuery("SELECT SUM(o.total) FROM Order o WHERE o.user.id = :userId", BigDecimal.class)
+          .setParameter("userId", userId)
+          .getSingleResult();
+  }
+  
+  // Average
+  public Double getAverageAge() {
+      return entityManager
+          .createQuery("SELECT AVG(u.age) FROM User u", Double.class)
+          .getSingleResult();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>HQL (Hibernate Query Language)</summary>
+  <br/>
+
+  HQL is Hibernate's query language (superset of JPQL).
+
+  **Characteristics:**
+  + All JPQL features plus Hibernate-specific extensions
+  + Object-oriented
+  + More powerful than JPQL
+  + Hibernate-specific (not portable)
+
+  **HQL-specific features:**
+
+  ```java
+  @Repository
+  public class UserRepository {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      // Cast to Hibernate Session
+      private Session getSession() {
+          return entityManager.unwrap(Session.class);
+      }
+      
+      // HQL with Hibernate Session
+      public List<User> findActiveUsers() {
+          return getSession()
+              .createQuery("FROM User u WHERE u.active = true", User.class)
+              .list();
+      }
+      
+      // HQL pagination
+      public List<User> findUsersWithPagination(int page, int size) {
+          return getSession()
+              .createQuery("FROM User u ORDER BY u.createdAt DESC", User.class)
+              .setFirstResult(page * size)
+              .setMaxResults(size)
+              .list();
+      }
+  }
+  ```
+
+  **HQL-specific syntax:**
+
+  ```java
+  // Implicit SELECT (HQL only)
+  public List<User> findAll() {
+      return getSession()
+          .createQuery("FROM User", User.class)  // No SELECT needed
+          .list();
+  }
+  
+  // Implicit WHERE (HQL only)
+  public List<User> findByUsername(String username) {
+      return getSession()
+          .createQuery("FROM User u WHERE username = :username", User.class)
+          .setParameter("username", username)
+          .list();
+  }
+  ```
+
+  **HQL update/delete:**
+
+  ```java
+  @Transactional
+  public int updateUserStatus(Long userId, boolean active) {
+      return getSession()
+          .createQuery("UPDATE User u SET u.active = :active WHERE u.id = :id")
+          .setParameter("active", active)
+          .setParameter("id", userId)
+          .executeUpdate();
+  }
+  
+  @Transactional
+  public int deleteInactiveUsers() {
+      return getSession()
+          .createQuery("DELETE FROM User u WHERE u.active = false")
+          .executeUpdate();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Native SQL</summary>
+  <br/>
+
+  Native SQL uses database-specific SQL syntax.
+
+  **Characteristics:**
+  + Database-specific
+  + Works with tables and columns (not entities)
+  + Full database features available
+  + Not portable
+  + Best performance for complex queries
+
+  **Basic native SQL:**
+
+  ```java
+  @Repository
+  public class UserRepository {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      // Simple native query
+      public List<User> findAll() {
+          return entityManager
+              .createNativeQuery("SELECT * FROM users", User.class)
+              .getResultList();
+      }
+      
+      // Native query with parameter
+      public User findByUsername(String username) {
+          return (User) entityManager
+              .createNativeQuery("SELECT * FROM users WHERE username = :username", User.class)
+              .setParameter("username", username)
+              .getSingleResult();
+      }
+      
+      // Native query with multiple parameters
+      public List<User> findByAgeRange(Integer minAge, Integer maxAge) {
+          return entityManager
+              .createNativeQuery("SELECT * FROM users WHERE age BETWEEN :minAge AND :maxAge", User.class)
+              .setParameter("minAge", minAge)
+              .setParameter("maxAge", maxAge)
+              .getResultList();
+      }
+  }
+  ```
+
+  **Database-specific features:**
+
+  ```java
+  // PostgreSQL full-text search
+  public List<User> fullTextSearch(String query) {
+      return entityManager
+          .createNativeQuery(
+              "SELECT * FROM users WHERE to_tsvector(username || ' ' || email) @@ to_tsquery(:query)",
+              User.class
+          )
+          .setParameter("query", query)
+          .getResultList();
+  }
+  
+  // MySQL JSON query
+  public List<User> findByJsonRole(String role) {
+      return entityManager
+          .createNativeQuery(
+              "SELECT * FROM users WHERE JSON_EXTRACT(metadata, '$.role') = :role",
+              User.class
+          )
+          .setParameter("role", role)
+          .getResultList();
+  }
+  
+  // Window functions
+  public List<Object[]> getUsersWithRanking() {
+      return entityManager
+          .createNativeQuery(
+              "SELECT username, age, RANK() OVER (ORDER BY age DESC) as rank " +
+              "FROM users WHERE active = true"
+          )
+          .getResultList();
+  }
+  ```
+
+  **Native SQL with result mapping:**
+
+  ```java
+  // Scalar results (not entities)
+  public List<Object[]> getUserSummary() {
+      return entityManager
+          .createNativeQuery("SELECT username, email, age FROM users")
+          .getResultList();
+  }
+  
+  // Single column result
+  public List<String> getAllUsernames() {
+      return entityManager
+          .createNativeQuery("SELECT username FROM users")
+          .getResultList();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Key Differences</summary>
+  <br/>
+
+  **Syntax differences:**
+
+  ```java
+  // JPQL - uses entity names and properties
+  "SELECT u FROM User u WHERE u.username = :username"
+  
+  // HQL - can omit SELECT
+  "FROM User u WHERE u.username = :username"
+  
+  // Native SQL - uses table and column names
+  "SELECT * FROM users WHERE username = :username"
+  ```
+
+  **Join syntax:**
+
+  ```java
+  // JPQL/HQL - uses entity relationships
+  "SELECT u FROM User u JOIN u.orders o WHERE o.total > 100"
+  
+  // Native SQL - explicit JOIN with foreign keys
+  "SELECT u.* FROM users u JOIN orders o ON u.id = o.user_id WHERE o.total > 100"
+  ```
+
+  **Comparison table:**
+
+  | Feature | JPQL | HQL | Native SQL |
+  |---------|------|-----|------------|
+  | Standard | JPA standard | Hibernate-specific | Database-specific |
+  | Portability | High | Medium | Low |
+  | Syntax | Entity-based | Entity-based | Table-based |
+  | Features | Basic | Extended | Full database |
+  | Performance | Good | Good | Best |
+  | Type safety | Yes | Yes | No |
+  | Learning curve | Easy | Easy | Medium |
+  | Use case | Standard queries | Hibernate apps | Complex/DB-specific |
+
+</details>
+
+<details>
+  <summary>When to Use Each Query Type</summary>
+  <br/>
+
+  **Decision flowchart:**
+
+  ```
+  Need database-specific feature?
+    ├─ Yes → Use Native SQL
+    └─ No → Need Hibernate-specific feature?
+        ├─ Yes → Use HQL
+        └─ No → Use JPQL (default choice)
+  ```
+
+  **Use JPQL when:**
+  + You need database portability ✅
+  + Working with standard JPA ✅
+  + Query involves entity relationships ✅
+  + Type safety is important ✅
+  + Query is simple to moderate complexity ✅
+
+  **Use HQL when:**
+  + Using Hibernate (not just JPA) ✅
+  + Need Hibernate-specific features ✅
+  + Want more concise syntax ✅
+  + Working with Hibernate Session API ✅
+
+  **Use Native SQL when:**
+  + Need database-specific features ✅
+  + Complex queries with better performance ✅
+  + Working with legacy database ✅
+  + JPQL/HQL cannot express the query ✅
+  + Need full control over SQL ✅
+
+  **JPQL Examples:**
+
+  ```java
+  // ✅ GOOD: Simple entity query
+  @Query("SELECT u FROM User u WHERE u.active = true")
+  List<User> findActiveUsers();
+  
+  // ✅ GOOD: Query with relationships
+  @Query("SELECT u FROM User u JOIN u.orders o WHERE o.status = :status")
+  List<User> findUsersWithOrderStatus(@Param("status") String status);
+  
+  // ✅ GOOD: Fetch join to avoid N+1
+  @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+  User findByIdWithOrders(@Param("id") Long id);
+  
+  // ✅ GOOD: Aggregate functions
+  @Query("SELECT COUNT(u) FROM User u WHERE u.active = true")
+  long countActiveUsers();
+  ```
+
+  **HQL Examples:**
+
+  ```java
+  // ✅ GOOD: Concise syntax (no SELECT)
+  Session session = entityManager.unwrap(Session.class);
+  List<User> users = session
+      .createQuery("FROM User u WHERE u.active = true", User.class)
+      .list();
+  
+  // ✅ GOOD: Hibernate-specific pagination
+  List<User> users = session
+      .createQuery("FROM User u ORDER BY u.createdAt DESC", User.class)
+      .setFirstResult(0)
+      .setMaxResults(10)
+      .list();
+  
+  // ✅ GOOD: Bulk operations
+  int updated = session
+      .createQuery("UPDATE User u SET u.active = false WHERE u.lastLogin < :date")
+      .setParameter("date", cutoffDate)
+      .executeUpdate();
+  ```
+
+  **Native SQL Examples:**
+
+  ```java
+  // ✅ GOOD: Database-specific features (PostgreSQL full-text search)
+  @Query(value = "SELECT * FROM users WHERE to_tsvector(username) @@ to_tsquery(:query)",
+         nativeQuery = true)
+  List<User> fullTextSearch(@Param("query") String query);
+  
+  // ✅ GOOD: Complex joins with performance optimization
+  @Query(value = "SELECT u.* FROM users u " +
+                 "INNER JOIN orders o ON u.id = o.user_id " +
+                 "WHERE o.created_at > :date " +
+                 "GROUP BY u.id " +
+                 "HAVING COUNT(o.id) > 5",
+         nativeQuery = true)
+  List<User> findActiveCustomers(@Param("date") LocalDateTime date);
+  
+  // ✅ GOOD: Window functions
+  @Query(value = "SELECT *, ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) as rank " +
+                 "FROM employees",
+         nativeQuery = true)
+  List<Object[]> getEmployeeRanking();
+  
+  // ✅ GOOD: Recursive CTE (PostgreSQL)
+  @Query(value = "WITH RECURSIVE subordinates AS ( " +
+                 "  SELECT id, name, manager_id FROM employees WHERE id = :managerId " +
+                 "  UNION ALL " +
+                 "  SELECT e.id, e.name, e.manager_id FROM employees e " +
+                 "  INNER JOIN subordinates s ON s.id = e.manager_id " +
+                 ") SELECT * FROM subordinates",
+         nativeQuery = true)
+  List<Object[]> findSubordinates(@Param("managerId") Long managerId);
+  ```
+
+  **Comparison:**
+
+  | Aspect | JPQL | HQL | Native SQL |
+  |--------|------|-----|------------|
+  | **Portability** | ✅ High | ⚠️ Medium | ❌ Low |
+  | **Type Safety** | ✅ Yes | ✅ Yes | ❌ No |
+  | **Performance** | ✅ Good | ✅ Good | ✅ Best |
+  | **Features** | ⚠️ Basic | ✅ Extended | ✅ Full |
+  | **Complexity** | ✅ Easy | ✅ Easy | ⚠️ Medium |
+  | **Maintenance** | ✅ Easy | ✅ Easy | ⚠️ Harder |
+  | **Use Case** | Standard queries | Hibernate apps | DB-specific |
+
+  **Advantages & Disadvantages:**
+
+  **JPQL:**
+  + ✅ Database-independent
+  + ✅ Works with any JPA provider
+  + ✅ Type-safe
+  + ✅ Automatic entity mapping
+  + ✅ Supports entity relationships
+  + ❌ Limited database-specific features
+  + ❌ Can be verbose for complex queries
+
+  **HQL:**
+  + ✅ All JPQL features plus more
+  + ✅ More concise syntax
+  + ✅ Better integration with Hibernate
+  + ✅ Additional Hibernate features
+  + ❌ Hibernate-specific (not portable)
+  + ❌ Requires Hibernate dependency
+
+  **Native SQL:**
+  + ✅ Full database features
+  + ✅ Best performance for complex queries
+  + ✅ Direct control over SQL
+  + ✅ Database-specific optimizations
+  + ❌ Not portable across databases
+  + ❌ No type safety
+  + ❌ Manual result mapping
+  + ❌ Harder to maintain
+
+</details>
+
+<details>
+  <summary>Performance Comparison</summary>
+  <br/>
+
+  **Performance characteristics:**
+
+  ```java
+  // JPQL - Good performance, automatic optimization
+  @Query("SELECT u FROM User u WHERE u.age > :age")
+  List<User> findByAgeJPQL(@Param("age") Integer age);
+  
+  // HQL - Similar to JPQL
+  Session session = entityManager.unwrap(Session.class);
+  List<User> users = session
+      .createQuery("FROM User u WHERE u.age > :age", User.class)
+      .setParameter("age", age)
+      .list();
+  
+  // Native SQL - Best performance, no overhead
+  @Query(value = "SELECT * FROM users WHERE age > :age", nativeQuery = true)
+  List<User> findByAgeNative(@Param("age") Integer age);
+  ```
+
+  **When Native SQL is faster:**
+  + Complex joins with many tables
+  + Database-specific optimizations
+  + Bulk operations
+  + Reporting queries
+  + Data warehouse queries
+
+  **When JPQL/HQL is sufficient:**
+  + Simple queries
+  + Entity-based queries
+  + Queries with relationships
+  + Standard CRUD operations
+
+</details>
+
+<details>
+  <summary>Migration Between Query Types</summary>
+  <br/>
+
+  **JPQL to Native SQL:**
+
+  ```java
+  // JPQL
+  @Query("SELECT u FROM User u JOIN u.orders o WHERE o.total > :amount")
+  List<User> findUsersJPQL(@Param("amount") BigDecimal amount);
+  
+  // Equivalent Native SQL
+  @Query(value = "SELECT DISTINCT u.* FROM users u " +
+                 "JOIN orders o ON u.id = o.user_id " +
+                 "WHERE o.total > :amount",
+         nativeQuery = true)
+  List<User> findUsersNative(@Param("amount") BigDecimal amount);
+  ```
+
+  **Native SQL to JPQL:**
+
+  ```java
+  // Native SQL
+  @Query(value = "SELECT * FROM users WHERE username LIKE :pattern",
+         nativeQuery = true)
+  List<User> findUsersNative(@Param("pattern") String pattern);
+  
+  // Equivalent JPQL
+  @Query("SELECT u FROM User u WHERE u.username LIKE :pattern")
+  List<User> findUsersJPQL(@Param("pattern") String pattern);
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use JPQL for standard queries
+  @Query("SELECT u FROM User u WHERE u.active = true")
+  List<User> findActiveUsers();
+  
+  // ✅ DO: Use Native SQL for database-specific features
+  @Query(value = "SELECT * FROM users WHERE to_tsvector(username) @@ to_tsquery(:query)",
+         nativeQuery = true)
+  List<User> fullTextSearch(@Param("query") String query);
+  
+  // ✅ DO: Use named parameters
+  @Query("SELECT u FROM User u WHERE u.username = :username")
+  User findByUsername(@Param("username") String username);
+  
+  // ❌ DON'T: Use Native SQL for simple queries
+  @Query(value = "SELECT * FROM users WHERE username = :username", nativeQuery = true)
+  User findByUsername(@Param("username") String username);
+  
+  // ✅ DO: Use JPQL for portability
+  @Query("SELECT u FROM User u WHERE u.age > :age")
+  List<User> findByAge(@Param("age") Integer age);
+  
+  // ✅ DO: Use fetch join to avoid N+1
+  @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+  User findByIdWithOrders(@Param("id") Long id);
+  
+  // ✅ DO: Use Native SQL for complex reporting
+  @Query(value = "SELECT DATE(created_at) as date, COUNT(*) as count " +
+                 "FROM users " +
+                 "WHERE created_at > :startDate " +
+                 "GROUP BY DATE(created_at) " +
+                 "ORDER BY date DESC",
+         nativeQuery = true)
+  List<Object[]> getUserRegistrationStats(@Param("startDate") LocalDateTime startDate);
+  
+  // ✅ DO: Document why Native SQL is used
+  /**
+   * Uses native SQL for PostgreSQL full-text search.
+   * Cannot be expressed in JPQL.
+   */
+  @Query(value = "SELECT * FROM users WHERE to_tsvector(username) @@ to_tsquery(:query)",
+         nativeQuery = true)
+  List<User> fullTextSearch(@Param("query") String query);
+  ```
+
+  **Decision flowchart:**
+
+  ```
+  Need database-specific feature?
+    ├─ Yes → Use Native SQL
+    └─ No → Need Hibernate-specific feature?
+        ├─ Yes → Use HQL
+        └─ No → Use JPQL (default choice)
+  ```
+
+  **Key Points**
+  <br/>
+
+  + **JPQL** - JPA standard, portable, entity-based, use by default
+  + **HQL** - Hibernate-specific, superset of JPQL, more features
+  + **Native SQL** - Database-specific, full features, best performance
+  + Use **JPQL** for standard queries and portability
+  + Use **HQL** when using Hibernate and need extra features
+  + Use **Native SQL** for database-specific features or complex queries
+  + **JPQL/HQL** work with entities and properties
+  + **Native SQL** works with tables and columns
+  + **JPQL** is most portable, **Native SQL** is least portable
+  + **Native SQL** has best performance for complex queries
+  + Use **named parameters** (@Param) in all query types
+  + Use **fetch join** in JPQL/HQL to avoid N+1 problem
+  + Document why **Native SQL** is used (for maintainability)
+  + Consider **portability** vs **performance** trade-offs
+  + Start with **JPQL**, move to **Native SQL** only when needed
+
+</details>

@@ -1,0 +1,976 @@
+## Batch Processing
+
+<details>
+  <summary>What is Batch Processing?</summary>
+  <br/>
+
+  Batch processing executes multiple database operations in a single batch for better performance.
+
+  **Why use batch processing?**
+  + Reduces database round trips
+  + Improves performance significantly
+  + Reduces network overhead
+  + Better resource utilization
+
+  **Problem without batching:**
+
+  ```java
+  // ❌ BAD: Individual inserts
+  @Transactional
+  public void saveUsers(List<User> users) {
+      for (User user : users) {
+          userRepository.save(user);
+          // SQL: INSERT INTO users ... (1000 times for 1000 users)
+      }
+      // 1000 database round trips!
+  }
+  ```
+
+  **Solution with batching:**
+
+  ```java
+  // ✅ GOOD: Batch inserts
+  @Transactional
+  public void saveUsersBatch(List<User> users) {
+      for (int i = 0; i < users.size(); i++) {
+          entityManager.persist(users.get(i));
+          
+          if (i % 50 == 0) {
+              entityManager.flush();
+              entityManager.clear();
+          }
+      }
+      // SQL: INSERT INTO users ... (batched in groups of 50)
+      // Only 20 database round trips for 1000 users!
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Enable Batch Processing</summary>
+  <br/>
+
+  **Configure Hibernate batch size:**
+
+  ```properties
+  # application.properties
+  
+  # Enable batch inserts
+  spring.jpa.properties.hibernate.jdbc.batch_size=50
+  
+  # Order inserts for better batching
+  spring.jpa.properties.hibernate.order_inserts=true
+  
+  # Order updates for better batching
+  spring.jpa.properties.hibernate.order_updates=true
+  
+  # Batch versioned entities
+  spring.jpa.properties.hibernate.jdbc.batch_versioned_data=true
+  
+  # Show batch SQL (for debugging)
+  spring.jpa.properties.hibernate.show_sql=true
+  spring.jpa.properties.hibernate.format_sql=true
+  logging.level.org.hibernate.SQL=DEBUG
+  logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+  ```
+
+  **Important notes:**
+  + Batch size of 50-100 is usually optimal
+  + Too large batch size can cause memory issues
+  + Too small batch size reduces benefits
+  + Test to find optimal size for your use case
+
+</details>
+
+<details>
+  <summary>Batch Insert</summary>
+  <br/>
+
+  **Basic batch insert:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchInsert(List<User> users) {
+          int batchSize = 50;
+          
+          for (int i = 0; i < users.size(); i++) {
+              entityManager.persist(users.get(i));
+              
+              // Flush and clear every batch
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+          
+          // Flush remaining entities
+          entityManager.flush();
+          entityManager.clear();
+      }
+  }
+  ```
+
+  **Why flush and clear?**
+  + **flush()** - Sends SQL to database
+  + **clear()** - Clears persistence context (frees memory)
+  + Without clear(), all entities stay in memory
+  + Can cause OutOfMemoryError for large batches
+
+  **Using repository:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchInsertWithRepository(List<User> users) {
+          int batchSize = 50;
+          
+          for (int i = 0; i < users.size(); i++) {
+              userRepository.save(users.get(i));
+              
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+          
+          entityManager.flush();
+          entityManager.clear();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Batch Update</summary>
+  <br/>
+
+  **Basic batch update:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchUpdate(List<User> users) {
+          int batchSize = 50;
+          
+          for (int i = 0; i < users.size(); i++) {
+              User user = users.get(i);
+              user.setActive(true);
+              entityManager.merge(user);
+              
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+          
+          entityManager.flush();
+          entityManager.clear();
+      }
+  }
+  ```
+
+  **Bulk update (single query):**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Modifying
+      @Query("UPDATE User u SET u.active = :active WHERE u.lastLogin < :date")
+      int bulkUpdateInactiveUsers(@Param("active") boolean active, 
+                                   @Param("date") LocalDateTime date);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void deactivateInactiveUsers() {
+          LocalDateTime cutoffDate = LocalDateTime.now().minusMonths(6);
+          int updated = userRepository.bulkUpdateInactiveUsers(false, cutoffDate);
+          // SQL: UPDATE users SET active = false WHERE last_login < ?
+          // Single query for all updates!
+          
+          System.out.println("Updated " + updated + " users");
+      }
+  }
+  ```
+
+  **When to use batch vs bulk:**
+  + **Batch update** - When you need to update different fields per entity
+  + **Bulk update** - When updating same field(s) for all entities
+
+</details>
+
+<details>
+  <summary>Batch Delete</summary>
+  <br/>
+
+  **Basic batch delete:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchDelete(List<Long> userIds) {
+          int batchSize = 50;
+          
+          for (int i = 0; i < userIds.size(); i++) {
+              User user = entityManager.find(User.class, userIds.get(i));
+              if (user != null) {
+                  entityManager.remove(user);
+              }
+              
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+          
+          entityManager.flush();
+          entityManager.clear();
+      }
+  }
+  ```
+
+  **Bulk delete (single query):**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Modifying
+      @Query("DELETE FROM User u WHERE u.active = false")
+      int bulkDeleteInactiveUsers();
+      
+      @Modifying
+      @Query("DELETE FROM User u WHERE u.id IN :ids")
+      int bulkDeleteByIds(@Param("ids") List<Long> ids);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void deleteInactiveUsers() {
+          int deleted = userRepository.bulkDeleteInactiveUsers();
+          // SQL: DELETE FROM users WHERE active = false
+          // Single query!
+          
+          System.out.println("Deleted " + deleted + " users");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>JDBC Batch Insert</summary>
+  <br/>
+
+  **Using JDBC for maximum performance:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private DataSource dataSource;
+      
+      public void jdbcBatchInsert(List<User> users) throws SQLException {
+          String sql = "INSERT INTO users (username, email, age) VALUES (?, ?, ?)";
+          
+          try (Connection conn = dataSource.getConnection();
+               PreparedStatement ps = conn.prepareStatement(sql)) {
+              
+              conn.setAutoCommit(false);
+              
+              int batchSize = 50;
+              int count = 0;
+              
+              for (User user : users) {
+                  ps.setString(1, user.getUsername());
+                  ps.setString(2, user.getEmail());
+                  ps.setInt(3, user.getAge());
+                  ps.addBatch();
+                  count++;
+                  
+                  if (count % batchSize == 0) {
+                      ps.executeBatch();
+                      ps.clearBatch();
+                  }
+              }
+              
+              // Execute remaining batch
+              ps.executeBatch();
+              conn.commit();
+          }
+      }
+  }
+  ```
+
+  **Advantages of JDBC batch:**
+  + Fastest performance
+  + No JPA overhead
+  + Direct database access
+
+  **Disadvantages:**
+  + No entity lifecycle callbacks
+  + No automatic ID generation
+  + More boilerplate code
+  + No relationship management
+
+</details>
+
+<details>
+  <summary>Batch Processing with Generated IDs</summary>
+  <br/>
+
+  **Problem with IDENTITY strategy:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      // IDENTITY disables batch inserts!
+      // Hibernate must get ID immediately after each insert
+  }
+  ```
+
+  **Solution 1: Use SEQUENCE strategy:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user_seq")
+      @SequenceGenerator(name = "user_seq", sequenceName = "user_sequence", allocationSize = 50)
+      private Long id;
+      
+      // SEQUENCE allows batch inserts
+      // Hibernate pre-allocates IDs from sequence
+  }
+  ```
+
+  **Solution 2: Use TABLE strategy:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(strategy = GenerationType.TABLE, generator = "user_gen")
+      @TableGenerator(name = "user_gen", table = "id_generator", 
+                      pkColumnName = "gen_name", valueColumnName = "gen_value",
+                      allocationSize = 50)
+      private Long id;
+      
+      // TABLE allows batch inserts
+  }
+  ```
+
+  **Solution 3: Use UUID:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(generator = "uuid2")
+      @GenericGenerator(name = "uuid2", strategy = "uuid2")
+      @Column(columnDefinition = "BINARY(16)")
+      private UUID id;
+      
+      // UUID allows batch inserts
+      // IDs generated in application
+  }
+  ```
+
+  **Performance comparison:**
+
+  | Strategy | Batch Support | Performance | Use Case |
+  |----------|---------------|-------------|----------|
+  | IDENTITY | ❌ No | Slow | Small inserts |
+  | SEQUENCE | ✅ Yes | Fast | PostgreSQL, Oracle |
+  | TABLE | ✅ Yes | Medium | Any database |
+  | UUID | ✅ Yes | Fast | Distributed systems |
+
+</details>
+
+<details>
+  <summary>Batch Processing with Relationships</summary>
+  <br/>
+
+  **Batch insert with @ManyToOne:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchInsertOrders(User user, List<Order> orders) {
+          int batchSize = 50;
+          
+          for (int i = 0; i < orders.size(); i++) {
+              Order order = orders.get(i);
+              order.setUser(user);
+              entityManager.persist(order);
+              
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+                  
+                  // Re-attach user after clear
+                  user = entityManager.merge(user);
+              }
+          }
+          
+          entityManager.flush();
+          entityManager.clear();
+      }
+  }
+  ```
+
+  **Batch insert with @OneToMany:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchInsertUsersWithOrders(List<User> users) {
+          int batchSize = 50;
+          int count = 0;
+          
+          for (User user : users) {
+              entityManager.persist(user);
+              
+              // Persist orders
+              for (Order order : user.getOrders()) {
+                  order.setUser(user);
+                  entityManager.persist(order);
+              }
+              
+              count++;
+              if (count % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+          
+          entityManager.flush();
+          entityManager.clear();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>StatelessSession for Batch Processing</summary>
+  <br/>
+
+  **StatelessSession** bypasses first-level cache for better performance.
+
+  **Using StatelessSession:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchInsertWithStatelessSession(List<User> users) {
+          Session session = entityManager.unwrap(Session.class);
+          SessionFactory sessionFactory = session.getSessionFactory();
+          
+          try (StatelessSession statelessSession = sessionFactory.openStatelessSession()) {
+              Transaction tx = statelessSession.beginTransaction();
+              
+              int batchSize = 50;
+              
+              for (int i = 0; i < users.size(); i++) {
+                  statelessSession.insert(users.get(i));
+                  
+                  if (i > 0 && i % batchSize == 0) {
+                      tx.commit();
+                      tx = statelessSession.beginTransaction();
+                  }
+              }
+              
+              tx.commit();
+          }
+      }
+  }
+  ```
+
+  **Advantages of StatelessSession:**
+  + No first-level cache (less memory)
+  + No dirty checking
+  + Faster for bulk operations
+  + Better for large datasets
+
+  **Disadvantages:**
+  + No automatic dirty checking
+  + No cascade operations
+  + No lazy loading
+  + No entity lifecycle callbacks
+
+  **When to use:**
+  + Importing large datasets
+  + Batch processing jobs
+  + ETL operations
+  + When you don't need JPA features
+
+</details>
+
+<details>
+  <summary>Performance Optimization</summary>
+  <br/>
+
+  **1. Disable unnecessary features:**
+
+  ```properties
+  # application.properties
+  
+  # Disable second-level cache for batch operations
+  spring.jpa.properties.hibernate.cache.use_second_level_cache=false
+  
+  # Disable query cache
+  spring.jpa.properties.hibernate.cache.use_query_cache=false
+  
+  # Disable auto-flush
+  spring.jpa.properties.hibernate.flushMode=MANUAL
+  ```
+
+  **2. Use read-only transactions:**
+
+  ```java
+  @Transactional(readOnly = true)
+  public List<User> batchRead() {
+      // Hibernate skips dirty checking
+      return userRepository.findAll();
+  }
+  ```
+
+  **3. Optimize batch size:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Value("${batch.size:50}")
+      private int batchSize;
+      
+      @Transactional
+      public void batchInsert(List<User> users) {
+          for (int i = 0; i < users.size(); i++) {
+              entityManager.persist(users.get(i));
+              
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+      }
+  }
+  ```
+
+  **4. Use native queries for bulk operations:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Modifying
+      @Query(value = "INSERT INTO users (username, email) " +
+                     "SELECT username, email FROM temp_users", 
+             nativeQuery = true)
+      int bulkInsertFromTemp();
+  }
+  ```
+
+  **5. Partition large batches:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void processLargeDataset(List<User> users) {
+          int partitionSize = 1000;
+          
+          // Split into partitions
+          List<List<User>> partitions = Lists.partition(users, partitionSize);
+          
+          for (List<User> partition : partitions) {
+              batchInsert(partition);
+          }
+      }
+      
+      @Transactional
+      private void batchInsert(List<User> users) {
+          // Process one partition
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Monitoring Batch Performance</summary>
+  <br/>
+
+  **Enable Hibernate statistics:**
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.generate_statistics=true
+  ```
+
+  **Monitor batch operations:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void batchInsertWithStats(List<User> users) {
+          Session session = entityManager.unwrap(Session.class);
+          SessionFactory sessionFactory = session.getSessionFactory();
+          Statistics stats = sessionFactory.getStatistics();
+          stats.clear();
+          
+          long startTime = System.currentTimeMillis();
+          
+          // Batch insert
+          int batchSize = 50;
+          for (int i = 0; i < users.size(); i++) {
+              entityManager.persist(users.get(i));
+              
+              if (i > 0 && i % batchSize == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+          
+          entityManager.flush();
+          
+          long endTime = System.currentTimeMillis();
+          
+          // Print statistics
+          System.out.println("Time taken: " + (endTime - startTime) + "ms");
+          System.out.println("Entities inserted: " + stats.getEntityInsertCount());
+          System.out.println("Queries executed: " + stats.getPrepareStatementCount());
+          System.out.println("Batch size: " + batchSize);
+      }
+  }
+  ```
+
+  **Log batch SQL:**
+
+  ```properties
+  # application.properties
+  logging.level.org.hibernate.SQL=DEBUG
+  logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+  logging.level.org.hibernate.engine.jdbc.batch.internal.BatchingBatch=DEBUG
+  ```
+
+</details>
+
+<details>
+  <summary>Common Pitfalls</summary>
+  <br/>
+
+  **1. Using IDENTITY strategy:**
+
+  ```java
+  // ❌ BAD: IDENTITY disables batching
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+  }
+  
+  // ✅ GOOD: Use SEQUENCE
+  @Entity
+  public class User {
+      @Id
+      @GeneratedValue(strategy = GenerationType.SEQUENCE)
+      private Long id;
+  }
+  ```
+
+  **2. Not flushing and clearing:**
+
+  ```java
+  // ❌ BAD: Memory leak
+  @Transactional
+  public void batchInsert(List<User> users) {
+      for (User user : users) {
+          entityManager.persist(user);
+          // All entities stay in memory!
+      }
+  }
+  
+  // ✅ GOOD: Flush and clear
+  @Transactional
+  public void batchInsert(List<User> users) {
+      for (int i = 0; i < users.size(); i++) {
+          entityManager.persist(users.get(i));
+          
+          if (i % 50 == 0) {
+              entityManager.flush();
+              entityManager.clear();
+          }
+      }
+  }
+  ```
+
+  **3. Forgetting to configure batch size:**
+
+  ```properties
+  # ❌ BAD: No batch configuration
+  # Hibernate uses default (no batching)
+  
+  # ✅ GOOD: Configure batch size
+  spring.jpa.properties.hibernate.jdbc.batch_size=50
+  spring.jpa.properties.hibernate.order_inserts=true
+  ```
+
+  **4. Using saveAll() incorrectly:**
+
+  ```java
+  // ❌ BAD: saveAll() doesn't batch automatically
+  @Transactional
+  public void saveUsers(List<User> users) {
+      userRepository.saveAll(users);
+      // No batching without proper configuration!
+  }
+  
+  // ✅ GOOD: Manual batching
+  @Transactional
+  public void saveUsers(List<User> users) {
+      for (int i = 0; i < users.size(); i++) {
+          userRepository.save(users.get(i));
+          
+          if (i % 50 == 0) {
+              entityManager.flush();
+              entityManager.clear();
+          }
+      }
+  }
+  ```
+
+  **5. Mixing batch and non-batch operations:**
+
+  ```java
+  // ❌ BAD: Mixing operations
+  @Transactional
+  public void mixedOperations(List<User> users) {
+      for (User user : users) {
+          entityManager.persist(user);
+          
+          // Query breaks batching!
+          User existing = userRepository.findByUsername(user.getUsername());
+      }
+  }
+  
+  // ✅ GOOD: Separate operations
+  @Transactional
+  public void separateOperations(List<User> users) {
+      // First, query all
+      Map<String, User> existing = new HashMap<>();
+      for (User user : users) {
+          User found = userRepository.findByUsername(user.getUsername());
+          if (found != null) {
+              existing.put(user.getUsername(), found);
+          }
+      }
+      
+      // Then, batch insert
+      for (int i = 0; i < users.size(); i++) {
+          if (!existing.containsKey(users.get(i).getUsername())) {
+              entityManager.persist(users.get(i));
+              
+              if (i % 50 == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Configure batch size
+  spring.jpa.properties.hibernate.jdbc.batch_size=50
+  spring.jpa.properties.hibernate.order_inserts=true
+  spring.jpa.properties.hibernate.order_updates=true
+  
+  // ✅ DO: Use SEQUENCE or UUID for ID generation
+  @Id
+  @GeneratedValue(strategy = GenerationType.SEQUENCE)
+  private Long id;
+  
+  // ✅ DO: Flush and clear periodically
+  @Transactional
+  public void batchInsert(List<User> users) {
+      for (int i = 0; i < users.size(); i++) {
+          entityManager.persist(users.get(i));
+          
+          if (i > 0 && i % 50 == 0) {
+              entityManager.flush();
+              entityManager.clear();
+          }
+      }
+      entityManager.flush();
+      entityManager.clear();
+  }
+  
+  // ✅ DO: Use bulk operations for simple updates
+  @Modifying
+  @Query("UPDATE User u SET u.active = :active WHERE u.lastLogin < :date")
+  int bulkUpdate(@Param("active") boolean active, @Param("date") LocalDateTime date);
+  
+  // ✅ DO: Use StatelessSession for large datasets
+  try (StatelessSession session = sessionFactory.openStatelessSession()) {
+      Transaction tx = session.beginTransaction();
+      for (User user : users) {
+          session.insert(user);
+      }
+      tx.commit();
+  }
+  
+  // ✅ DO: Partition large datasets
+  List<List<User>> partitions = Lists.partition(users, 1000);
+  for (List<User> partition : partitions) {
+      batchInsert(partition);
+  }
+  
+  // ✅ DO: Monitor performance
+  Statistics stats = sessionFactory.getStatistics();
+  System.out.println("Entities inserted: " + stats.getEntityInsertCount());
+  
+  // ❌ DON'T: Use IDENTITY strategy for batch inserts
+  @GeneratedValue(strategy = GenerationType.IDENTITY)  // Disables batching!
+  
+  // ❌ DON'T: Forget to flush and clear
+  for (User user : users) {
+      entityManager.persist(user);
+      // Memory leak!
+  }
+  
+  // ❌ DON'T: Query inside batch loop
+  for (User user : users) {
+      entityManager.persist(user);
+      userRepository.findByUsername(user.getUsername());  // Breaks batching!
+  }
+  
+  // ❌ DON'T: Use batch processing for small datasets
+  if (users.size() < 10) {
+      userRepository.saveAll(users);  // Simple save is fine
+  }
+  
+  // ✅ DO: Use JDBC batch for maximum performance
+  try (PreparedStatement ps = conn.prepareStatement(sql)) {
+      for (User user : users) {
+          ps.setString(1, user.getUsername());
+          ps.addBatch();
+      }
+      ps.executeBatch();
+  }
+  
+  // ✅ DO: Disable unnecessary features for batch operations
+  spring.jpa.properties.hibernate.cache.use_second_level_cache=false
+  
+  // ✅ DO: Use appropriate batch size (50-100)
+  int batchSize = 50;  // Test to find optimal size
+  
+  // ✅ DO: Handle errors gracefully
+  @Transactional
+  public void batchInsertWithErrorHandling(List<User> users) {
+      try {
+          for (int i = 0; i < users.size(); i++) {
+              entityManager.persist(users.get(i));
+              
+              if (i % 50 == 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+      } catch (Exception e) {
+          log.error("Batch insert failed", e);
+          throw e;
+      }
+  }
+  ```
+
+  **Summary:**
+  + **Configure batch size** (50-100 is optimal)
+  + Use **SEQUENCE or UUID** for ID generation (not IDENTITY)
+  + **Flush and clear** periodically to free memory
+  + Use **bulk operations** for simple updates/deletes
+  + Use **StatelessSession** for large datasets
+  + **Partition** large datasets into smaller batches
+  + **Monitor performance** with Hibernate statistics
+  + Use **JDBC batch** for maximum performance
+  + **Disable unnecessary features** (cache, dirty checking)
+  + Don't **query inside batch loop**
+  + Handle **errors gracefully**
+  + Test to find **optimal batch size** for your use case
+
+</details>
+

@@ -1,0 +1,802 @@
+## Criteria API
+
+<details>
+  <summary>What is Criteria API?</summary>
+  <br/>
+
+  Criteria API is a type-safe, programmatic way to build JPA queries.
+
+  **Characteristics:**
+  + Type-safe (compile-time checking)
+  + Programmatic query building
+  + Dynamic query construction
+  + No string-based queries
+  + IDE auto-completion support
+
+  **Why use Criteria API?**
+  + Build queries dynamically at runtime
+  + Type-safe (catch errors at compile time)
+  + Refactoring-friendly
+  + Complex conditional queries
+  + Avoid SQL injection
+
+  **Comparison:**
+
+  ```java
+  // JPQL - String-based (not type-safe)
+  @Query("SELECT u FROM User u WHERE u.username = :username")
+  User findByUsername(@Param("username") String username);
+  
+  // Criteria API - Type-safe
+  CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+  CriteriaQuery<User> query = cb.createQuery(User.class);
+  Root<User> user = query.from(User.class);
+  query.select(user).where(cb.equal(user.get("username"), username));
+  ```
+
+</details>
+
+<details>
+  <summary>Basic Criteria Query</summary>
+  <br/>
+
+  **Simple query example:**
+
+  ```java
+  @Repository
+  public class UserRepository {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      // Find all users
+      public List<User> findAll() {
+          CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+          CriteriaQuery<User> query = cb.createQuery(User.class);
+          Root<User> user = query.from(User.class);
+          query.select(user);
+          
+          return entityManager.createQuery(query).getResultList();
+      }
+      
+      // Find by username
+      public User findByUsername(String username) {
+          CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+          CriteriaQuery<User> query = cb.createQuery(User.class);
+          Root<User> user = query.from(User.class);
+          
+          query.select(user)
+               .where(cb.equal(user.get("username"), username));
+          
+          return entityManager.createQuery(query).getSingleResult();
+      }
+  }
+  ```
+
+  **Key components:**
+  + **CriteriaBuilder** - Factory for query components
+  + **CriteriaQuery** - Query definition
+  + **Root** - Query root (FROM clause)
+  + **Predicate** - WHERE conditions
+
+</details>
+
+<details>
+  <summary>Comparison Predicates</summary>
+  <br/>
+
+  **Numeric comparisons:**
+
+  ```java
+  public List<User> findByAgeRange(Integer minAge, Integer maxAge) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Greater than
+      Predicate greaterThan = cb.greaterThan(user.get("age"), minAge);
+      
+      // Less than
+      Predicate lessThan = cb.lessThan(user.get("age"), maxAge);
+      
+      // Between
+      Predicate between = cb.between(user.get("age"), minAge, maxAge);
+      
+      query.select(user).where(between);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **String comparisons:**
+
+  ```java
+  public List<User> searchByUsername(String searchTerm) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Like
+      Predicate like = cb.like(user.get("username"), "%" + searchTerm + "%");
+      
+      // Equal (case-sensitive)
+      Predicate equal = cb.equal(user.get("username"), searchTerm);
+      
+      // Equal (case-insensitive)
+      Predicate equalIgnoreCase = cb.equal(
+          cb.lower(user.get("username")),
+          searchTerm.toLowerCase()
+      );
+      
+      query.select(user).where(like);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Null checks:**
+
+  ```java
+  public List<User> findUsersWithoutEmail() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Is null
+      Predicate isNull = cb.isNull(user.get("email"));
+      
+      // Is not null
+      Predicate isNotNull = cb.isNotNull(user.get("email"));
+      
+      query.select(user).where(isNull);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Logical Operators</summary>
+  <br/>
+
+  **AND, OR, NOT:**
+
+  ```java
+  public List<User> findActiveAdults() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // AND
+      Predicate active = cb.equal(user.get("active"), true);
+      Predicate adult = cb.greaterThanOrEqualTo(user.get("age"), 18);
+      Predicate and = cb.and(active, adult);
+      
+      // OR
+      Predicate or = cb.or(active, adult);
+      
+      // NOT
+      Predicate not = cb.not(active);
+      
+      query.select(user).where(and);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Multiple conditions:**
+
+  ```java
+  public List<User> findUsers(String username, Integer minAge, Boolean active) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      List<Predicate> predicates = new ArrayList<>();
+      
+      if (username != null) {
+          predicates.add(cb.like(user.get("username"), "%" + username + "%"));
+      }
+      
+      if (minAge != null) {
+          predicates.add(cb.greaterThanOrEqualTo(user.get("age"), minAge));
+      }
+      
+      if (active != null) {
+          predicates.add(cb.equal(user.get("active"), active));
+      }
+      
+      query.select(user)
+           .where(cb.and(predicates.toArray(new Predicate[0])));
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Dynamic Query Building</summary>
+  <br/>
+
+  **Dynamic search with optional filters:**
+
+  ```java
+  public class UserSearchCriteria {
+      private String username;
+      private String email;
+      private Integer minAge;
+      private Integer maxAge;
+      private Boolean active;
+      
+      // Getters and setters
+  }
+  
+  @Repository
+  public class UserRepository {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      public List<User> search(UserSearchCriteria criteria) {
+          CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+          CriteriaQuery<User> query = cb.createQuery(User.class);
+          Root<User> user = query.from(User.class);
+          
+          List<Predicate> predicates = new ArrayList<>();
+          
+          // Add predicates only if criteria is provided
+          if (criteria.getUsername() != null && !criteria.getUsername().isEmpty()) {
+              predicates.add(cb.like(
+                  user.get("username"),
+                  "%" + criteria.getUsername() + "%"
+              ));
+          }
+          
+          if (criteria.getEmail() != null && !criteria.getEmail().isEmpty()) {
+              predicates.add(cb.like(
+                  user.get("email"),
+                  "%" + criteria.getEmail() + "%"
+              ));
+          }
+          
+          if (criteria.getMinAge() != null) {
+              predicates.add(cb.greaterThanOrEqualTo(
+                  user.get("age"),
+                  criteria.getMinAge()
+              ));
+          }
+          
+          if (criteria.getMaxAge() != null) {
+              predicates.add(cb.lessThanOrEqualTo(
+                  user.get("age"),
+                  criteria.getMaxAge()
+              ));
+          }
+          
+          if (criteria.getActive() != null) {
+              predicates.add(cb.equal(user.get("active"), criteria.getActive()));
+          }
+          
+          // Combine all predicates with AND
+          if (!predicates.isEmpty()) {
+              query.where(cb.and(predicates.toArray(new Predicate[0])));
+          }
+          
+          return entityManager.createQuery(query).getResultList();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Joins</summary>
+  <br/>
+
+  **Inner join:**
+
+  ```java
+  public List<User> findUsersWithOrders() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Inner join
+      Join<User, Order> orders = user.join("orders");
+      
+      query.select(user).distinct(true);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Left join:**
+
+  ```java
+  public List<User> findAllUsersWithOrders() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Left join
+      Join<User, Order> orders = user.join("orders", JoinType.LEFT);
+      
+      query.select(user).distinct(true);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Join with conditions:**
+
+  ```java
+  public List<User> findUsersWithLargeOrders(BigDecimal minAmount) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      Join<User, Order> orders = user.join("orders");
+      
+      query.select(user)
+           .where(cb.greaterThan(orders.get("total"), minAmount))
+           .distinct(true);
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Fetch join (avoid N+1):**
+
+  ```java
+  public User findByIdWithOrders(Long id) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Fetch join
+      user.fetch("orders", JoinType.LEFT);
+      
+      query.select(user)
+           .where(cb.equal(user.get("id"), id));
+      
+      return entityManager.createQuery(query).getSingleResult();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Sorting</summary>
+  <br/>
+
+  **Order by:**
+
+  ```java
+  public List<User> findAllSorted(String sortBy, boolean ascending) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      query.select(user);
+      
+      // Dynamic sorting
+      if (ascending) {
+          query.orderBy(cb.asc(user.get(sortBy)));
+      } else {
+          query.orderBy(cb.desc(user.get(sortBy)));
+      }
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Multiple sort fields:**
+
+  ```java
+  public List<User> findAllSortedMultiple() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      query.select(user)
+           .orderBy(
+               cb.asc(user.get("lastName")),
+               cb.asc(user.get("firstName"))
+           );
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Pagination</summary>
+  <br/>
+
+  **Limit and offset:**
+
+  ```java
+  public List<User> findWithPagination(int page, int size) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      query.select(user)
+           .orderBy(cb.desc(user.get("createdAt")));
+      
+      return entityManager.createQuery(query)
+          .setFirstResult(page * size)
+          .setMaxResults(size)
+          .getResultList();
+  }
+  ```
+
+  **With count query:**
+
+  ```java
+  public Page<User> findAllPaginated(Pageable pageable) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      
+      // Data query
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      query.select(user);
+      
+      List<User> users = entityManager.createQuery(query)
+          .setFirstResult((int) pageable.getOffset())
+          .setMaxResults(pageable.getPageSize())
+          .getResultList();
+      
+      // Count query
+      CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
+      Root<User> countRoot = countQuery.from(User.class);
+      countQuery.select(cb.count(countRoot));
+      
+      Long total = entityManager.createQuery(countQuery).getSingleResult();
+      
+      return new PageImpl<>(users, pageable, total);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Aggregate Functions</summary>
+  <br/>
+
+  **Count, Sum, Avg, Max, Min:**
+
+  ```java
+  // Count
+  public long countActiveUsers() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<Long> query = cb.createQuery(Long.class);
+      Root<User> user = query.from(User.class);
+      
+      query.select(cb.count(user))
+           .where(cb.equal(user.get("active"), true));
+      
+      return entityManager.createQuery(query).getSingleResult();
+  }
+  
+  // Sum
+  public BigDecimal getTotalOrderAmount(Long userId) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<BigDecimal> query = cb.createQuery(BigDecimal.class);
+      Root<Order> order = query.from(Order.class);
+      
+      query.select(cb.sum(order.get("total")))
+           .where(cb.equal(order.get("user").get("id"), userId));
+      
+      return entityManager.createQuery(query).getSingleResult();
+  }
+  
+  // Average
+  public Double getAverageAge() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<Double> query = cb.createQuery(Double.class);
+      Root<User> user = query.from(User.class);
+      
+      query.select(cb.avg(user.get("age")));
+      
+      return entityManager.createQuery(query).getSingleResult();
+  }
+  
+  // Max
+  public Integer getMaxAge() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<Integer> query = cb.createQuery(Integer.class);
+      Root<User> user = query.from(User.class);
+      
+      query.select(cb.max(user.get("age")));
+      
+      return entityManager.createQuery(query).getSingleResult();
+  }
+  ```
+
+  **Group by:**
+
+  ```java
+  public List<Object[]> countUsersByAge() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<Object[]> query = cb.createQuery(Object[].class);
+      Root<User> user = query.from(User.class);
+      
+      query.multiselect(
+          user.get("age"),
+          cb.count(user)
+      )
+      .groupBy(user.get("age"))
+      .orderBy(cb.desc(user.get("age")));
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Subqueries</summary>
+  <br/>
+
+  **Subquery example:**
+
+  ```java
+  public List<User> findUsersWithAboveAverageAge() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Subquery for average age
+      Subquery<Double> subquery = query.subquery(Double.class);
+      Root<User> subUser = subquery.from(User.class);
+      subquery.select(cb.avg(subUser.get("age")));
+      
+      // Main query
+      query.select(user)
+           .where(cb.greaterThan(user.get("age"), subquery));
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Exists subquery:**
+
+  ```java
+  public List<User> findUsersWithOrders() {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Subquery
+      Subquery<Order> subquery = query.subquery(Order.class);
+      Root<Order> order = subquery.from(Order.class);
+      subquery.select(order)
+              .where(cb.equal(order.get("user"), user));
+      
+      // Main query with EXISTS
+      query.select(user)
+           .where(cb.exists(subquery));
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Metamodel (Type-Safe)</summary>
+  <br/>
+
+  **Generate metamodel classes:**
+
+  ```java
+  // User entity
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+      private String email;
+      private Integer age;
+  }
+  
+  // Generated metamodel (User_.java)
+  @StaticMetamodel(User.class)
+  public class User_ {
+      public static volatile SingularAttribute<User, Long> id;
+      public static volatile SingularAttribute<User, String> username;
+      public static volatile SingularAttribute<User, String> email;
+      public static volatile SingularAttribute<User, Integer> age;
+  }
+  ```
+
+  **Use metamodel for type safety:**
+
+  ```java
+  public List<User> findByUsername(String username) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      // Without metamodel (not type-safe)
+      query.select(user)
+           .where(cb.equal(user.get("username"), username));
+      
+      // With metamodel (type-safe)
+      query.select(user)
+           .where(cb.equal(user.get(User_.username), username));
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  ```
+
+  **Benefits of metamodel:**
+  + Compile-time type checking
+  + IDE auto-completion
+  + Refactoring support
+  + No typos in field names
+
+</details>
+
+<details>
+  <summary>Specifications (Spring Data JPA)</summary>
+  <br/>
+
+  Spring Data JPA Specifications provide reusable Criteria API queries.
+
+  **Create specifications:**
+
+  ```java
+  public class UserSpecifications {
+      
+      public static Specification<User> hasUsername(String username) {
+          return (root, query, cb) -> 
+              cb.equal(root.get("username"), username);
+      }
+      
+      public static Specification<User> hasEmail(String email) {
+          return (root, query, cb) -> 
+              cb.equal(root.get("email"), email);
+      }
+      
+      public static Specification<User> ageGreaterThan(Integer age) {
+          return (root, query, cb) -> 
+              cb.greaterThan(root.get("age"), age);
+      }
+      
+      public static Specification<User> isActive() {
+          return (root, query, cb) -> 
+              cb.isTrue(root.get("active"));
+      }
+      
+      public static Specification<User> usernameLike(String pattern) {
+          return (root, query, cb) -> 
+              cb.like(root.get("username"), "%" + pattern + "%");
+      }
+  }
+  ```
+
+  **Use specifications:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long>, 
+                                          JpaSpecificationExecutor<User> {
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public List<User> searchUsers(String username, Integer minAge, Boolean active) {
+          Specification<User> spec = Specification.where(null);
+          
+          if (username != null) {
+              spec = spec.and(UserSpecifications.usernameLike(username));
+          }
+          
+          if (minAge != null) {
+              spec = spec.and(UserSpecifications.ageGreaterThan(minAge));
+          }
+          
+          if (active != null && active) {
+              spec = spec.and(UserSpecifications.isActive());
+          }
+          
+          return userRepository.findAll(spec);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Criteria API for dynamic queries
+  public List<User> search(UserSearchCriteria criteria) {
+      CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> user = query.from(User.class);
+      
+      List<Predicate> predicates = new ArrayList<>();
+      
+      if (criteria.getUsername() != null) {
+          predicates.add(cb.like(user.get("username"), "%" + criteria.getUsername() + "%"));
+      }
+      
+      if (!predicates.isEmpty()) {
+          query.where(cb.and(predicates.toArray(new Predicate[0])));
+      }
+      
+      return entityManager.createQuery(query).getResultList();
+  }
+  
+  // ✅ DO: Use metamodel for type safety
+  query.where(cb.equal(user.get(User_.username), username));
+  
+  // ❌ DON'T: Use string literals (not type-safe)
+  query.where(cb.equal(user.get("username"), username));
+  
+  // ✅ DO: Use Specifications for reusable queries
+  Specification<User> spec = UserSpecifications.hasUsername(username)
+      .and(UserSpecifications.isActive());
+  
+  // ✅ DO: Use fetch join to avoid N+1
+  user.fetch("orders", JoinType.LEFT);
+  
+  // ✅ DO: Use distinct with joins
+  query.select(user).distinct(true);
+  
+  // ✅ DO: Build predicates conditionally
+  List<Predicate> predicates = new ArrayList<>();
+  if (condition) {
+      predicates.add(cb.equal(user.get("field"), value));
+  }
+  query.where(cb.and(predicates.toArray(new Predicate[0])));
+  
+  // ❌ DON'T: Use Criteria API for simple static queries
+  // Use @Query or derived query methods instead
+  
+  // ✅ DO: Use Criteria API for complex dynamic queries
+  // When query structure changes based on input
+  
+  // ✅ DO: Reuse CriteriaBuilder
+  CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+  
+  // ✅ DO: Use proper join types
+  Join<User, Order> orders = user.join("orders", JoinType.LEFT);
+  ```
+
+  **Key Points**
+  <br/>
+
+  + **Criteria API** - Type-safe, programmatic query building
+  + Use for **dynamic queries** with conditional filters
+  + **CriteriaBuilder** - Factory for query components
+  + **CriteriaQuery** - Query definition
+  + **Root** - Query root (FROM clause)
+  + **Predicate** - WHERE conditions
+  + Use **metamodel** for compile-time type safety
+  + Use **Specifications** for reusable query logic
+  + Use **fetch join** to avoid N+1 problem
+  + Use **distinct()** with joins to avoid duplicates
+  + Build predicates **conditionally** for dynamic queries
+  + Use **and()**, **or()**, **not()** for logical operators
+  + Use **join()** for relationships
+  + Use **orderBy()** for sorting
+  + Use **setFirstResult()** and **setMaxResults()** for pagination
+  + Use **count()**, **sum()**, **avg()**, **max()**, **min()** for aggregates
+  + Use **subquery()** for complex queries
+  + **Don't use** Criteria API for simple static queries
+  + **Do use** Criteria API for complex dynamic queries
+  + Criteria API is more **verbose** than JPQL but **type-safe**
+
+</details>

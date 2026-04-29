@@ -1,0 +1,764 @@
+## Pagination and Sorting
+
+<details>
+  <summary>What is Pagination?</summary>
+  <br/>
+
+  Pagination divides large result sets into smaller pages for better performance and user experience.
+
+  **Why use pagination?**
+  + Reduces memory usage
+  + Improves query performance
+  + Better user experience
+  + Prevents loading unnecessary data
+
+  **Problem without pagination:**
+
+  ```java
+  // ❌ BAD: Loading all records
+  @GetMapping("/users")
+  public List<User> getAllUsers() {
+      return userRepository.findAll();
+      // Loads 1 million users into memory!
+  }
+  ```
+
+  **Solution with pagination:**
+
+  ```java
+  // ✅ GOOD: Loading page by page
+  @GetMapping("/users")
+  public Page<User> getUsers(@RequestParam int page, @RequestParam int size) {
+      Pageable pageable = PageRequest.of(page, size);
+      return userRepository.findAll(pageable);
+      // Loads only 20 users per page
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Pageable Interface</summary>
+  <br/>
+
+  **Pageable** is an interface for pagination information.
+
+  **Create Pageable:**
+
+  ```java
+  // Page 0, size 20
+  Pageable pageable = PageRequest.of(0, 20);
+  
+  // Page 1, size 10
+  Pageable pageable = PageRequest.of(1, 10);
+  
+  // With sorting
+  Pageable pageable = PageRequest.of(0, 20, Sort.by("username"));
+  
+  // With multiple sort fields
+  Pageable pageable = PageRequest.of(0, 20, 
+      Sort.by("lastName").ascending()
+          .and(Sort.by("firstName").ascending())
+  );
+  
+  // Descending order
+  Pageable pageable = PageRequest.of(0, 20, Sort.by("createdAt").descending());
+  ```
+
+  **Use in repository:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Spring Data automatically supports Pageable
+      Page<User> findAll(Pageable pageable);
+      
+      // Custom query with pagination
+      Page<User> findByLastName(String lastName, Pageable pageable);
+      
+      // With @Query
+      @Query("SELECT u FROM User u WHERE u.active = true")
+      Page<User> findActiveUsers(Pageable pageable);
+  }
+  ```
+
+  **Controller example:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @GetMapping
+      public Page<User> getUsers(
+          @RequestParam(defaultValue = "0") int page,
+          @RequestParam(defaultValue = "20") int size,
+          @RequestParam(defaultValue = "id") String sortBy,
+          @RequestParam(defaultValue = "asc") String direction
+      ) {
+          Sort sort = direction.equalsIgnoreCase("asc") 
+              ? Sort.by(sortBy).ascending() 
+              : Sort.by(sortBy).descending();
+          
+          Pageable pageable = PageRequest.of(page, size, sort);
+          return userRepository.findAll(pageable);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Page Interface</summary>
+  <br/>
+
+  **Page** contains paginated results with metadata.
+
+  **Page methods:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void pageExample() {
+          Pageable pageable = PageRequest.of(0, 20);
+          Page<User> page = userRepository.findAll(pageable);
+          
+          // Content
+          List<User> users = page.getContent();
+          
+          // Page information
+          int currentPage = page.getNumber();           // Current page number (0-indexed)
+          int pageSize = page.getSize();                // Page size
+          long totalElements = page.getTotalElements(); // Total number of elements
+          int totalPages = page.getTotalPages();        // Total number of pages
+          
+          // Navigation
+          boolean hasNext = page.hasNext();             // Has next page?
+          boolean hasPrevious = page.hasPrevious();     // Has previous page?
+          boolean isFirst = page.isFirst();             // Is first page?
+          boolean isLast = page.isLast();               // Is last page?
+          
+          // Get next/previous page
+          Pageable nextPageable = page.nextPageable();
+          Pageable previousPageable = page.previousPageable();
+          
+          // Sorting information
+          Sort sort = page.getSort();
+          
+          // Number of elements in current page
+          int numberOfElements = page.getNumberOfElements();
+          
+          // Is empty?
+          boolean isEmpty = page.isEmpty();
+      }
+  }
+  ```
+
+  **Page response example:**
+
+  ```json
+  {
+    "content": [
+      {"id": 1, "username": "john"},
+      {"id": 2, "username": "alice"}
+    ],
+    "pageable": {
+      "pageNumber": 0,
+      "pageSize": 20,
+      "sort": {
+        "sorted": true,
+        "unsorted": false
+      }
+    },
+    "totalElements": 100,
+    "totalPages": 5,
+    "last": false,
+    "first": true,
+    "numberOfElements": 20,
+    "size": 20,
+    "number": 0,
+    "sort": {
+      "sorted": true,
+      "unsorted": false
+    },
+    "empty": false
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Slice Interface</summary>
+  <br/>
+
+  **Slice** is a lightweight alternative to Page (no total count).
+
+  **Slice vs Page:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Returns Page (with total count)
+      Page<User> findAll(Pageable pageable);
+      // SQL: SELECT * FROM users LIMIT 20 OFFSET 0
+      // SQL: SELECT COUNT(*) FROM users  (additional query)
+      
+      // Returns Slice (without total count)
+      Slice<User> findByActive(boolean active, Pageable pageable);
+      // SQL: SELECT * FROM users WHERE active = true LIMIT 21 OFFSET 0
+      // No count query!
+  }
+  ```
+
+  **Slice methods:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void sliceExample() {
+          Pageable pageable = PageRequest.of(0, 20);
+          Slice<User> slice = userRepository.findByActive(true, pageable);
+          
+          // Content
+          List<User> users = slice.getContent();
+          
+          // Page information
+          int currentPage = slice.getNumber();
+          int pageSize = slice.getSize();
+          
+          // Navigation
+          boolean hasNext = slice.hasNext();           // Has next page?
+          boolean hasPrevious = slice.hasPrevious();   // Has previous page?
+          boolean isFirst = slice.isFirst();           // Is first page?
+          boolean isLast = slice.isLast();             // Is last page?
+          
+          // Get next/previous page
+          Pageable nextPageable = slice.nextPageable();
+          Pageable previousPageable = slice.previousPageable();
+          
+          // Number of elements in current page
+          int numberOfElements = slice.getNumberOfElements();
+          
+          // ❌ NOT AVAILABLE in Slice:
+          // long totalElements = slice.getTotalElements();  // Compile error!
+          // int totalPages = slice.getTotalPages();         // Compile error!
+      }
+  }
+  ```
+
+  **When to use Slice:**
+  + Infinite scrolling (social media feeds)
+  + Large datasets where count is expensive
+  + "Load more" button instead of page numbers
+  + Performance is critical
+
+  **When to use Page:**
+  + Need total count for UI
+  + Page numbers navigation
+  + "Showing X of Y results"
+  + Smaller datasets
+
+</details>
+
+<details>
+  <summary>Sorting</summary>
+  <br/>
+
+  **Sort** defines ordering for query results.
+
+  **Create Sort:**
+
+  ```java
+  // Single field ascending
+  Sort sort = Sort.by("username");
+  Sort sort = Sort.by("username").ascending();
+  
+  // Single field descending
+  Sort sort = Sort.by("username").descending();
+  
+  // Multiple fields
+  Sort sort = Sort.by("lastName", "firstName");
+  
+  // Multiple fields with different directions
+  Sort sort = Sort.by(
+      Sort.Order.asc("lastName"),
+      Sort.Order.desc("createdAt")
+  );
+  
+  // Chaining
+  Sort sort = Sort.by("lastName").ascending()
+      .and(Sort.by("firstName").ascending());
+  
+  // Case-insensitive sorting
+  Sort sort = Sort.by(Sort.Order.asc("username").ignoreCase());
+  
+  // Null handling
+  Sort sort = Sort.by(
+      Sort.Order.asc("email").nullsFirst()
+  );
+  Sort sort = Sort.by(
+      Sort.Order.asc("email").nullsLast()
+  );
+  ```
+
+  **Use in repository:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // With Sort parameter
+      List<User> findAll(Sort sort);
+      
+      List<User> findByLastName(String lastName, Sort sort);
+      
+      // With Pageable (includes sorting)
+      Page<User> findAll(Pageable pageable);
+  }
+  ```
+
+  **Service example:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public List<User> getUsersSorted(String sortBy, String direction) {
+          Sort sort = direction.equalsIgnoreCase("asc")
+              ? Sort.by(sortBy).ascending()
+              : Sort.by(sortBy).descending();
+          
+          return userRepository.findAll(sort);
+      }
+      
+      public Page<User> getUsersPaginated(int page, int size, String sortBy) {
+          Pageable pageable = PageRequest.of(page, size, Sort.by(sortBy));
+          return userRepository.findAll(pageable);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Dynamic Sorting</summary>
+  <br/>
+
+  **Allow users to sort by any field:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @GetMapping
+      public Page<User> getUsers(
+          @RequestParam(defaultValue = "0") int page,
+          @RequestParam(defaultValue = "20") int size,
+          @RequestParam(required = false) String[] sort
+      ) {
+          // sort parameter: ["lastName,asc", "firstName,desc"]
+          
+          List<Sort.Order> orders = new ArrayList<>();
+          
+          if (sort != null) {
+              for (String sortOrder : sort) {
+                  String[] parts = sortOrder.split(",");
+                  String property = parts[0];
+                  String direction = parts.length > 1 ? parts[1] : "asc";
+                  
+                  orders.add(direction.equalsIgnoreCase("desc")
+                      ? Sort.Order.desc(property)
+                      : Sort.Order.asc(property));
+              }
+          }
+          
+          Pageable pageable = orders.isEmpty()
+              ? PageRequest.of(page, size)
+              : PageRequest.of(page, size, Sort.by(orders));
+          
+          return userRepository.findAll(pageable);
+      }
+  }
+  
+  // Usage:
+  // GET /api/users?page=0&size=20&sort=lastName,asc&sort=firstName,desc
+  ```
+
+  **Using Spring's built-in support:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @GetMapping
+      public Page<User> getUsers(Pageable pageable) {
+          // Spring automatically creates Pageable from request parameters
+          return userRepository.findAll(pageable);
+      }
+  }
+  
+  // Usage:
+  // GET /api/users?page=0&size=20&sort=lastName,asc&sort=firstName,desc
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Pagination</summary>
+  <br/>
+
+  **Create custom Page:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public Page<UserDTO> getUserDTOs(Pageable pageable) {
+          Page<User> userPage = userRepository.findAll(pageable);
+          
+          // Convert to DTO
+          List<UserDTO> dtos = userPage.getContent().stream()
+              .map(user -> new UserDTO(user.getId(), user.getUsername()))
+              .collect(Collectors.toList());
+          
+          // Create new Page with DTOs
+          return new PageImpl<>(dtos, pageable, userPage.getTotalElements());
+      }
+  }
+  ```
+
+  **Manual pagination:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      public Page<User> findUsers(String searchTerm, Pageable pageable) {
+          // Data query
+          String dataQuery = "SELECT u FROM User u WHERE u.username LIKE :search";
+          List<User> users = entityManager.createQuery(dataQuery, User.class)
+              .setParameter("search", "%" + searchTerm + "%")
+              .setFirstResult((int) pageable.getOffset())
+              .setMaxResults(pageable.getPageSize())
+              .getResultList();
+          
+          // Count query
+          String countQuery = "SELECT COUNT(u) FROM User u WHERE u.username LIKE :search";
+          Long total = entityManager.createQuery(countQuery, Long.class)
+              .setParameter("search", "%" + searchTerm + "%")
+              .getSingleResult();
+          
+          return new PageImpl<>(users, pageable, total);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Pagination with Fetch Join</summary>
+  <br/>
+
+  **Problem: Fetch join with pagination:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // ⚠️ WARNING: In-memory pagination!
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+      Page<User> findAllWithOrders(Pageable pageable);
+      
+      // Hibernate warning:
+      // HHH000104: firstResult/maxResults specified with collection fetch; 
+      // applying in memory!
+  }
+  ```
+
+  **Why it's a problem:**
+  + Hibernate loads ALL results into memory
+  + Then applies pagination in memory
+  + Defeats the purpose of pagination
+  + Can cause OutOfMemoryError
+
+  **Solution 1: Use two queries:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public Page<User> findUsersWithOrders(Pageable pageable) {
+          // Query 1: Get paginated user IDs
+          Page<User> userPage = userRepository.findAll(pageable);
+          List<Long> userIds = userPage.getContent().stream()
+              .map(User::getId)
+              .collect(Collectors.toList());
+          
+          // Query 2: Fetch users with orders
+          List<User> usersWithOrders = userRepository.findByIdInWithOrders(userIds);
+          
+          return new PageImpl<>(usersWithOrders, pageable, userPage.getTotalElements());
+      }
+  }
+  
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id IN :ids")
+      List<User> findByIdInWithOrders(@Param("ids") List<Long> ids);
+  }
+  ```
+
+  **Solution 2: Use @BatchSize:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)
+      private List<Order> orders;
+  }
+  
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Works correctly with pagination
+      Page<User> findAll(Pageable pageable);
+  }
+  ```
+
+  **Solution 3: Use Slice instead of Page:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+      Slice<User> findAllWithOrders(Pageable pageable);
+      // Still has in-memory pagination issue, but no count query
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Pagination Performance</summary>
+  <br/>
+
+  **Offset pagination performance:**
+
+  ```java
+  // Page 0: Fast
+  Pageable pageable = PageRequest.of(0, 20);
+  // SQL: SELECT * FROM users LIMIT 20 OFFSET 0
+  
+  // Page 1000: Slow!
+  Pageable pageable = PageRequest.of(1000, 20);
+  // SQL: SELECT * FROM users LIMIT 20 OFFSET 20000
+  // Database must scan 20000 rows to skip them
+  ```
+
+  **Problem with large offsets:**
+  + Database scans all skipped rows
+  + Performance degrades with page number
+  + Not suitable for large datasets
+
+  **Solution: Cursor-based pagination:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Cursor-based pagination
+      @Query("SELECT u FROM User u WHERE u.id > :lastId ORDER BY u.id")
+      List<User> findUsersAfter(@Param("lastId") Long lastId, Pageable pageable);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public List<User> getNextPage(Long lastId, int size) {
+          Pageable pageable = PageRequest.of(0, size);
+          return userRepository.findUsersAfter(lastId, pageable);
+      }
+  }
+  
+  // Usage:
+  // First page: getNextPage(0, 20)
+  // Next page: getNextPage(lastUser.getId(), 20)
+  ```
+
+  **Cursor-based advantages:**
+  + Consistent performance
+  + No offset scanning
+  + Suitable for infinite scrolling
+
+  **Cursor-based disadvantages:**
+  + Cannot jump to specific page
+  + Cannot go backwards easily
+  + Requires stable sort order
+
+</details>
+
+<details>
+  <summary>Pagination Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Pageable for large datasets
+  @GetMapping("/users")
+  public Page<User> getUsers(Pageable pageable) {
+      return userRepository.findAll(pageable);
+  }
+  
+  // ✅ DO: Set default page size
+  @GetMapping("/users")
+  public Page<User> getUsers(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+      Pageable pageable = PageRequest.of(page, size);
+      return userRepository.findAll(pageable);
+  }
+  
+  // ✅ DO: Limit maximum page size
+  @GetMapping("/users")
+  public Page<User> getUsers(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+      int maxSize = 100;
+      int actualSize = Math.min(size, maxSize);
+      Pageable pageable = PageRequest.of(page, actualSize);
+      return userRepository.findAll(pageable);
+  }
+  
+  // ✅ DO: Use Slice for infinite scrolling
+  @GetMapping("/feed")
+  public Slice<Post> getFeed(Pageable pageable) {
+      return postRepository.findByOrderByCreatedAtDesc(pageable);
+  }
+  
+  // ✅ DO: Use Page when you need total count
+  @GetMapping("/users")
+  public Page<User> getUsers(Pageable pageable) {
+      return userRepository.findAll(pageable);
+      // UI shows: "Page 1 of 10"
+  }
+  
+  // ✅ DO: Add indexes for sorted columns
+  @Entity
+  @Table(indexes = {
+      @Index(name = "idx_username", columnList = "username"),
+      @Index(name = "idx_created_at", columnList = "created_at")
+  })
+  public class User {
+      private String username;
+      private LocalDateTime createdAt;
+  }
+  
+  // ✅ DO: Use cursor-based pagination for large datasets
+  @Query("SELECT u FROM User u WHERE u.id > :lastId ORDER BY u.id")
+  List<User> findUsersAfter(@Param("lastId") Long lastId, Pageable pageable);
+  
+  // ❌ DON'T: Use fetch join with Page
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  Page<User> findAllWithOrders(Pageable pageable);  // In-memory pagination!
+  
+  // ✅ DO: Use @BatchSize instead
+  @Entity
+  public class User {
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)
+      private List<Order> orders;
+  }
+  
+  // ❌ DON'T: Load all data without pagination
+  @GetMapping("/users")
+  public List<User> getAllUsers() {
+      return userRepository.findAll();  // Loads everything!
+  }
+  
+  // ✅ DO: Validate page parameters
+  @GetMapping("/users")
+  public Page<User> getUsers(
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+  ) {
+      Pageable pageable = PageRequest.of(page, size);
+      return userRepository.findAll(pageable);
+  }
+  
+  // ✅ DO: Use DTO projection with pagination
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  Page<UserDTO> findAllUserDTOs(Pageable pageable);
+  
+  // ✅ DO: Handle empty pages gracefully
+  @GetMapping("/users")
+  public ResponseEntity<Page<User>> getUsers(Pageable pageable) {
+      Page<User> page = userRepository.findAll(pageable);
+      
+      if (page.isEmpty()) {
+          return ResponseEntity.noContent().build();
+      }
+      
+      return ResponseEntity.ok(page);
+  }
+  ```
+
+  **Summary:**
+  + Use **Pageable** for pagination and sorting
+  + Use **Page** when you need total count (page numbers navigation)
+  + Use **Slice** for infinite scrolling (better performance)
+  + Use **Sort** for ordering results
+  + Set **default and maximum page size**
+  + Add **indexes** for sorted columns
+  + Use **cursor-based pagination** for large datasets
+  + Don't use **fetch join with Page** (causes in-memory pagination)
+  + Use **@BatchSize** instead of fetch join with pagination
+  + Validate **page parameters**
+  + Use **DTO projection** to reduce data transfer
+  + Handle **empty pages** gracefully
+
+</details>
+

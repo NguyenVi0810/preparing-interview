@@ -1,0 +1,765 @@
+## N+1 Problem
+
+<details>
+  <summary>What is the N+1 Problem?</summary>
+  <br/>
+
+  The N+1 problem occurs when loading a collection triggers N additional queries.
+
+  **Problem:**
+  + 1 query to load parent entities
+  + N queries to load related entities (one per parent)
+  + Total: 1 + N queries
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+      
+      @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+      private List<Order> orders;
+  }
+  
+  @Entity
+  public class Order {
+      @Id
+      private Long id;
+      private BigDecimal total;
+      
+      @ManyToOne
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **N+1 Problem in action:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void printUsersWithOrders() {
+          List<User> users = userRepository.findAll();
+          // Query 1: SELECT * FROM users
+          
+          for (User user : users) {
+              System.out.println(user.getUsername());
+              System.out.println(user.getOrders().size());
+              // Query 2: SELECT * FROM orders WHERE user_id = 1
+              // Query 3: SELECT * FROM orders WHERE user_id = 2
+              // Query 4: SELECT * FROM orders WHERE user_id = 3
+              // ... N queries (one per user)
+          }
+          
+          // Total: 1 + N queries
+          // If 100 users, 101 queries!
+      }
+  }
+  ```
+
+  **Why it's a problem:**
+  + Poor performance
+  + Database overload
+  + Slow response times
+  + Scalability issues
+
+</details>
+
+<details>
+  <summary>Detecting N+1 Problem</summary>
+  <br/>
+
+  **Method 1: Enable SQL logging:**
+
+  ```properties
+  # application.properties
+  spring.jpa.show-sql=true
+  spring.jpa.properties.hibernate.format_sql=true
+  logging.level.org.hibernate.SQL=DEBUG
+  logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+  ```
+
+  **Method 2: Use Hibernate statistics:**
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.generate_statistics=true
+  ```
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void detectN1() {
+          Session session = entityManager.unwrap(Session.class);
+          SessionFactory sessionFactory = session.getSessionFactory();
+          Statistics stats = sessionFactory.getStatistics();
+          stats.clear();
+          
+          List<User> users = userRepository.findAll();
+          for (User user : users) {
+              user.getOrders().size();
+          }
+          
+          System.out.println("Queries executed: " + stats.getPrepareStatementCount());
+          // Shows total number of queries
+      }
+  }
+  ```
+
+  **Method 3: Use query logging tools:**
+  + P6Spy
+  + Datasource-proxy
+  + Spring Boot Actuator
+
+</details>
+
+<details>
+  <summary>Solution 1: Fetch Join (JPQL)</summary>
+  <br/>
+
+  Fetch join loads related entities in a single query.
+
+  **Repository with fetch join:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Fetch join
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders")
+      List<User> findAllWithOrders();
+      
+      // Fetch join with WHERE clause
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+      Optional<User> findByIdWithOrders(@Param("id") Long id);
+      
+      // Multiple fetch joins
+      @Query("SELECT u FROM User u " +
+             "LEFT JOIN FETCH u.orders o " +
+             "LEFT JOIN FETCH o.items")
+      List<User> findAllWithOrdersAndItems();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void printUsersWithOrders() {
+          List<User> users = userRepository.findAllWithOrders();
+          // Single query: 
+          // SELECT u.*, o.* FROM users u 
+          // LEFT JOIN orders o ON u.id = o.user_id
+          
+          for (User user : users) {
+              System.out.println(user.getUsername());
+              System.out.println(user.getOrders().size());
+              // No additional queries!
+          }
+          
+          // Total: 1 query (instead of 1 + N)
+      }
+  }
+  ```
+
+  **Important: Use DISTINCT:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Without DISTINCT - returns duplicate users
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders")
+      List<User> findAllWithOrders();
+      
+      // With DISTINCT - removes duplicates
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+      List<User> findAllWithOrdersDistinct();
+  }
+  ```
+
+  **Advantages:**
+  + Single query
+  + Best performance
+  + Simple to implement
+
+  **Disadvantages:**
+  + Can return duplicates (use DISTINCT)
+  + Cartesian product with multiple collections
+  + Cannot use pagination with fetch join
+
+</details>
+
+<details>
+  <summary>Solution 2: Entity Graph</summary>
+  <br/>
+
+  Entity graphs specify which relationships to load.
+
+  **Define entity graph:**
+
+  ```java
+  @Entity
+  @NamedEntityGraph(
+      name = "User.orders",
+      attributeNodes = @NamedAttributeNode("orders")
+  )
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+      private List<Order> orders;
+  }
+  ```
+
+  **Use in repository:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Use named entity graph
+      @EntityGraph(value = "User.orders")
+      List<User> findAll();
+      
+      @EntityGraph(value = "User.orders")
+      Optional<User> findById(Long id);
+      
+      // Use attribute paths (no need for @NamedEntityGraph)
+      @EntityGraph(attributePaths = {"orders"})
+      List<User> findAllWithOrders();
+      
+      // Multiple relationships
+      @EntityGraph(attributePaths = {"orders", "orders.items"})
+      List<User> findAllWithOrdersAndItems();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void printUsersWithOrders() {
+          List<User> users = userRepository.findAll();
+          // Single query with LEFT JOIN
+          
+          for (User user : users) {
+              System.out.println(user.getOrders().size());
+              // No additional queries!
+          }
+      }
+  }
+  ```
+
+  **Dynamic entity graph:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public List<User> findAllWithOrders() {
+          EntityGraph<User> graph = entityManager.createEntityGraph(User.class);
+          graph.addAttributeNodes("orders");
+          
+          return entityManager
+              .createQuery("SELECT u FROM User u", User.class)
+              .setHint("javax.persistence.fetchgraph", graph)
+              .getResultList();
+      }
+  }
+  ```
+
+  **Advantages:**
+  + Flexible (can be applied to any query method)
+  + No JPQL needed
+  + Reusable
+
+  **Disadvantages:**
+  + Less explicit than fetch join
+  + Can still have Cartesian product
+
+</details>
+
+<details>
+  <summary>Solution 3: Batch Fetching</summary>
+  <br/>
+
+  Batch fetching loads multiple collections in fewer queries.
+
+  **Using @BatchSize:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+      @BatchSize(size = 10)  // Load 10 users' orders at once
+      private List<Order> orders;
+  }
+  ```
+
+  **How it works:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void printUsersWithOrders() {
+          List<User> users = userRepository.findAll();
+          // Query 1: SELECT * FROM users
+          
+          for (User user : users) {
+              System.out.println(user.getOrders().size());
+          }
+          
+          // With @BatchSize(size = 10):
+          // Query 2: SELECT * FROM orders WHERE user_id IN (1, 2, 3, ..., 10)
+          // Query 3: SELECT * FROM orders WHERE user_id IN (11, 12, 13, ..., 20)
+          // ...
+          
+          // Total: 1 + (N / batch_size) queries
+          // If 100 users, 11 queries (instead of 101)
+      }
+  }
+  ```
+
+  **Global batch size:**
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.default_batch_fetch_size=10
+  ```
+
+  **Advantages:**
+  + Reduces queries significantly
+  + No code changes in service layer
+  + Works with pagination
+
+  **Disadvantages:**
+  + Still multiple queries (not single query)
+  + Less efficient than fetch join
+  + Requires tuning batch size
+
+</details>
+
+<details>
+  <summary>Solution 4: Subselect Fetching</summary>
+  <br/>
+
+  Subselect fetching loads all collections in a second query.
+
+  **Using @Fetch(FetchMode.SUBSELECT):**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+      @Fetch(FetchMode.SUBSELECT)
+      private List<Order> orders;
+  }
+  ```
+
+  **How it works:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void printUsersWithOrders() {
+          List<User> users = userRepository.findAll();
+          // Query 1: SELECT * FROM users
+          
+          for (User user : users) {
+              System.out.println(user.getOrders().size());
+          }
+          
+          // Query 2: SELECT * FROM orders WHERE user_id IN (
+          //   SELECT id FROM users
+          // )
+          
+          // Total: 2 queries (instead of 1 + N)
+      }
+  }
+  ```
+
+  **Advantages:**
+  + Only 2 queries total
+  + Works with any number of parents
+  + No Cartesian product
+
+  **Disadvantages:**
+  + Subquery can be slow
+  + Not as efficient as fetch join
+  + Loads all collections (even if not needed)
+
+</details>
+
+<details>
+  <summary>Solution 5: DTO Projection</summary>
+  <br/>
+
+  DTO projection fetches only needed data in a single query.
+
+  **DTO class:**
+
+  ```java
+  public class UserWithOrdersDTO {
+      private Long userId;
+      private String username;
+      private Long orderId;
+      private BigDecimal orderTotal;
+      
+      public UserWithOrdersDTO(Long userId, String username, Long orderId, BigDecimal orderTotal) {
+          this.userId = userId;
+          this.username = username;
+          this.orderId = orderId;
+          this.orderTotal = orderTotal;
+      }
+      
+      // Getters
+  }
+  ```
+
+  **Repository:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT new com.example.dto.UserWithOrdersDTO(" +
+             "u.id, u.username, o.id, o.total) " +
+             "FROM User u LEFT JOIN u.orders o")
+      List<UserWithOrdersDTO> findAllWithOrdersDTO();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void printUsersWithOrders() {
+          List<UserWithOrdersDTO> results = userRepository.findAllWithOrdersDTO();
+          // Single query
+          
+          // Group by user
+          Map<Long, List<UserWithOrdersDTO>> grouped = results.stream()
+              .collect(Collectors.groupingBy(UserWithOrdersDTO::getUserId));
+          
+          grouped.forEach((userId, orders) -> {
+              System.out.println("User: " + orders.get(0).getUsername());
+              System.out.println("Orders: " + orders.size());
+          });
+      }
+  }
+  ```
+
+  **Advantages:**
+  + Single query
+  + Fetch only needed fields
+  + No entity overhead
+
+  **Disadvantages:**
+  + More code (DTO classes)
+  + Manual mapping
+  + Not suitable for complex object graphs
+
+</details>
+
+<details>
+  <summary>Solution Comparison</summary>
+  <br/>
+
+  **Performance comparison:**
+
+  | Solution | Queries | Performance | Complexity | Use Case |
+  |----------|---------|-------------|------------|----------|
+  | **Fetch Join** | 1 | ⭐⭐⭐⭐⭐ Best | Low | Default choice |
+  | **Entity Graph** | 1 | ⭐⭐⭐⭐⭐ Best | Low | Flexible loading |
+  | **Batch Fetching** | 1 + N/batch | ⭐⭐⭐ Good | Low | With pagination |
+  | **Subselect** | 2 | ⭐⭐⭐⭐ Very Good | Low | Many parents |
+  | **DTO Projection** | 1 | ⭐⭐⭐⭐⭐ Best | Medium | Read-only |
+
+  **When to use each:**
+
+  ```java
+  // Use Fetch Join for:
+  // - Loading single entity with relationships
+  // - Best performance
+  // - No pagination needed
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  List<User> findAllWithOrders();
+  
+  // Use Entity Graph for:
+  // - Flexible loading strategy
+  // - Multiple query methods
+  // - Reusable graphs
+  @EntityGraph(attributePaths = {"orders"})
+  List<User> findAll();
+  
+  // Use Batch Fetching for:
+  // - Pagination
+  // - Large result sets
+  // - Acceptable to have multiple queries
+  @BatchSize(size = 10)
+  private List<Order> orders;
+  
+  // Use Subselect for:
+  // - Loading all collections at once
+  // - Many parent entities
+  // - Acceptable to have 2 queries
+  @Fetch(FetchMode.SUBSELECT)
+  private List<Order> orders;
+  
+  // Use DTO Projection for:
+  // - Read-only operations
+  // - Reporting
+  // - Need specific fields only
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  List<UserDTO> findAllDTO();
+  ```
+
+</details>
+
+<details>
+  <summary>Multiple Collections Problem</summary>
+  <br/>
+
+  Fetching multiple collections causes Cartesian product.
+
+  **Problem:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      private List<Order> orders;
+      
+      @OneToMany(mappedBy = "user")
+      private List<Address> addresses;
+  }
+  
+  // ❌ BAD: Cartesian product
+  @Query("SELECT DISTINCT u FROM User u " +
+         "LEFT JOIN FETCH u.orders " +
+         "LEFT JOIN FETCH u.addresses")
+  List<User> findAllWithOrdersAndAddresses();
+  
+  // If user has 10 orders and 5 addresses:
+  // Returns 50 rows (10 * 5 = Cartesian product)
+  ```
+
+  **Solution 1: Multiple queries:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+      List<User> findAllWithOrders();
+      
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.addresses WHERE u IN :users")
+      List<User> findWithAddresses(@Param("users") List<User> users);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public List<User> findAllWithOrdersAndAddresses() {
+          // Query 1: Load users with orders
+          List<User> users = userRepository.findAllWithOrders();
+          
+          // Query 2: Load addresses
+          userRepository.findWithAddresses(users);
+          
+          return users;
+      }
+  }
+  ```
+
+  **Solution 2: Entity graph with multiple queries:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public List<User> findAllWithOrdersAndAddresses() {
+          // Query 1: Load users with orders
+          EntityGraph<User> graph1 = entityManager.createEntityGraph(User.class);
+          graph1.addAttributeNodes("orders");
+          
+          List<User> users = entityManager
+              .createQuery("SELECT DISTINCT u FROM User u", User.class)
+              .setHint("javax.persistence.fetchgraph", graph1)
+              .getResultList();
+          
+          // Query 2: Load addresses
+          EntityGraph<User> graph2 = entityManager.createEntityGraph(User.class);
+          graph2.addAttributeNodes("addresses");
+          
+          entityManager
+              .createQuery("SELECT DISTINCT u FROM User u WHERE u IN :users", User.class)
+              .setParameter("users", users)
+              .setHint("javax.persistence.fetchgraph", graph2)
+              .getResultList();
+          
+          return users;
+      }
+  }
+  ```
+
+  **Solution 3: Batch fetching:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)
+      private List<Order> orders;
+      
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)
+      private List<Address> addresses;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use fetch join for single collection
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  List<User> findAllWithOrders();
+  
+  // ✅ DO: Use DISTINCT with fetch join
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  List<User> findAllWithOrders();
+  
+  // ✅ DO: Use entity graph for flexibility
+  @EntityGraph(attributePaths = {"orders"})
+  List<User> findAll();
+  
+  // ✅ DO: Use batch fetching with pagination
+  @BatchSize(size = 10)
+  private List<Order> orders;
+  
+  // ✅ DO: Enable SQL logging to detect N+1
+  spring.jpa.show-sql=true
+  
+  // ✅ DO: Use DTO projection for read-only
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  List<UserDTO> findAllDTO();
+  
+  // ❌ DON'T: Fetch multiple collections in one query
+  @Query("SELECT u FROM User u " +
+         "LEFT JOIN FETCH u.orders " +
+         "LEFT JOIN FETCH u.addresses")  // Cartesian product!
+  List<User> findAll();
+  
+  // ❌ DON'T: Use fetch join with pagination
+  @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+  Page<User> findAll(Pageable pageable);  // Warning: in-memory pagination!
+  
+  // ✅ DO: Use batch fetching with pagination instead
+  @BatchSize(size = 10)
+  private List<Order> orders;
+  
+  Page<User> findAll(Pageable pageable);  // Works correctly
+  
+  // ✅ DO: Test query performance
+  @Test
+  public void testN1Problem() {
+      Statistics stats = sessionFactory.getStatistics();
+      stats.clear();
+      
+      List<User> users = userRepository.findAll();
+      users.forEach(u -> u.getOrders().size());
+      
+      long queries = stats.getPrepareStatementCount();
+      assertTrue(queries <= 2, "N+1 problem detected: " + queries + " queries");
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  **N+1 Problem:**
+  + 1 query to load parents
+  + N queries to load children (one per parent)
+  + Causes poor performance
+  + Common with LAZY loading
+
+  **Detection:**
+  + Enable SQL logging
+  + Use Hibernate statistics
+  + Use query logging tools (P6Spy)
+
+  **Solutions:**
+  + **Fetch Join** - Single query with JOIN FETCH (best for single collection)
+  + **Entity Graph** - Flexible loading with @EntityGraph
+  + **Batch Fetching** - Load in batches with @BatchSize
+  + **Subselect** - Load all in 2 queries with @Fetch(SUBSELECT)
+  + **DTO Projection** - Fetch only needed fields
+
+  **Best Solution:**
+  + **Fetch Join** or **Entity Graph** for single collection
+  + **Batch Fetching** for pagination
+  + **Multiple queries** for multiple collections
+  + **DTO Projection** for read-only operations
+
+  **Important:**
+  + Always use **DISTINCT** with fetch join
+  + Don't fetch **multiple collections** in one query (Cartesian product)
+  + Don't use **fetch join with pagination** (in-memory pagination)
+  + Use **batch fetching** with pagination instead
+  + Enable **SQL logging** to detect N+1
+  + Test query **performance**
+
+</details>

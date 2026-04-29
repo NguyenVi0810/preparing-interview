@@ -1,0 +1,749 @@
+## Entity Basics
+
+<details>
+  <summary>What is a JPA Entity?</summary>
+  <br/>
+
+  A JPA Entity is a Java class that represents a table in a relational database.
+
+  **Basic Entity:**
+
+  ```java
+  @Entity
+  @Table(name = "users")
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      @Column(name = "username", nullable = false, unique = true, length = 50)
+      private String username;
+      
+      @Column(name = "email", nullable = false)
+      private String email;
+      
+      @Column(name = "age")
+      private Integer age;
+      
+      @Column(name = "created_at")
+      private LocalDateTime createdAt;
+      
+      // Constructors, getters, setters
+  }
+  ```
+
+  **Requirements for JPA Entity:**
+  + Must be annotated with `@Entity`
+  + Must have a no-argument constructor (can be protected)
+  + Must have a primary key (`@Id`)
+  + Cannot be final (Hibernate uses proxies)
+  + Fields should not be final (for lazy loading)
+
+</details>
+
+<details>
+  <summary>@Entity Annotation</summary>
+  <br/>
+
+  `@Entity` marks a class as a JPA entity.
+
+  **Basic usage:**
+
+  ```java
+  @Entity
+  public class Product {
+      @Id
+      private Long id;
+      private String name;
+  }
+  ```
+
+  **With custom name:**
+
+  ```java
+  @Entity(name = "ProductEntity")  // Used in JPQL queries
+  public class Product {
+      @Id
+      private Long id;
+      private String name;
+  }
+  ```
+
+  **JPQL query with custom entity name:**
+
+  ```java
+  // Without custom name
+  @Query("SELECT p FROM Product p WHERE p.name = :name")
+  
+  // With custom name
+  @Query("SELECT p FROM ProductEntity p WHERE p.name = :name")
+  ```
+
+  **When to use custom name:**
+  + Avoid conflicts with Java keywords
+  + Different naming convention for queries
+  + Legacy database integration
+
+</details>
+
+<details>
+  <summary>@Table Annotation</summary>
+  <br/>
+
+  `@Table` specifies the database table name and constraints.
+
+  **Basic usage:**
+
+  ```java
+  @Entity
+  @Table(name = "users")  // Maps to 'users' table
+  public class User {
+      @Id
+      private Long id;
+  }
+  ```
+
+  **With schema:**
+
+  ```java
+  @Entity
+  @Table(name = "users", schema = "public")
+  public class User {
+      @Id
+      private Long id;
+  }
+  ```
+
+  **With unique constraints:**
+
+  ```java
+  @Entity
+  @Table(
+      name = "users",
+      uniqueConstraints = {
+          @UniqueConstraint(
+              name = "uk_email",
+              columnNames = {"email"}
+          ),
+          @UniqueConstraint(
+              name = "uk_username_email",
+              columnNames = {"username", "email"}
+          )
+      }
+  )
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+      private String email;
+  }
+  ```
+
+  **With indexes:**
+
+  ```java
+  @Entity
+  @Table(
+      name = "users",
+      indexes = {
+          @Index(name = "idx_username", columnList = "username"),
+          @Index(name = "idx_email", columnList = "email"),
+          @Index(name = "idx_username_email", columnList = "username, email")
+      }
+  )
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+      private String email;
+  }
+  ```
+
+  **Default behavior (without @Table):**
+
+  ```java
+  @Entity
+  public class User {
+      // Maps to table named "User" (class name)
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Id Annotation</summary>
+  <br/>
+
+  `@Id` marks the primary key field.
+
+  **Simple primary key:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      private Long id;
+      
+      private String name;
+  }
+  ```
+
+  **Multiple @Id fields (Composite Key):**
+
+  ```java
+  @Entity
+  public class OrderItem {
+      
+      @Id
+      private Long orderId;
+      
+      @Id
+      private Long productId;
+      
+      private Integer quantity;
+  }
+  ```
+
+  **Better approach for composite key (using @IdClass):**
+
+  ```java
+  @Embeddable
+  public class OrderItemId implements Serializable {
+      private Long orderId;
+      private Long productId;
+      
+      // equals() and hashCode() required
+  }
+  
+  @Entity
+  public class OrderItem {
+      
+      @EmbeddedId
+      private OrderItemId id;
+      
+      private Integer quantity;
+  }
+  ```
+
+  **Primary key types:**
+  + Numeric: Long, Integer (recommended: Long)
+  + String: UUID, custom strings
+  + UUID: java.util.UUID
+
+</details>
+
+<details>
+  <summary>@GeneratedValue Strategies</summary>
+  <br/>
+
+  `@GeneratedValue` specifies how primary keys are generated.
+
+  **1. IDENTITY (Auto-increment):**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+  }
+  ```
+
+  **How it works:**
+  + Database generates ID (AUTO_INCREMENT in MySQL)
+  + ID available only after INSERT
+  + Cannot batch INSERT statements
+  + Best for: MySQL, PostgreSQL, SQL Server
+
+  **2. SEQUENCE (Database sequence):**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user_seq")
+      @SequenceGenerator(
+          name = "user_seq",
+          sequenceName = "user_sequence",
+          allocationSize = 1
+      )
+      private Long id;
+  }
+  ```
+
+  **How it works:**
+  + Uses database sequence
+  + ID available before INSERT
+  + Supports batch INSERT
+  + Best for: PostgreSQL, Oracle
+
+  **3. TABLE (Sequence table):**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.TABLE, generator = "user_gen")
+      @TableGenerator(
+          name = "user_gen",
+          table = "id_generator",
+          pkColumnName = "gen_name",
+          valueColumnName = "gen_value",
+          allocationSize = 1
+      )
+      private Long id;
+  }
+  ```
+
+  **How it works:**
+  + Uses separate table to store sequences
+  + Works with any database
+  + Performance overhead (extra table access)
+  + Rarely used in practice
+
+  **4. AUTO (Default, let JPA choose):**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.AUTO)
+      private Long id;
+  }
+  ```
+
+  **How it works:**
+  + JPA provider chooses strategy based on database
+  + Not recommended (unpredictable behavior)
+
+  **5. UUID (Custom generator):**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(generator = "UUID")
+      @GenericGenerator(
+          name = "UUID",
+          strategy = "org.hibernate.id.UUIDGenerator"
+      )
+      @Column(updatable = false, nullable = false)
+      private UUID id;
+  }
+  ```
+
+  **Comparison:**
+
+  | Strategy | Performance | Batch Insert | Database Support | Use Case |
+  |----------|-------------|--------------|------------------|----------|
+  | IDENTITY | Good | ❌ No | MySQL, PostgreSQL | Simple apps |
+  | SEQUENCE | Best | ✅ Yes | PostgreSQL, Oracle | High performance |
+  | TABLE | Poor | ✅ Yes | All databases | Rarely used |
+  | UUID | Good | ✅ Yes | All databases | Distributed systems |
+
+</details>
+
+<details>
+  <summary>@Column Annotation</summary>
+  <br/>
+
+  `@Column` customizes column mapping.
+
+  **Basic usage:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      private Long id;
+      
+      @Column(name = "user_name")  // Maps to 'user_name' column
+      private String username;
+  }
+  ```
+
+  **All attributes:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      private Long id;
+      
+      @Column(
+          name = "username",           // Column name
+          nullable = false,            // NOT NULL constraint
+          unique = true,               // UNIQUE constraint
+          length = 50,                 // VARCHAR(50)
+          precision = 10,              // For decimal numbers
+          scale = 2,                   // Decimal places
+          insertable = true,           // Include in INSERT
+          updatable = true,            // Include in UPDATE
+          columnDefinition = "VARCHAR(255) DEFAULT 'N/A'"  // Custom SQL
+      )
+      private String username;
+  }
+  ```
+
+  **Common patterns:**
+
+  ```java
+  @Entity
+  public class Product {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      // Required field
+      @Column(nullable = false)
+      private String name;
+      
+      // Unique field
+      @Column(unique = true)
+      private String sku;
+      
+      // Long text
+      @Column(length = 1000)
+      private String description;
+      
+      // Decimal number
+      @Column(precision = 10, scale = 2)
+      private BigDecimal price;
+      
+      // Read-only field (not updatable)
+      @Column(updatable = false)
+      private LocalDateTime createdAt;
+      
+      // Not persisted to database
+      @Transient
+      private String temporaryData;
+  }
+  ```
+
+  **Default behavior (without @Column):**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      private String username;  // Maps to column "username"
+      private String firstName; // Maps to column "firstName" or "first_name" (depends on naming strategy)
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Field Types</summary>
+  <br/>
+
+  **String fields:**
+
+  ```java
+  @Column(length = 50)
+  private String shortText;
+  
+  @Column(length = 1000)
+  private String longText;
+  
+  @Lob  // Large object (TEXT, CLOB)
+  private String veryLongText;
+  ```
+
+  **Numeric fields:**
+
+  ```java
+  private Integer age;
+  private Long count;
+  
+  @Column(precision = 10, scale = 2)
+  private BigDecimal price;  // For money
+  
+  private Double rating;
+  ```
+
+  **Date/Time fields:**
+
+  ```java
+  private LocalDate birthDate;
+  private LocalDateTime createdAt;
+  private LocalTime startTime;
+  
+  @Temporal(TemporalType.TIMESTAMP)
+  private Date legacyDate;  // Old Date API
+  ```
+
+  **Boolean fields:**
+
+  ```java
+  private Boolean active;  // Maps to BOOLEAN or TINYINT(1)
+  
+  @Column(columnDefinition = "CHAR(1)")
+  private Boolean flag;  // Maps to 'Y'/'N'
+  ```
+
+  **Enum fields:**
+
+  ```java
+  @Enumerated(EnumType.STRING)  // Stores enum name
+  private Status status;
+  
+  @Enumerated(EnumType.ORDINAL)  // Stores enum position (not recommended)
+  private Priority priority;
+  
+  public enum Status {
+      ACTIVE, INACTIVE, PENDING
+  }
+  ```
+
+  **Binary data:**
+
+  ```java
+  @Lob
+  private byte[] image;  // BLOB
+  ```
+
+  **JSON/Custom types:**
+
+  ```java
+  @Type(type = "json")
+  @Column(columnDefinition = "json")
+  private Map<String, Object> metadata;
+  ```
+
+</details>
+
+<details>
+  <summary>@Transient Annotation</summary>
+  <br/>
+
+  `@Transient` marks fields that should NOT be persisted to database.
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      private Long id;
+      
+      private String firstName;
+      private String lastName;
+      
+      // Not stored in database
+      @Transient
+      private String fullName;
+      
+      public String getFullName() {
+          return firstName + " " + lastName;
+      }
+      
+      // Calculated field
+      @Transient
+      private int age;
+      
+      private LocalDate birthDate;
+      
+      public int getAge() {
+          return Period.between(birthDate, LocalDate.now()).getYears();
+      }
+  }
+  ```
+
+  **Use cases:**
+  + Calculated/derived fields
+  + Temporary data
+  + Helper fields for business logic
+  + Fields that don't need persistence
+
+</details>
+
+<details>
+  <summary>Complete Entity Example</summary>
+  <br/>
+
+  ```java
+  @Entity
+  @Table(
+      name = "users",
+      uniqueConstraints = @UniqueConstraint(name = "uk_email", columnNames = "email"),
+      indexes = {
+          @Index(name = "idx_username", columnList = "username"),
+          @Index(name = "idx_created_at", columnList = "created_at")
+      }
+  )
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      @Column(name = "username", nullable = false, unique = true, length = 50)
+      private String username;
+      
+      @Column(name = "email", nullable = false, length = 100)
+      private String email;
+      
+      @Column(name = "password", nullable = false)
+      private String password;
+      
+      @Column(name = "first_name", length = 50)
+      private String firstName;
+      
+      @Column(name = "last_name", length = 50)
+      private String lastName;
+      
+      @Column(name = "age")
+      private Integer age;
+      
+      @Enumerated(EnumType.STRING)
+      @Column(name = "status", nullable = false)
+      private UserStatus status;
+      
+      @Column(name = "created_at", nullable = false, updatable = false)
+      private LocalDateTime createdAt;
+      
+      @Column(name = "updated_at")
+      private LocalDateTime updatedAt;
+      
+      @Transient
+      private String fullName;
+      
+      // Constructors
+      public User() {
+      }
+      
+      public User(String username, String email, String password) {
+          this.username = username;
+          this.email = email;
+          this.password = password;
+          this.status = UserStatus.ACTIVE;
+          this.createdAt = LocalDateTime.now();
+      }
+      
+      // Getters and setters
+      public String getFullName() {
+          return firstName + " " + lastName;
+      }
+      
+      @PrePersist
+      protected void onCreate() {
+          createdAt = LocalDateTime.now();
+      }
+      
+      @PreUpdate
+      protected void onUpdate() {
+          updatedAt = LocalDateTime.now();
+      }
+      
+      public enum UserStatus {
+          ACTIVE, INACTIVE, SUSPENDED
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Long for @Id
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+  
+  // ❌ DON'T: Use primitive int
+  @Id
+  private int id;  // Can't represent null
+  
+  // ✅ DO: Use IDENTITY for MySQL
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  
+  // ✅ DO: Use SEQUENCE for PostgreSQL
+  @GeneratedValue(strategy = GenerationType.SEQUENCE)
+  
+  // ✅ DO: Specify column constraints
+  @Column(nullable = false, unique = true, length = 50)
+  private String username;
+  
+  // ✅ DO: Use meaningful table/column names
+  @Table(name = "users")
+  @Column(name = "created_at")
+  
+  // ❌ DON'T: Use generic names
+  @Table(name = "table1")
+  @Column(name = "col1")
+  
+  // ✅ DO: Use @Enumerated(EnumType.STRING)
+  @Enumerated(EnumType.STRING)
+  private Status status;
+  
+  // ❌ DON'T: Use EnumType.ORDINAL
+  @Enumerated(EnumType.ORDINAL)  // Breaks if enum order changes
+  private Status status;
+  
+  // ✅ DO: Use BigDecimal for money
+  @Column(precision = 10, scale = 2)
+  private BigDecimal price;
+  
+  // ❌ DON'T: Use Double for money
+  private Double price;  // Precision issues
+  
+  // ✅ DO: Use LocalDateTime for dates
+  private LocalDateTime createdAt;
+  
+  // ❌ DON'T: Use old Date API
+  private Date createdAt;  // Legacy
+  
+  // ✅ DO: Make entities serializable if needed
+  public class User implements Serializable {
+      private static final long serialVersionUID = 1L;
+  }
+  
+  // ✅ DO: Override equals() and hashCode() for entities with relationships
+  @Override
+  public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof User)) return false;
+      User user = (User) o;
+      return id != null && id.equals(user.id);
+  }
+  
+  @Override
+  public int hashCode() {
+      return getClass().hashCode();
+  }
+  ```
+
+  **Key Points**
+  <br/>
+
+  + Use `@Entity` to mark JPA entities
+  + Use `@Table` to specify table name and constraints
+  + Use `@Id` for primary key (prefer Long type)
+  + Use `@GeneratedValue` for auto-generated IDs
+  + **IDENTITY** for MySQL, **SEQUENCE** for PostgreSQL
+  + Use `@Column` to customize column mapping
+  + Specify `nullable`, `unique`, `length` constraints
+  + Use `@Enumerated(EnumType.STRING)` for enums
+  + Use `BigDecimal` for money, `LocalDateTime` for dates
+  + Use `@Transient` for non-persistent fields
+  + Entity must have **no-arg constructor**
+  + Override `equals()` and `hashCode()` for entities with relationships
+  + Use indexes for frequently queried columns
+  + Never use primitive types for `@Id`
+
+</details>

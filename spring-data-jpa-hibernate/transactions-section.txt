@@ -1,0 +1,816 @@
+## Transactions
+
+<details>
+  <summary>What are Transactions?</summary>
+  <br/>
+
+  A transaction is a unit of work that either completes entirely or not at all.
+
+  **ACID Properties:**
+  + **Atomicity** - All or nothing (complete success or complete failure)
+  + **Consistency** - Data remains in valid state
+  + **Isolation** - Concurrent transactions don't interfere
+  + **Durability** - Committed changes are permanent
+
+  **Why use transactions?**
+  + Ensure data consistency
+  + Handle failures gracefully
+  + Maintain data integrity
+  + Support concurrent operations
+
+  **Example without transaction:**
+
+  ```java
+  // ❌ BAD: No transaction
+  public void transferMoney(Long fromId, Long toId, BigDecimal amount) {
+      Account from = accountRepository.findById(fromId).orElseThrow();
+      Account to = accountRepository.findById(toId).orElseThrow();
+      
+      from.setBalance(from.getBalance().subtract(amount));
+      accountRepository.save(from);
+      
+      // If exception occurs here, money is lost!
+      
+      to.setBalance(to.getBalance().add(amount));
+      accountRepository.save(to);
+  }
+  ```
+
+  **Example with transaction:**
+
+  ```java
+  // ✅ GOOD: With transaction
+  @Transactional
+  public void transferMoney(Long fromId, Long toId, BigDecimal amount) {
+      Account from = accountRepository.findById(fromId).orElseThrow();
+      Account to = accountRepository.findById(toId).orElseThrow();
+      
+      from.setBalance(from.getBalance().subtract(amount));
+      accountRepository.save(from);
+      
+      // If exception occurs, entire transaction rolls back
+      
+      to.setBalance(to.getBalance().add(amount));
+      accountRepository.save(to);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Transactional Annotation</summary>
+  <br/>
+
+  `@Transactional` marks a method or class to run within a transaction.
+
+  **Basic usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      // Method-level transaction
+      @Transactional
+      public User createUser(String username, String email) {
+          User user = new User(username, email);
+          return userRepository.save(user);
+      }
+      
+      // Read-only transaction
+      @Transactional(readOnly = true)
+      public User getUser(Long id) {
+          return userRepository.findById(id).orElseThrow();
+      }
+  }
+  ```
+
+  **Class-level transaction:**
+
+  ```java
+  @Service
+  @Transactional  // All methods are transactional
+  public class UserService {
+      
+      public User createUser(String username, String email) {
+          // Transactional
+      }
+      
+      @Transactional(readOnly = true)  // Override class-level
+      public User getUser(Long id) {
+          // Read-only transaction
+      }
+  }
+  ```
+
+  **When transaction starts and ends:**
+
+  ```java
+  @Transactional
+  public void method() {
+      // Transaction starts here
+      
+      // Database operations
+      
+      // Transaction commits here (if no exception)
+      // Transaction rolls back here (if exception)
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Propagation Levels</summary>
+  <br/>
+
+  Propagation defines how transactions relate to each other.
+
+  **Propagation types:**
+
+  ```
+  REQUIRED (default)  - Use existing or create new
+  REQUIRES_NEW        - Always create new (suspend existing)
+  MANDATORY           - Must have existing (throw exception if none)
+  SUPPORTS            - Use existing if available (non-transactional if none)
+  NOT_SUPPORTED       - Execute non-transactionally (suspend existing)
+  NEVER               - Execute non-transactionally (throw exception if exists)
+  NESTED              - Execute within nested transaction
+  ```
+
+  **1. REQUIRED (default):**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional(propagation = Propagation.REQUIRED)
+      public void method1() {
+          // Creates new transaction if none exists
+          // Uses existing transaction if one exists
+          method2();  // Uses same transaction
+      }
+      
+      @Transactional(propagation = Propagation.REQUIRED)
+      public void method2() {
+          // Uses transaction from method1
+      }
+  }
+  ```
+
+  **2. REQUIRES_NEW:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private AuditService auditService;
+      
+      @Transactional
+      public void createOrder(Order order) {
+          orderRepository.save(order);
+          
+          // Log audit in separate transaction
+          auditService.logAudit("Order created");
+          
+          // If order fails, audit is still saved
+      }
+  }
+  
+  @Service
+  public class AuditService {
+      
+      @Transactional(propagation = Propagation.REQUIRES_NEW)
+      public void logAudit(String message) {
+          // Creates new transaction (suspends existing)
+          // Commits independently
+          auditRepository.save(new Audit(message));
+      }
+  }
+  ```
+
+  **3. MANDATORY:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional(propagation = Propagation.MANDATORY)
+      public void updateUser(User user) {
+          // Must be called within existing transaction
+          // Throws exception if no transaction exists
+          userRepository.save(user);
+      }
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Transactional
+      public void processOrder(Order order) {
+          // Has transaction
+          userService.updateUser(order.getUser());  // Works
+      }
+      
+      public void processOrderNoTx(Order order) {
+          // No transaction
+          userService.updateUser(order.getUser());  // Exception!
+      }
+  }
+  ```
+
+  **4. SUPPORTS:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional(propagation = Propagation.SUPPORTS)
+      public User getUser(Long id) {
+          // Uses transaction if exists
+          // Runs without transaction if none exists
+          return userRepository.findById(id).orElseThrow();
+      }
+  }
+  ```
+
+  **5. NOT_SUPPORTED:**
+
+  ```java
+  @Service
+  public class ReportService {
+      
+      @Transactional(propagation = Propagation.NOT_SUPPORTED)
+      public Report generateReport() {
+          // Always runs without transaction
+          // Suspends existing transaction if any
+          // Good for long-running operations
+          return createReport();
+      }
+  }
+  ```
+
+  **6. NEVER:**
+
+  ```java
+  @Service
+  public class CacheService {
+      
+      @Transactional(propagation = Propagation.NEVER)
+      public void clearCache() {
+          // Must NOT be called within transaction
+          // Throws exception if transaction exists
+          cache.clear();
+      }
+  }
+  ```
+
+  **7. NESTED:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Transactional
+      public void processOrder(Order order) {
+          orderRepository.save(order);
+          
+          try {
+              // Nested transaction (savepoint)
+              inventoryService.updateInventory(order);
+          } catch (Exception e) {
+              // Nested transaction rolls back
+              // Main transaction continues
+          }
+      }
+  }
+  
+  @Service
+  public class InventoryService {
+      
+      @Transactional(propagation = Propagation.NESTED)
+      public void updateInventory(Order order) {
+          // Creates savepoint within existing transaction
+          // Can rollback to savepoint without affecting parent
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Isolation Levels</summary>
+  <br/>
+
+  Isolation level defines how transaction changes are visible to other transactions.
+
+  **Isolation levels (from least to most strict):**
+
+  ```
+  READ_UNCOMMITTED - Can read uncommitted changes (dirty reads)
+  READ_COMMITTED   - Can only read committed changes (default)
+  REPEATABLE_READ  - Same read returns same result
+  SERIALIZABLE     - Complete isolation (slowest)
+  ```
+
+  **Concurrency problems:**
+
+  ```
+  Dirty Read         - Reading uncommitted changes
+  Non-Repeatable Read - Same query returns different results
+  Phantom Read       - New rows appear in range query
+  ```
+
+  **1. READ_UNCOMMITTED:**
+
+  ```java
+  @Transactional(isolation = Isolation.READ_UNCOMMITTED)
+  public List<User> getUsers() {
+      // Can read uncommitted changes from other transactions
+      // Fastest but least safe
+      // Allows: Dirty reads, non-repeatable reads, phantom reads
+      return userRepository.findAll();
+  }
+  ```
+
+  **2. READ_COMMITTED (default):**
+
+  ```java
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  public User getUser(Long id) {
+      // Can only read committed changes
+      // Prevents: Dirty reads
+      // Allows: Non-repeatable reads, phantom reads
+      return userRepository.findById(id).orElseThrow();
+  }
+  ```
+
+  **3. REPEATABLE_READ:**
+
+  ```java
+  @Transactional(isolation = Isolation.REPEATABLE_READ)
+  public void processUser(Long id) {
+      User user1 = userRepository.findById(id).orElseThrow();
+      
+      // Other transaction updates user
+      
+      User user2 = userRepository.findById(id).orElseThrow();
+      
+      // user1 and user2 have same data (repeatable read)
+      // Prevents: Dirty reads, non-repeatable reads
+      // Allows: Phantom reads
+  }
+  ```
+
+  **4. SERIALIZABLE:**
+
+  ```java
+  @Transactional(isolation = Isolation.SERIALIZABLE)
+  public void criticalOperation() {
+      // Complete isolation
+      // Transactions execute as if serial
+      // Prevents: Dirty reads, non-repeatable reads, phantom reads
+      // Slowest performance
+  }
+  ```
+
+  **Comparison table:**
+
+  | Isolation Level | Dirty Read | Non-Repeatable Read | Phantom Read | Performance |
+  |----------------|------------|---------------------|--------------|-------------|
+  | READ_UNCOMMITTED | ✅ Possible | ✅ Possible | ✅ Possible | Fastest |
+  | READ_COMMITTED | ❌ Prevented | ✅ Possible | ✅ Possible | Fast |
+  | REPEATABLE_READ | ❌ Prevented | ❌ Prevented | ✅ Possible | Slow |
+  | SERIALIZABLE | ❌ Prevented | ❌ Prevented | ❌ Prevented | Slowest |
+
+</details>
+
+<details>
+  <summary>Rollback Rules</summary>
+  <br/>
+
+  Rollback rules define which exceptions trigger transaction rollback.
+
+  **Default behavior:**
+  + **RuntimeException** and **Error** → Rollback
+  + **Checked exceptions** → No rollback (commit)
+
+  **Custom rollback rules:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      // Rollback on all exceptions
+      @Transactional(rollbackFor = Exception.class)
+      public void createUser(User user) throws Exception {
+          userRepository.save(user);
+          // Rolls back on any exception
+      }
+      
+      // Rollback on specific exception
+      @Transactional(rollbackFor = CustomException.class)
+      public void updateUser(User user) throws CustomException {
+          userRepository.save(user);
+          // Rolls back only on CustomException
+      }
+      
+      // No rollback on specific exception
+      @Transactional(noRollbackFor = ValidationException.class)
+      public void processUser(User user) {
+          userRepository.save(user);
+          // Commits even if ValidationException occurs
+      }
+      
+      // Multiple exceptions
+      @Transactional(
+          rollbackFor = {IOException.class, SQLException.class},
+          noRollbackFor = {ValidationException.class}
+      )
+      public void complexOperation(User user) {
+          // Custom rollback rules
+      }
+  }
+  ```
+
+  **Rollback examples:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      // Default: Rolls back on RuntimeException
+      @Transactional
+      public void createOrder1(Order order) {
+          orderRepository.save(order);
+          throw new RuntimeException("Error");  // Rolls back
+      }
+      
+      // Default: Does NOT rollback on checked exception
+      @Transactional
+      public void createOrder2(Order order) throws Exception {
+          orderRepository.save(order);
+          throw new Exception("Error");  // Does NOT rollback (commits)
+      }
+      
+      // Custom: Rolls back on checked exception
+      @Transactional(rollbackFor = Exception.class)
+      public void createOrder3(Order order) throws Exception {
+          orderRepository.save(order);
+          throw new Exception("Error");  // Rolls back
+      }
+  }
+  ```
+
+  **Programmatic rollback:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void updateUser(User user) {
+          try {
+              userRepository.save(user);
+              
+              if (someCondition) {
+                  // Force rollback
+                  TransactionAspectSupport.currentTransaction().setRollbackOnly();
+              }
+          } catch (Exception e) {
+              // Transaction will rollback
+              throw e;
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Read-Only Transactions</summary>
+  <br/>
+
+  Read-only transactions optimize performance for queries.
+
+  **Benefits:**
+  + Performance optimization
+  + Prevents accidental writes
+  + Database can optimize query execution
+  + Hibernate skips dirty checking
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      // Read-only transaction
+      @Transactional(readOnly = true)
+      public User getUser(Long id) {
+          return userRepository.findById(id).orElseThrow();
+      }
+      
+      // Read-only with lazy loading
+      @Transactional(readOnly = true)
+      public User getUserWithOrders(Long id) {
+          User user = userRepository.findById(id).orElseThrow();
+          user.getOrders().size();  // Force load lazy collection
+          return user;
+      }
+      
+      // Read-only list query
+      @Transactional(readOnly = true)
+      public List<User> getAllUsers() {
+          return userRepository.findAll();
+      }
+  }
+  ```
+
+  **When to use:**
+  + GET operations
+  + Query methods
+  + Report generation
+  + Data export
+
+  **When NOT to use:**
+  + Create operations
+  + Update operations
+  + Delete operations
+
+</details>
+
+<details>
+  <summary>Timeout</summary>
+  <br/>
+
+  Timeout defines maximum transaction duration.
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      // Timeout in seconds
+      @Transactional(timeout = 5)
+      public void updateUser(User user) {
+          // Transaction must complete within 5 seconds
+          // Throws exception if timeout exceeded
+          userRepository.save(user);
+      }
+      
+      // Long-running operation
+      @Transactional(timeout = 60)
+      public void batchUpdate(List<User> users) {
+          // 60 seconds timeout
+          users.forEach(userRepository::save);
+      }
+  }
+  ```
+
+  **When to use:**
+  + Prevent long-running transactions
+  + Avoid database lock contention
+  + Ensure timely response
+
+</details>
+
+<details>
+  <summary>Transaction Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @Transactional on service layer
+  @Service
+  public class UserService {
+      @Transactional
+      public void createUser(User user) {
+          userRepository.save(user);
+      }
+  }
+  
+  // ❌ DON'T: Use @Transactional on repository layer
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      // Spring Data already handles transactions
+  }
+  
+  // ✅ DO: Use readOnly for queries
+  @Transactional(readOnly = true)
+  public User getUser(Long id) {
+      return userRepository.findById(id).orElseThrow();
+  }
+  
+  // ✅ DO: Keep transactions short
+  @Transactional
+  public void updateUser(User user) {
+      userRepository.save(user);
+      // Don't call external APIs here
+  }
+  
+  // ❌ DON'T: Call external services in transaction
+  @Transactional
+  public void badMethod(User user) {
+      userRepository.save(user);
+      externalApiClient.call();  // BAD: Holds transaction open
+  }
+  
+  // ✅ DO: Use REQUIRES_NEW for independent operations
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void logAudit(String message) {
+      auditRepository.save(new Audit(message));
+  }
+  
+  // ✅ DO: Specify rollback rules for checked exceptions
+  @Transactional(rollbackFor = Exception.class)
+  public void method() throws Exception {
+      // Rolls back on checked exceptions
+  }
+  
+  // ✅ DO: Use appropriate isolation level
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  public void normalOperation() {
+      // Default isolation is usually sufficient
+  }
+  
+  @Transactional(isolation = Isolation.SERIALIZABLE)
+  public void criticalOperation() {
+      // Use only when necessary (performance impact)
+  }
+  
+  // ✅ DO: Handle exceptions properly
+  @Transactional
+  public void method() {
+      try {
+          userRepository.save(user);
+      } catch (Exception e) {
+          log.error("Error", e);
+          throw e;  // Re-throw to trigger rollback
+      }
+  }
+  
+  // ❌ DON'T: Swallow exceptions
+  @Transactional
+  public void badMethod() {
+      try {
+          userRepository.save(user);
+      } catch (Exception e) {
+          log.error("Error", e);
+          // Exception swallowed - transaction commits!
+      }
+  }
+  
+  // ✅ DO: Use timeout for long operations
+  @Transactional(timeout = 30)
+  public void batchOperation() {
+      // Prevents indefinite locks
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Pitfalls</summary>
+  <br/>
+
+  **1. Self-invocation doesn't work:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      public void method1() {
+          // No transaction
+          method2();  // @Transactional is ignored!
+      }
+      
+      @Transactional
+      public void method2() {
+          // Transaction doesn't start (self-invocation)
+      }
+  }
+  
+  // Solution: Inject self or use separate service
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserService self;
+      
+      public void method1() {
+          self.method2();  // Works!
+      }
+      
+      @Transactional
+      public void method2() {
+          // Transaction starts
+      }
+  }
+  ```
+
+  **2. Private methods don't work:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional  // Ignored!
+      private void method() {
+          // @Transactional doesn't work on private methods
+      }
+  }
+  ```
+
+  **3. Exception handling:**
+
+  ```java
+  // ❌ BAD: Exception swallowed
+  @Transactional
+  public void badMethod() {
+      try {
+          userRepository.save(user);
+      } catch (Exception e) {
+          // Transaction commits (exception not propagated)
+      }
+  }
+  
+  // ✅ GOOD: Exception propagated
+  @Transactional
+  public void goodMethod() {
+      try {
+          userRepository.save(user);
+      } catch (Exception e) {
+          log.error("Error", e);
+          throw e;  // Transaction rolls back
+      }
+  }
+  ```
+
+  **4. Checked exceptions:**
+
+  ```java
+  // ❌ BAD: Checked exception doesn't rollback
+  @Transactional
+  public void badMethod() throws Exception {
+      userRepository.save(user);
+      throw new Exception();  // Transaction commits!
+  }
+  
+  // ✅ GOOD: Specify rollback rule
+  @Transactional(rollbackFor = Exception.class)
+  public void goodMethod() throws Exception {
+      userRepository.save(user);
+      throw new Exception();  // Transaction rolls back
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  **@Transactional:**
+  + Marks method/class to run within transaction
+  + Use on **service layer** (not repository)
+  + Use **readOnly = true** for queries
+  + Keep transactions **short**
+
+  **Propagation:**
+  + **REQUIRED** (default) - Use existing or create new
+  + **REQUIRES_NEW** - Always create new (independent)
+  + **MANDATORY** - Must have existing
+  + **SUPPORTS** - Optional transaction
+  + **NOT_SUPPORTED** - No transaction
+  + **NEVER** - Must not have transaction
+  + **NESTED** - Nested transaction (savepoint)
+
+  **Isolation:**
+  + **READ_UNCOMMITTED** - Fastest, least safe
+  + **READ_COMMITTED** (default) - Good balance
+  + **REPEATABLE_READ** - Prevents non-repeatable reads
+  + **SERIALIZABLE** - Complete isolation, slowest
+
+  **Rollback:**
+  + **RuntimeException** → Rollback (default)
+  + **Checked exceptions** → No rollback (default)
+  + Use **rollbackFor** to rollback on checked exceptions
+  + Use **noRollbackFor** to prevent rollback
+
+  **Best Practices:**
+  + Use **@Transactional** on service layer
+  + Use **readOnly = true** for queries
+  + Keep transactions **short**
+  + Don't call **external services** in transaction
+  + Use **REQUIRES_NEW** for independent operations
+  + Specify **rollbackFor** for checked exceptions
+  + Use appropriate **isolation level**
+  + Handle exceptions **properly** (don't swallow)
+  + Use **timeout** for long operations
+  + Avoid **self-invocation**
+  + Don't use on **private methods**
+
+</details>

@@ -1,0 +1,926 @@
+## Session vs EntityManager
+
+<details>
+  <summary>Overview</summary>
+  <br/>
+
+  **EntityManager** is the JPA standard interface, while **Session** is Hibernate-specific.
+
+  **Key differences:**
+  + **EntityManager** - JPA standard (portable across providers)
+  + **Session** - Hibernate-specific (more features)
+  + Session extends EntityManager functionality
+  + EntityManager is the recommended approach
+
+  **Relationship:**
+
+  ```
+  JPA Standard
+      ↓
+  EntityManager (interface)
+      ↓
+  Hibernate Implementation
+      ↓
+  Session (extends EntityManager)
+  ```
+
+  **When to use each:**
+  + **EntityManager** - Default choice (portable, standard)
+  + **Session** - When you need Hibernate-specific features
+
+</details>
+
+<details>
+  <summary>EntityManager (JPA Standard)</summary>
+  <br/>
+
+  **EntityManager** is the JPA standard interface for persistence operations.
+
+  **Inject EntityManager:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      // Use EntityManager
+  }
+  ```
+
+  **Basic operations:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void entityManagerOperations() {
+          // Create
+          User user = new User("john", "john@example.com");
+          entityManager.persist(user);
+          
+          // Read
+          User found = entityManager.find(User.class, 1L);
+          
+          // Update
+          found.setUsername("john_updated");
+          entityManager.merge(found);
+          
+          // Delete
+          entityManager.remove(found);
+          
+          // Flush
+          entityManager.flush();
+          
+          // Clear
+          entityManager.clear();
+          
+          // Detach
+          entityManager.detach(user);
+          
+          // Refresh
+          entityManager.refresh(user);
+          
+          // Check if managed
+          boolean contains = entityManager.contains(user);
+      }
+  }
+  ```
+
+  **JPQL queries:**
+
+  ```java
+  @Transactional
+  public List<User> findUsers() {
+      return entityManager
+          .createQuery("SELECT u FROM User u WHERE u.active = true", User.class)
+          .getResultList();
+  }
+  ```
+
+  **Native queries:**
+
+  ```java
+  @Transactional
+  public List<User> findUsersNative() {
+      return entityManager
+          .createNativeQuery("SELECT * FROM users WHERE active = true", User.class)
+          .getResultList();
+  }
+  ```
+
+  **Advantages:**
+  + JPA standard (portable)
+  + Works with any JPA provider
+  + Recommended by Spring
+  + Better for long-term maintenance
+
+  **Limitations:**
+  + Limited to JPA features
+  + No Hibernate-specific features
+  + Less flexible than Session
+
+</details>
+
+<details>
+  <summary>Session (Hibernate-Specific)</summary>
+  <br/>
+
+  **Session** is Hibernate's native interface with additional features.
+
+  **Get Session from EntityManager:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void useSession() {
+          // Unwrap Session from EntityManager
+          Session session = entityManager.unwrap(Session.class);
+          
+          // Use Session
+      }
+  }
+  ```
+
+  **Basic operations:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void sessionOperations() {
+          Session session = entityManager.unwrap(Session.class);
+          
+          // Create
+          User user = new User("john", "john@example.com");
+          session.save(user);  // Returns generated ID
+          session.persist(user);  // Void return
+          
+          // Read
+          User found = session.get(User.class, 1L);  // Returns null if not found
+          User loaded = session.load(User.class, 1L);  // Returns proxy, throws exception if not found
+          
+          // Update
+          session.update(user);
+          session.merge(user);
+          
+          // Delete
+          session.delete(user);
+          
+          // Save or update
+          session.saveOrUpdate(user);
+          
+          // Flush
+          session.flush();
+          
+          // Clear
+          session.clear();
+          
+          // Evict
+          session.evict(user);
+          
+          // Refresh
+          session.refresh(user);
+          
+          // Check if managed
+          boolean contains = session.contains(user);
+      }
+  }
+  ```
+
+  **HQL queries:**
+
+  ```java
+  @Transactional
+  public List<User> findUsers() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      return session
+          .createQuery("FROM User u WHERE u.active = true", User.class)
+          .list();
+  }
+  ```
+
+  **Advantages:**
+  + More features than EntityManager
+  + Hibernate-specific optimizations
+  + Additional query options
+  + More control over persistence
+
+  **Limitations:**
+  + Hibernate-specific (not portable)
+  + Ties code to Hibernate
+  + Not recommended by Spring
+
+</details>
+
+<details>
+  <summary>Method Comparison</summary>
+  <br/>
+
+  **Create operations:**
+
+  ```java
+  // EntityManager
+  entityManager.persist(user);  // Void return
+  
+  // Session
+  session.persist(user);  // Void return
+  session.save(user);  // Returns generated ID
+  ```
+
+  **Read operations:**
+
+  ```java
+  // EntityManager
+  User user = entityManager.find(User.class, 1L);
+  // Returns null if not found
+  
+  // Session
+  User user1 = session.get(User.class, 1L);
+  // Returns null if not found
+  
+  User user2 = session.load(User.class, 1L);
+  // Returns proxy, throws ObjectNotFoundException if not found
+  ```
+
+  **Update operations:**
+
+  ```java
+  // EntityManager
+  entityManager.merge(user);  // Returns managed instance
+  
+  // Session
+  session.merge(user);  // Returns managed instance
+  session.update(user);  // Void return, reattaches detached entity
+  session.saveOrUpdate(user);  // Saves or updates based on ID
+  ```
+
+  **Delete operations:**
+
+  ```java
+  // EntityManager
+  entityManager.remove(user);
+  
+  // Session
+  session.delete(user);
+  session.remove(user);  // Same as delete
+  ```
+
+  **Detach operations:**
+
+  ```java
+  // EntityManager
+  entityManager.detach(user);  // Detach single entity
+  entityManager.clear();  // Detach all entities
+  
+  // Session
+  session.evict(user);  // Detach single entity
+  session.clear();  // Detach all entities
+  ```
+
+  **Query operations:**
+
+  ```java
+  // EntityManager - JPQL
+  entityManager.createQuery("SELECT u FROM User u", User.class)
+      .getResultList();
+  
+  // Session - HQL
+  session.createQuery("FROM User u", User.class)
+      .list();
+  ```
+
+</details>
+
+<details>
+  <summary>get() vs load()</summary>
+  <br/>
+
+  **get()** loads entity immediately, **load()** returns proxy.
+
+  **get() method:**
+
+  ```java
+  @Transactional
+  public void getExample() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Executes SELECT immediately
+      User user = session.get(User.class, 1L);
+      // SQL: SELECT * FROM users WHERE id = 1
+      
+      if (user == null) {
+          System.out.println("User not found");
+      } else {
+          System.out.println(user.getUsername());
+      }
+  }
+  ```
+
+  **load() method:**
+
+  ```java
+  @Transactional
+  public void loadExample() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Returns proxy without SELECT
+      User user = session.load(User.class, 1L);
+      // No SQL executed yet
+      
+      System.out.println(user.getClass().getName());
+      // Output: User$HibernateProxy$...
+      
+      // SELECT executed when accessing field
+      System.out.println(user.getUsername());
+      // SQL: SELECT * FROM users WHERE id = 1
+      
+      // If entity doesn't exist, throws ObjectNotFoundException
+  }
+  ```
+
+  **Comparison:**
+
+  | Aspect | get() | load() |
+  |--------|-------|--------|
+  | **Returns** | Entity or null | Proxy |
+  | **Database hit** | Immediate | Lazy |
+  | **Not found** | Returns null | Throws exception |
+  | **Use case** | Need to check existence | Know entity exists |
+
+  **When to use get():**
+  + Need to check if entity exists
+  + Need entity data immediately
+  + Safer option (no exception)
+
+  **When to use load():**
+  + Know entity exists
+  + Only need reference (for relationships)
+  + Want lazy loading
+
+  **Example: Setting relationship:**
+
+  ```java
+  @Transactional
+  public void createOrder(Long userId) {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Use load() - only need reference
+      User user = session.load(User.class, userId);
+      // No SELECT executed
+      
+      Order order = new Order();
+      order.setUser(user);  // Just setting reference
+      order.setTotal(new BigDecimal("99.99"));
+      
+      session.save(order);
+      // SQL: INSERT INTO orders (user_id, total) VALUES (?, ?)
+      // No SELECT for user!
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>save() vs persist()</summary>
+  <br/>
+
+  **save()** returns generated ID, **persist()** returns void.
+
+  **save() method:**
+
+  ```java
+  @Transactional
+  public void saveExample() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      User user = new User("john", "john@example.com");
+      
+      // Returns generated ID
+      Serializable id = session.save(user);
+      System.out.println("Generated ID: " + id);
+      
+      // Can use outside transaction (not recommended)
+  }
+  ```
+
+  **persist() method:**
+
+  ```java
+  @Transactional
+  public void persistExample() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      User user = new User("john", "john@example.com");
+      
+      // Void return
+      session.persist(user);
+      
+      // ID available after flush
+      session.flush();
+      System.out.println("Generated ID: " + user.getId());
+      
+      // Must be inside transaction
+  }
+  ```
+
+  **Comparison:**
+
+  | Aspect | save() | persist() |
+  |--------|--------|-----------|
+  | **Return type** | Serializable (ID) | void |
+  | **JPA standard** | No | Yes |
+  | **Transaction** | Optional | Required |
+  | **ID generation** | Immediate | On flush |
+  | **Recommendation** | Use persist() | Preferred |
+
+  **When to use save():**
+  + Need generated ID immediately
+  + Hibernate-specific code
+
+  **When to use persist():**
+  + JPA standard code (recommended)
+  + Don't need ID immediately
+  + Better for portability
+
+</details>
+
+<details>
+  <summary>update() vs merge()</summary>
+  <br/>
+
+  **update()** reattaches detached entity, **merge()** copies state.
+
+  **update() method:**
+
+  ```java
+  @Transactional
+  public void updateExample() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Get detached entity
+      User user = getDetachedUser();
+      
+      // Reattach to session
+      session.update(user);
+      // user is now managed
+      
+      user.setUsername("updated");
+      // Changes tracked automatically
+  }
+  ```
+
+  **merge() method:**
+
+  ```java
+  @Transactional
+  public void mergeExample() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Get detached entity
+      User detachedUser = getDetachedUser();
+      
+      // Copy state to managed entity
+      User managedUser = session.merge(detachedUser);
+      // detachedUser is still detached
+      // managedUser is managed
+      
+      managedUser.setUsername("updated");
+      // Changes tracked on managedUser
+      
+      detachedUser.setEmail("new@example.com");
+      // Changes on detachedUser are NOT tracked
+  }
+  ```
+
+  **Comparison:**
+
+  | Aspect | update() | merge() |
+  |--------|----------|---------|
+  | **Behavior** | Reattaches entity | Copies state |
+  | **Return** | void | Managed entity |
+  | **Original entity** | Becomes managed | Stays detached |
+  | **JPA standard** | No | Yes |
+  | **Use case** | Hibernate code | JPA code |
+
+  **Problem with update():**
+
+  ```java
+  @Transactional
+  public void updateProblem() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Load entity
+      User user1 = session.get(User.class, 1L);
+      
+      // Get detached entity with same ID
+      User user2 = getDetachedUser();  // ID = 1
+      
+      // Try to reattach
+      session.update(user2);
+      // Exception: NonUniqueObjectException
+      // Session already contains entity with ID = 1
+  }
+  ```
+
+  **merge() handles this:**
+
+  ```java
+  @Transactional
+  public void mergeSolution() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Load entity
+      User user1 = session.get(User.class, 1L);
+      
+      // Get detached entity with same ID
+      User user2 = getDetachedUser();  // ID = 1
+      
+      // Merge state
+      User merged = session.merge(user2);
+      // Works! Copies state from user2 to user1
+      // merged == user1 (same instance)
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Hibernate-Specific Features</summary>
+  <br/>
+
+  **Features only available in Session:**
+
+  **1. Criteria API (legacy):**
+
+  ```java
+  @Transactional
+  public List<User> findUsersCriteria() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      CriteriaBuilder cb = session.getCriteriaBuilder();
+      CriteriaQuery<User> query = cb.createQuery(User.class);
+      Root<User> root = query.from(User.class);
+      query.select(root).where(cb.equal(root.get("active"), true));
+      
+      return session.createQuery(query).list();
+  }
+  ```
+
+  **2. Filters:**
+
+  ```java
+  @Entity
+  @FilterDef(name = "activeFilter", parameters = @ParamDef(name = "active", type = "boolean"))
+  @Filter(name = "activeFilter", condition = "active = :active")
+  public class User {
+      private boolean active;
+  }
+  
+  @Transactional
+  public List<User> findActiveUsers() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Enable filter
+      session.enableFilter("activeFilter").setParameter("active", true);
+      
+      List<User> users = session.createQuery("FROM User", User.class).list();
+      // SQL: SELECT * FROM users WHERE active = true
+      
+      // Disable filter
+      session.disableFilter("activeFilter");
+      
+      return users;
+  }
+  ```
+
+  **3. Statistics:**
+
+  ```java
+  @Transactional
+  public void getStatistics() {
+      Session session = entityManager.unwrap(Session.class);
+      SessionFactory sessionFactory = session.getSessionFactory();
+      Statistics stats = sessionFactory.getStatistics();
+      
+      System.out.println("Entity insert count: " + stats.getEntityInsertCount());
+      System.out.println("Query execution count: " + stats.getQueryExecutionCount());
+      System.out.println("Cache hit count: " + stats.getSecondLevelCacheHitCount());
+  }
+  ```
+
+  **4. Flush mode:**
+
+  ```java
+  @Transactional
+  public void setFlushMode() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      // Set flush mode
+      session.setFlushMode(FlushMode.MANUAL);
+      session.setFlushMode(FlushMode.COMMIT);
+      session.setFlushMode(FlushMode.AUTO);
+      session.setFlushMode(FlushMode.ALWAYS);
+  }
+  ```
+
+  **5. Session factory:**
+
+  ```java
+  @Transactional
+  public void useSessionFactory() {
+      Session session = entityManager.unwrap(Session.class);
+      SessionFactory sessionFactory = session.getSessionFactory();
+      
+      // Open new session
+      Session newSession = sessionFactory.openSession();
+      
+      // Open stateless session
+      StatelessSession statelessSession = sessionFactory.openStatelessSession();
+  }
+  ```
+
+  **6. Replicate:**
+
+  ```java
+  @Transactional
+  public void replicateEntity() {
+      Session session = entityManager.unwrap(Session.class);
+      
+      User user = new User("john", "john@example.com");
+      user.setId(100L);  // Set specific ID
+      
+      // Replicate entity
+      session.replicate(user, ReplicationMode.OVERWRITE);
+      // Inserts or updates based on ID
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>When to Use Each</summary>
+  <br/>
+
+  **Use EntityManager when:**
+  + Building portable JPA application ✅
+  + Following JPA standards ✅
+  + Using Spring Data JPA ✅
+  + Want provider independence ✅
+  + Standard CRUD operations ✅
+  + Long-term maintenance ✅
+
+  **Use Session when:**
+  + Need Hibernate-specific features ✅
+  + Using Hibernate filters ✅
+  + Need session statistics ✅
+  + Using legacy Hibernate code ✅
+  + Need load() method ✅
+  + Need saveOrUpdate() ✅
+
+  **Examples:**
+
+  ```java
+  // ✅ GOOD: Use EntityManager by default
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void createUser(User user) {
+          entityManager.persist(user);
+      }
+  }
+  
+  // ✅ GOOD: Use Session for Hibernate features
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public List<User> findActiveUsers() {
+          Session session = entityManager.unwrap(Session.class);
+          
+          // Enable Hibernate filter
+          session.enableFilter("activeFilter").setParameter("active", true);
+          
+          return session.createQuery("FROM User", User.class).list();
+      }
+  }
+  
+  // ✅ GOOD: Use Session for load()
+  @Service
+  public class OrderService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void createOrder(Long userId) {
+          Session session = entityManager.unwrap(Session.class);
+          
+          // Use load() - only need reference
+          User user = session.load(User.class, userId);
+          
+          Order order = new Order();
+          order.setUser(user);
+          order.setTotal(new BigDecimal("99.99"));
+          
+          entityManager.persist(order);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Migration from Session to EntityManager</summary>
+  <br/>
+
+  **Migrate Hibernate code to JPA:**
+
+  ```java
+  // Before: Hibernate Session
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private SessionFactory sessionFactory;
+      
+      @Transactional
+      public void createUser(User user) {
+          Session session = sessionFactory.getCurrentSession();
+          session.save(user);
+      }
+      
+      @Transactional
+      public User getUser(Long id) {
+          Session session = sessionFactory.getCurrentSession();
+          return session.get(User.class, id);
+      }
+      
+      @Transactional
+      public List<User> findUsers() {
+          Session session = sessionFactory.getCurrentSession();
+          return session.createQuery("FROM User", User.class).list();
+      }
+  }
+  
+  // After: JPA EntityManager
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void createUser(User user) {
+          entityManager.persist(user);
+      }
+      
+      @Transactional
+      public User getUser(Long id) {
+          return entityManager.find(User.class, id);
+      }
+      
+      @Transactional
+      public List<User> findUsers() {
+          return entityManager
+              .createQuery("SELECT u FROM User u", User.class)
+              .getResultList();
+      }
+  }
+  ```
+
+  **Migration mapping:**
+
+  | Hibernate Session | JPA EntityManager |
+  |-------------------|-------------------|
+  | session.save() | entityManager.persist() |
+  | session.get() | entityManager.find() |
+  | session.load() | entityManager.getReference() |
+  | session.update() | entityManager.merge() |
+  | session.delete() | entityManager.remove() |
+  | session.saveOrUpdate() | Check ID, then persist/merge |
+  | session.evict() | entityManager.detach() |
+  | session.createQuery().list() | entityManager.createQuery().getResultList() |
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use EntityManager by default
+  @PersistenceContext
+  private EntityManager entityManager;
+  
+  // ✅ DO: Use persist() instead of save()
+  entityManager.persist(user);
+  
+  // ✅ DO: Use find() instead of get()
+  User user = entityManager.find(User.class, 1L);
+  
+  // ✅ DO: Use merge() instead of update()
+  User managed = entityManager.merge(user);
+  
+  // ✅ DO: Use JPQL instead of HQL
+  entityManager.createQuery("SELECT u FROM User u", User.class)
+      .getResultList();
+  
+  // ✅ DO: Unwrap Session only when needed
+  @Transactional
+  public void useHibernateFeature() {
+      Session session = entityManager.unwrap(Session.class);
+      session.enableFilter("activeFilter");
+      // Use Hibernate-specific feature
+  }
+  
+  // ❌ DON'T: Inject SessionFactory in new code
+  @Autowired
+  private SessionFactory sessionFactory;  // Old approach
+  
+  // ✅ DO: Use EntityManager instead
+  @PersistenceContext
+  private EntityManager entityManager;
+  
+  // ❌ DON'T: Use Session methods when EntityManager equivalent exists
+  Session session = entityManager.unwrap(Session.class);
+  session.save(user);  // Use entityManager.persist() instead
+  
+  // ✅ DO: Use getReference() instead of load()
+  User user = entityManager.getReference(User.class, 1L);
+  
+  // ✅ DO: Check for null with find()
+  User user = entityManager.find(User.class, 1L);
+  if (user == null) {
+      throw new UserNotFoundException();
+  }
+  
+  // ✅ DO: Use JPA standard annotations
+  @PersistenceContext
+  private EntityManager entityManager;
+  
+  // ❌ DON'T: Mix Session and EntityManager unnecessarily
+  @Transactional
+  public void mixedApproach() {
+      entityManager.persist(user1);
+      
+      Session session = entityManager.unwrap(Session.class);
+      session.save(user2);  // Inconsistent
+  }
+  
+  // ✅ DO: Be consistent
+  @Transactional
+  public void consistentApproach() {
+      entityManager.persist(user1);
+      entityManager.persist(user2);
+  }
+  
+  // ✅ DO: Document why you're using Session
+  @Transactional
+  public List<User> findActiveUsers() {
+      // Using Session for Hibernate filter feature
+      Session session = entityManager.unwrap(Session.class);
+      session.enableFilter("activeFilter");
+      return session.createQuery("FROM User", User.class).list();
+  }
+  ```
+
+  **Summary:**
+  + **EntityManager** is JPA standard - use by default
+  + **Session** is Hibernate-specific - use only when needed
+  + Use **persist()** instead of save()
+  + Use **find()** instead of get()
+  + Use **merge()** instead of update()
+  + Use **getReference()** instead of load()
+  + Use **JPQL** instead of HQL
+  + **Unwrap Session** only for Hibernate-specific features
+  + Be **consistent** in your approach
+  + **Document** why you're using Session
+  + Prefer **JPA standard** for portability
+  + Use **EntityManager** for new code
+  + **Migrate** old Session code to EntityManager when possible
+
+</details>
+

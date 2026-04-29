@@ -1,0 +1,715 @@
+## Entity Lifecycle
+
+<details>
+  <summary>Entity Lifecycle States</summary>
+  <br/>
+
+  JPA entities have four lifecycle states managed by the EntityManager/Session.
+
+  **Four States:**
+
+  ```
+  1. Transient (New)
+     ↓ persist()
+  2. Persistent (Managed)
+     ↓ detach() / clear() / close()
+  3. Detached
+     ↓ merge()
+  2. Persistent (Managed)
+     ↓ remove()
+  4. Removed
+  ```
+
+  **State diagram:**
+
+  ```
+  [Transient] --persist()--> [Persistent] --remove()--> [Removed]
+       ↑                          ↓
+       |                     detach()/clear()
+       |                          ↓
+       +----merge()-------- [Detached]
+  ```
+
+</details>
+
+<details>
+  <summary>1. Transient State</summary>
+  <br/>
+
+  **Transient** = Entity object exists in memory but NOT managed by EntityManager.
+
+  **Characteristics:**
+  + Just created with `new` keyword
+  + Not associated with database
+  + Not tracked by Hibernate
+  + Has no database identity (ID may be null)
+  + Changes are NOT automatically persisted
+
+  **Example:**
+
+  ```java
+  // Create new entity - TRANSIENT state
+  User user = new User();
+  user.setUsername("john");
+  user.setEmail("john@example.com");
+  
+  // Entity is transient - not in database
+  // Changes are not tracked
+  user.setUsername("john_updated");  // Not saved to database
+  ```
+
+  **How to check:**
+
+  ```java
+  EntityManager em = ...;
+  User user = new User("john");
+  
+  boolean isTransient = !em.contains(user);  // true
+  ```
+
+  **Moving from Transient to Persistent:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public User createUser(String username, String email) {
+          // Transient state
+          User user = new User();
+          user.setUsername(username);
+          user.setEmail(email);
+          
+          // Move to Persistent state
+          entityManager.persist(user);
+          
+          // Now managed - changes are tracked
+          user.setEmail("newemail@example.com");  // Will be saved
+          
+          return user;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>2. Persistent (Managed) State</summary>
+  <br/>
+
+  **Persistent** = Entity is managed by EntityManager and synchronized with database.
+
+  **Characteristics:**
+  + Associated with EntityManager/Session
+  + Has database identity (ID is set)
+  + Changes are automatically tracked
+  + Changes are flushed to database
+  + Part of current transaction
+
+  **How entities become persistent:**
+
+  ```java
+  @Transactional
+  public void examples() {
+      // 1. persist() - new entity
+      User user = new User("john");
+      entityManager.persist(user);  // Transient → Persistent
+      
+      // 2. find() - load from database
+      User found = entityManager.find(User.class, 1L);  // Persistent
+      
+      // 3. merge() - reattach detached entity
+      User detached = ...;
+      User managed = entityManager.merge(detached);  // Detached → Persistent
+      
+      // 4. JPQL query
+      List<User> users = entityManager
+          .createQuery("SELECT u FROM User u", User.class)
+          .getResultList();  // All results are Persistent
+  }
+  ```
+
+  **Automatic change tracking (Dirty Checking):**
+
+  ```java
+  @Transactional
+  public void updateUser(Long userId) {
+      // Load entity - becomes Persistent
+      User user = entityManager.find(User.class, userId);
+      
+      // Modify entity
+      user.setEmail("newemail@example.com");
+      user.setUsername("newusername");
+      
+      // NO need to call save() or update()
+      // Changes are automatically detected and saved when transaction commits
+  }
+  ```
+
+  **Flush behavior:**
+
+  ```java
+  @Transactional
+  public void flushExample() {
+      User user = entityManager.find(User.class, 1L);
+      user.setEmail("new@example.com");
+      
+      // Changes are in memory, not yet in database
+      
+      entityManager.flush();  // Force write to database NOW
+      
+      // Now changes are in database (but transaction not committed)
+  }
+  ```
+
+  **When flush happens automatically:**
+  + Before transaction commit
+  + Before JPQL/HQL query execution (to ensure query sees latest data)
+  + When explicitly calling `flush()`
+
+</details>
+
+<details>
+  <summary>3. Detached State</summary>
+  <br/>
+
+  **Detached** = Entity was persistent but is no longer managed by EntityManager.
+
+  **Characteristics:**
+  + Has database identity (ID is set)
+  + NOT tracked by EntityManager
+  + Changes are NOT automatically persisted
+  + Can be reattached using `merge()`
+
+  **How entities become detached:**
+
+  ```java
+  @Transactional
+  public User getUser(Long id) {
+      User user = entityManager.find(User.class, id);  // Persistent
+      return user;  // Becomes Detached when transaction ends
+  }
+  
+  // Outside transaction
+  User user = userService.getUser(1L);  // Detached
+  user.setEmail("new@example.com");  // NOT saved to database
+  ```
+
+  **Explicit detachment:**
+
+  ```java
+  @Transactional
+  public void detachExamples() {
+      User user = entityManager.find(User.class, 1L);  // Persistent
+      
+      // Method 1: detach single entity
+      entityManager.detach(user);  // Persistent → Detached
+      
+      // Method 2: clear all entities
+      entityManager.clear();  // All entities → Detached
+      
+      // Method 3: close EntityManager
+      entityManager.close();  // All entities → Detached
+  }
+  ```
+
+  **Reattaching detached entity:**
+
+  ```java
+  @Transactional
+  public void updateDetachedUser(User detachedUser) {
+      // detachedUser is Detached
+      
+      // Reattach and update
+      User managedUser = entityManager.merge(detachedUser);  // Detached → Persistent
+      
+      // managedUser is now Persistent
+      // Changes to managedUser will be saved
+      managedUser.setEmail("updated@example.com");
+  }
+  ```
+
+  **Common pitfall - LazyInitializationException:**
+
+  ```java
+  @Transactional
+  public User getUserWithOrders(Long id) {
+      User user = entityManager.find(User.class, id);  // Persistent
+      return user;  // Becomes Detached
+  }
+  
+  // Outside transaction
+  User user = userService.getUserWithOrders(1L);  // Detached
+  user.getOrders().size();  // LazyInitializationException!
+  // Orders are lazy-loaded but session is closed
+  ```
+
+  **Solution:**
+
+  ```java
+  @Transactional
+  public User getUserWithOrders(Long id) {
+      User user = entityManager.find(User.class, id);
+      user.getOrders().size();  // Force load while Persistent
+      return user;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>4. Removed State</summary>
+  <br/>
+
+  **Removed** = Entity is marked for deletion.
+
+  **Characteristics:**
+  + Still managed by EntityManager
+  + Will be deleted from database on flush/commit
+  + Cannot be used after removal
+
+  **Example:**
+
+  ```java
+  @Transactional
+  public void deleteUser(Long userId) {
+      // Load entity - Persistent
+      User user = entityManager.find(User.class, userId);
+      
+      // Mark for deletion - Removed state
+      entityManager.remove(user);
+      
+      // Entity is in Removed state
+      // Will be deleted when transaction commits
+  }
+  ```
+
+  **Removed entity behavior:**
+
+  ```java
+  @Transactional
+  public void removeExample() {
+      User user = entityManager.find(User.class, 1L);  // Persistent
+      
+      entityManager.remove(user);  // Persistent → Removed
+      
+      // Still in memory but marked for deletion
+      System.out.println(user.getUsername());  // Works
+      
+      // Flush executes DELETE
+      entityManager.flush();
+      
+      // After flush, entity is deleted from database
+      // But object still exists in memory
+  }
+  ```
+
+  **Cannot persist removed entity:**
+
+  ```java
+  @Transactional
+  public void cannotPersistRemoved() {
+      User user = entityManager.find(User.class, 1L);
+      entityManager.remove(user);  // Removed
+      
+      entityManager.persist(user);  // Exception!
+      // Cannot persist removed entity
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Lifecycle Callbacks</summary>
+  <br/>
+
+  JPA provides callback annotations to execute code at specific lifecycle events.
+
+  **Available callbacks:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      private LocalDateTime createdAt;
+      private LocalDateTime updatedAt;
+      
+      @PrePersist  // Before INSERT
+      protected void onCreate() {
+          createdAt = LocalDateTime.now();
+          System.out.println("Before persist: " + username);
+      }
+      
+      @PostPersist  // After INSERT
+      protected void afterCreate() {
+          System.out.println("After persist: ID = " + id);
+      }
+      
+      @PreUpdate  // Before UPDATE
+      protected void onUpdate() {
+          updatedAt = LocalDateTime.now();
+          System.out.println("Before update: " + username);
+      }
+      
+      @PostUpdate  // After UPDATE
+      protected void afterUpdate() {
+          System.out.println("After update: " + username);
+      }
+      
+      @PreRemove  // Before DELETE
+      protected void onDelete() {
+          System.out.println("Before remove: " + username);
+      }
+      
+      @PostRemove  // After DELETE
+      protected void afterDelete() {
+          System.out.println("After remove: " + username);
+      }
+      
+      @PostLoad  // After entity loaded from database
+      protected void onLoad() {
+          System.out.println("Entity loaded: " + username);
+      }
+  }
+  ```
+
+  **Callback execution order:**
+
+  ```
+  persist():
+    @PrePersist → INSERT → @PostPersist
+  
+  merge() (update):
+    @PreUpdate → UPDATE → @PostUpdate
+  
+  remove():
+    @PreRemove → DELETE → @PostRemove
+  
+  find():
+    SELECT → @PostLoad
+  ```
+
+  **Common use cases:**
+
+  ```java
+  @Entity
+  public class AuditableEntity {
+      
+      @Column(name = "created_at", updatable = false)
+      private LocalDateTime createdAt;
+      
+      @Column(name = "updated_at")
+      private LocalDateTime updatedAt;
+      
+      @Column(name = "created_by", updatable = false)
+      private String createdBy;
+      
+      @Column(name = "updated_by")
+      private String updatedBy;
+      
+      @PrePersist
+      protected void onCreate() {
+          createdAt = LocalDateTime.now();
+          createdBy = getCurrentUser();
+      }
+      
+      @PreUpdate
+      protected void onUpdate() {
+          updatedAt = LocalDateTime.now();
+          updatedBy = getCurrentUser();
+      }
+      
+      private String getCurrentUser() {
+          // Get from SecurityContext
+          return "current_user";
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>EntityManager Operations</summary>
+  <br/>
+
+  **persist() - Make transient entity persistent:**
+
+  ```java
+  @Transactional
+  public void persistExample() {
+      User user = new User("john");  // Transient
+      
+      entityManager.persist(user);  // Transient → Persistent
+      
+      // ID is generated (if using IDENTITY)
+      System.out.println("ID: " + user.getId());
+      
+      // Changes are tracked
+      user.setEmail("john@example.com");  // Will be saved
+  }
+  ```
+
+  **merge() - Reattach detached entity:**
+
+  ```java
+  @Transactional
+  public void mergeExample(User detachedUser) {
+      // detachedUser is Detached
+      
+      User managedUser = entityManager.merge(detachedUser);
+      
+      // managedUser is Persistent
+      // detachedUser is still Detached
+      
+      managedUser.setEmail("new@example.com");  // Saved
+      detachedUser.setEmail("other@example.com");  // NOT saved
+  }
+  ```
+
+  **remove() - Delete entity:**
+
+  ```java
+  @Transactional
+  public void removeExample(Long userId) {
+      User user = entityManager.find(User.class, userId);  // Persistent
+      
+      entityManager.remove(user);  // Persistent → Removed
+      
+      // DELETE executed on flush/commit
+  }
+  ```
+
+  **detach() - Detach entity:**
+
+  ```java
+  @Transactional
+  public void detachExample() {
+      User user = entityManager.find(User.class, 1L);  // Persistent
+      
+      entityManager.detach(user);  // Persistent → Detached
+      
+      user.setEmail("new@example.com");  // NOT saved
+  }
+  ```
+
+  **refresh() - Reload from database:**
+
+  ```java
+  @Transactional
+  public void refreshExample() {
+      User user = entityManager.find(User.class, 1L);  // Persistent
+      
+      user.setEmail("modified@example.com");
+      
+      entityManager.refresh(user);  // Reload from database
+      
+      // Changes are discarded
+      System.out.println(user.getEmail());  // Original value
+  }
+  ```
+
+  **contains() - Check if entity is managed:**
+
+  ```java
+  @Transactional
+  public void containsExample() {
+      User user = new User("john");  // Transient
+      System.out.println(entityManager.contains(user));  // false
+      
+      entityManager.persist(user);  // Persistent
+      System.out.println(entityManager.contains(user));  // true
+      
+      entityManager.detach(user);  // Detached
+      System.out.println(entityManager.contains(user));  // false
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Common Scenarios</summary>
+  <br/>
+
+  **Scenario 1: Create new entity**
+
+  ```java
+  @Transactional
+  public User createUser(String username, String email) {
+      User user = new User();  // Transient
+      user.setUsername(username);
+      user.setEmail(email);
+      
+      entityManager.persist(user);  // Persistent
+      
+      return user;  // Returns Persistent (becomes Detached after transaction)
+  }
+  ```
+
+  **Scenario 2: Update existing entity**
+
+  ```java
+  @Transactional
+  public void updateUser(Long userId, String newEmail) {
+      User user = entityManager.find(User.class, userId);  // Persistent
+      
+      user.setEmail(newEmail);  // Automatic dirty checking
+      
+      // No need to call save() or update()
+  }
+  ```
+
+  **Scenario 3: Update detached entity**
+
+  ```java
+  // Controller receives detached entity from client
+  @PutMapping("/users/{id}")
+  public User updateUser(@PathVariable Long id, @RequestBody User detachedUser) {
+      return userService.updateUser(detachedUser);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public User updateUser(User detachedUser) {
+          // Merge detached entity
+          User managedUser = entityManager.merge(detachedUser);
+          return managedUser;
+      }
+  }
+  ```
+
+  **Scenario 4: Delete entity**
+
+  ```java
+  @Transactional
+  public void deleteUser(Long userId) {
+      User user = entityManager.find(User.class, userId);  // Persistent
+      
+      if (user != null) {
+          entityManager.remove(user);  // Removed
+      }
+  }
+  ```
+
+  **Scenario 5: Avoid LazyInitializationException**
+
+  ```java
+  // ❌ BAD: Returns detached entity with lazy collections
+  @Transactional
+  public User getUser(Long id) {
+      return entityManager.find(User.class, id);
+  }
+  
+  // Outside transaction
+  User user = userService.getUser(1L);  // Detached
+  user.getOrders().size();  // LazyInitializationException!
+  
+  // ✅ GOOD: Force load lazy collections
+  @Transactional
+  public User getUser(Long id) {
+      User user = entityManager.find(User.class, id);
+      user.getOrders().size();  // Force load
+      return user;
+  }
+  
+  // ✅ BETTER: Use fetch join
+  @Transactional
+  public User getUser(Long id) {
+      return entityManager.createQuery(
+          "SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id",
+          User.class
+      )
+      .setParameter("id", id)
+      .getSingleResult();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @Transactional for database operations
+  @Transactional
+  public void updateUser(Long id, String email) {
+      User user = entityManager.find(User.class, id);
+      user.setEmail(email);
+  }
+  
+  // ❌ DON'T: Modify entities outside transaction
+  public void badUpdate(Long id, String email) {
+      User user = entityManager.find(User.class, id);  // Detached after method
+      user.setEmail(email);  // NOT saved!
+  }
+  
+  // ✅ DO: Use merge() for detached entities
+  @Transactional
+  public User update(User detachedUser) {
+      return entityManager.merge(detachedUser);
+  }
+  
+  // ❌ DON'T: Use persist() for detached entities
+  @Transactional
+  public void badUpdate(User detachedUser) {
+      entityManager.persist(detachedUser);  // Exception!
+  }
+  
+  // ✅ DO: Load lazy collections within transaction
+  @Transactional
+  public User getUserWithOrders(Long id) {
+      User user = entityManager.find(User.class, id);
+      user.getOrders().size();  // Force load
+      return user;
+  }
+  
+  // ✅ DO: Use lifecycle callbacks for auditing
+  @PrePersist
+  protected void onCreate() {
+      createdAt = LocalDateTime.now();
+  }
+  
+  @PreUpdate
+  protected void onUpdate() {
+      updatedAt = LocalDateTime.now();
+  }
+  
+  // ✅ DO: Check if entity is managed
+  if (entityManager.contains(user)) {
+      // Entity is managed
+  }
+  
+  // ✅ DO: Use refresh() to discard changes
+  entityManager.refresh(user);  // Reload from database
+  ```
+
+  **Key Points**
+  <br/>
+
+  + **Transient**: New entity, not managed, not in database
+  + **Persistent**: Managed by EntityManager, changes tracked automatically
+  + **Detached**: Was managed, no longer tracked, changes not saved
+  + **Removed**: Marked for deletion, will be deleted on commit
+  + Use `persist()` for **new entities** (Transient → Persistent)
+  + Use `merge()` for **detached entities** (Detached → Persistent)
+  + Use `remove()` to **delete entities** (Persistent → Removed)
+  + Use `detach()` to **stop tracking** (Persistent → Detached)
+  + **Dirty checking**: Changes to persistent entities are automatically saved
+  + **Flush**: Synchronizes persistence context with database
+  + **Lifecycle callbacks**: @PrePersist, @PostPersist, @PreUpdate, @PostUpdate, @PreRemove, @PostRemove, @PostLoad
+  + Always use **@Transactional** for database operations
+  + Load **lazy collections** within transaction to avoid LazyInitializationException
+  + Use `contains()` to check if entity is managed
+  + Use `refresh()` to reload entity from database
+
+</details>

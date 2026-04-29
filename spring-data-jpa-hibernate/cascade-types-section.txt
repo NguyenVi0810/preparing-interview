@@ -1,0 +1,855 @@
+## Cascade Types
+
+<details>
+  <summary>What is Cascading?</summary>
+  <br/>
+
+  Cascading propagates operations from parent entity to related child entities.
+
+  **Why use cascading?**
+  + Automatically manage related entities
+  + Reduce boilerplate code
+  + Maintain data consistency
+  + Simplify entity lifecycle management
+
+  **Example without cascading:**
+
+  ```java
+  @Transactional
+  public void createUserWithOrders() {
+      User user = new User("john");
+      Order order1 = new Order(new BigDecimal("99.99"));
+      Order order2 = new Order(new BigDecimal("49.99"));
+      
+      // Must save each entity manually
+      userRepository.save(user);
+      orderRepository.save(order1);
+      orderRepository.save(order2);
+  }
+  ```
+
+  **Example with cascading:**
+
+  ```java
+  @Entity
+  public class User {
+      @OneToMany(mappedBy = "user", cascade = CascadeType.PERSIST)
+      private List<Order> orders;
+  }
+  
+  @Transactional
+  public void createUserWithOrders() {
+      User user = new User("john");
+      Order order1 = new Order(new BigDecimal("99.99"));
+      Order order2 = new Order(new BigDecimal("49.99"));
+      
+      user.addOrder(order1);
+      user.addOrder(order2);
+      
+      userRepository.save(user);  // Saves user AND orders automatically
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>CascadeType.PERSIST</summary>
+  <br/>
+
+  **PERSIST** cascades the persist operation (save new entities).
+
+  **When parent is persisted, children are also persisted.**
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", cascade = CascadeType.PERSIST)
+      private List<Order> orders = new ArrayList<>();
+      
+      public void addOrder(Order order) {
+          orders.add(order);
+          order.setUser(this);
+      }
+  }
+  
+  @Entity
+  public class Order {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private BigDecimal total;
+      
+      @ManyToOne
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void createUserWithOrders() {
+          // Create user (Transient)
+          User user = new User("john");
+          
+          // Create orders (Transient)
+          Order order1 = new Order(new BigDecimal("99.99"));
+          Order order2 = new Order(new BigDecimal("49.99"));
+          
+          // Add orders to user
+          user.addOrder(order1);
+          user.addOrder(order2);
+          
+          // Save user - orders are automatically persisted
+          userRepository.save(user);
+          // SQL: INSERT INTO users ...
+          // SQL: INSERT INTO orders ... (order1)
+          // SQL: INSERT INTO orders ... (order2)
+      }
+  }
+  ```
+
+  **When to use:**
+  + Parent-child relationships where children don't exist without parent
+  + Creating new entities together
+  + Simplifying save operations
+
+  **Important notes:**
+  + Only cascades persist() operation
+  + Does NOT cascade updates or deletes
+  + Children must be in Transient state
+
+</details>
+
+<details>
+  <summary>CascadeType.MERGE</summary>
+  <br/>
+
+  **MERGE** cascades the merge operation (reattach detached entities).
+
+  **When parent is merged, children are also merged.**
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", cascade = CascadeType.MERGE)
+      private List<Order> orders = new ArrayList<>();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public User updateUserWithOrders(User detachedUser) {
+          // detachedUser and its orders are Detached
+          
+          // Modify user
+          detachedUser.setUsername("john_updated");
+          
+          // Modify orders
+          for (Order order : detachedUser.getOrders()) {
+              order.setTotal(order.getTotal().multiply(new BigDecimal("1.1")));
+          }
+          
+          // Merge user - orders are automatically merged
+          User managedUser = userRepository.save(detachedUser);
+          // SQL: UPDATE users SET username = ? WHERE id = ?
+          // SQL: UPDATE orders SET total = ? WHERE id = ? (for each order)
+          
+          return managedUser;
+      }
+  }
+  ```
+
+  **Common scenario - REST API:**
+
+  ```java
+  @RestController
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @PutMapping("/users/{id}")
+      public User updateUser(@PathVariable Long id, @RequestBody User user) {
+          // user is Detached (comes from JSON)
+          user.setId(id);
+          return userService.updateUser(user);
+      }
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public User updateUser(User detachedUser) {
+          // Merge cascades to orders
+          return userRepository.save(detachedUser);
+      }
+  }
+  ```
+
+  **When to use:**
+  + Updating detached entities
+  + REST APIs receiving JSON data
+  + Reattaching entities from cache
+
+  **Important notes:**
+  + Only cascades merge() operation
+  + Works with Detached entities
+  + Returns new managed instance
+
+</details>
+
+<details>
+  <summary>CascadeType.REMOVE</summary>
+  <br/>
+
+  **REMOVE** cascades the remove operation (delete entities).
+
+  **When parent is deleted, children are also deleted.**
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", cascade = CascadeType.REMOVE)
+      private List<Order> orders = new ArrayList<>();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void deleteUser(Long userId) {
+          User user = userRepository.findById(userId).orElseThrow();
+          
+          // Delete user - orders are automatically deleted
+          userRepository.delete(user);
+          // SQL: DELETE FROM orders WHERE user_id = ?
+          // SQL: DELETE FROM users WHERE id = ?
+      }
+  }
+  ```
+
+  **Dangerous example:**
+
+  ```java
+  @Entity
+  public class Order {
+      
+      @ManyToOne(cascade = CascadeType.REMOVE)  // DANGEROUS!
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  
+  @Transactional
+  public void deleteOrder(Long orderId) {
+      Order order = orderRepository.findById(orderId).orElseThrow();
+      
+      // Delete order - user is also deleted!
+      orderRepository.delete(order);
+      // SQL: DELETE FROM orders WHERE id = ?
+      // SQL: DELETE FROM users WHERE id = ?  // Deletes user!
+  }
+  ```
+
+  **When to use:**
+  + Parent-child relationships where children should be deleted with parent
+  + Composition relationships (strong ownership)
+  + Examples: User → Orders, Post → Comments
+
+  **When NOT to use:**
+  + @ManyToOne relationships (usually dangerous)
+  + Shared entities (e.g., Product in Order)
+  + Entities referenced by multiple parents
+
+  **Important notes:**
+  + Be careful with @ManyToOne cascade REMOVE
+  + Can cause unintended deletions
+  + Consider using orphanRemoval instead
+
+</details>
+
+<details>
+  <summary>CascadeType.REFRESH</summary>
+  <br/>
+
+  **REFRESH** cascades the refresh operation (reload from database).
+
+  **When parent is refreshed, children are also refreshed.**
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", cascade = CascadeType.REFRESH)
+      private List<Order> orders = new ArrayList<>();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void refreshExample() {
+          User user = userRepository.findById(1L).orElseThrow();
+          
+          // Modify user and orders in memory
+          user.setUsername("modified");
+          user.getOrders().get(0).setTotal(new BigDecimal("999.99"));
+          
+          // Refresh user - orders are also refreshed
+          entityManager.refresh(user);
+          // SQL: SELECT * FROM users WHERE id = ?
+          // SQL: SELECT * FROM orders WHERE user_id = ?
+          
+          // Changes are discarded
+          System.out.println(user.getUsername());  // Original value
+          System.out.println(user.getOrders().get(0).getTotal());  // Original value
+      }
+  }
+  ```
+
+  **When to use:**
+  + Discard in-memory changes
+  + Reload data after external updates
+  + Synchronize with database state
+
+  **Important notes:**
+  + Rarely used in practice
+  + Discards all unsaved changes
+  + Triggers SELECT queries
+
+</details>
+
+<details>
+  <summary>CascadeType.DETACH</summary>
+  <br/>
+
+  **DETACH** cascades the detach operation (remove from persistence context).
+
+  **When parent is detached, children are also detached.**
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", cascade = CascadeType.DETACH)
+      private List<Order> orders = new ArrayList<>();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void detachExample() {
+          User user = entityManager.find(User.class, 1L);  // Persistent
+          
+          // user and orders are Persistent
+          System.out.println(entityManager.contains(user));  // true
+          System.out.println(entityManager.contains(user.getOrders().get(0)));  // true
+          
+          // Detach user - orders are also detached
+          entityManager.detach(user);
+          
+          // user and orders are Detached
+          System.out.println(entityManager.contains(user));  // false
+          System.out.println(entityManager.contains(user.getOrders().get(0)));  // false
+          
+          // Changes are not tracked
+          user.setUsername("modified");  // NOT saved
+          user.getOrders().get(0).setTotal(new BigDecimal("999.99"));  // NOT saved
+      }
+  }
+  ```
+
+  **When to use:**
+  + Manually control entity lifecycle
+  + Prevent automatic updates
+  + Optimize memory usage
+
+  **Important notes:**
+  + Rarely used explicitly
+  + Happens automatically when transaction ends
+  + Changes to detached entities are not saved
+
+</details>
+
+<details>
+  <summary>CascadeType.ALL</summary>
+  <br/>
+
+  **ALL** cascades all operations (PERSIST, MERGE, REMOVE, REFRESH, DETACH).
+
+  **Most commonly used cascade type for parent-child relationships.**
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      
+      @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+      private List<Order> orders = new ArrayList<>();
+      
+      public void addOrder(Order order) {
+          orders.add(order);
+          order.setUser(this);
+      }
+      
+      public void removeOrder(Order order) {
+          orders.remove(order);
+          order.setUser(null);
+      }
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void cascadeAllExample() {
+          // 1. PERSIST - Create user with orders
+          User user = new User("john");
+          Order order1 = new Order(new BigDecimal("99.99"));
+          Order order2 = new Order(new BigDecimal("49.99"));
+          
+          user.addOrder(order1);
+          user.addOrder(order2);
+          
+          userRepository.save(user);  // Saves user and orders
+          
+          // 2. MERGE - Update user and orders
+          user.setUsername("john_updated");
+          user.getOrders().get(0).setTotal(new BigDecimal("199.99"));
+          
+          userRepository.save(user);  // Updates user and orders
+          
+          // 3. REMOVE - Delete user and orders
+          userRepository.delete(user);  // Deletes user and orders
+      }
+  }
+  ```
+
+  **When to use:**
+  + Strong parent-child relationships
+  + Children don't exist without parent
+  + Examples: User → Profile, Order → OrderItems, Post → Comments
+
+  **When NOT to use:**
+  + Shared entities (e.g., Product in Order)
+  + @ManyToOne relationships
+  + Entities with independent lifecycle
+
+  **Important notes:**
+  + Most convenient but most powerful
+  + Use carefully to avoid unintended operations
+  + Combine with orphanRemoval for complete lifecycle management
+
+</details>
+
+<details>
+  <summary>Multiple Cascade Types</summary>
+  <br/>
+
+  You can specify multiple cascade types.
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      // Cascade PERSIST and MERGE only
+      @OneToMany(
+          mappedBy = "user",
+          cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+      )
+      private List<Order> orders = new ArrayList<>();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Transactional
+  public void multipleCascadeExample() {
+      User user = new User("john");
+      Order order = new Order(new BigDecimal("99.99"));
+      
+      user.addOrder(order);
+      
+      // PERSIST cascades - order is saved
+      userRepository.save(user);
+      
+      // MERGE cascades - order is updated
+      user.setUsername("john_updated");
+      order.setTotal(new BigDecimal("199.99"));
+      userRepository.save(user);
+      
+      // REMOVE does NOT cascade - only user is deleted
+      userRepository.delete(user);
+      // Order remains in database!
+  }
+  ```
+
+  **Common combinations:**
+
+  ```java
+  // Save and update, but don't delete
+  @OneToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+  private List<Order> orders;
+  
+  // Save only, no updates or deletes
+  @OneToMany(cascade = CascadeType.PERSIST)
+  private List<Order> orders;
+  
+  // Everything except remove
+  @OneToMany(cascade = {
+      CascadeType.PERSIST,
+      CascadeType.MERGE,
+      CascadeType.REFRESH,
+      CascadeType.DETACH
+  })
+  private List<Order> orders;
+  ```
+
+</details>
+
+<details>
+  <summary>Cascade vs orphanRemoval</summary>
+  <br/>
+
+  **CascadeType.REMOVE** and **orphanRemoval** are different.
+
+  **CascadeType.REMOVE:**
+  + Deletes children when parent is deleted
+  + Does NOT delete children when removed from collection
+
+  **orphanRemoval:**
+  + Deletes children when removed from collection
+  + Does NOT delete children when parent is deleted (unless combined with cascade)
+
+  **Example:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      // Only CascadeType.REMOVE
+      @OneToMany(mappedBy = "user", cascade = CascadeType.REMOVE)
+      private List<Order> orders1;
+      
+      // Only orphanRemoval
+      @OneToMany(mappedBy = "user", orphanRemoval = true)
+      private List<Order> orders2;
+      
+      // Both (recommended for parent-child)
+      @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+      private List<Order> orders3;
+  }
+  ```
+
+  **Behavior comparison:**
+
+  ```java
+  // Scenario 1: Delete parent
+  @Transactional
+  public void deleteParent() {
+      User user = userRepository.findById(1L).orElseThrow();
+      userRepository.delete(user);
+  }
+  
+  // CascadeType.REMOVE: orders1 are deleted ✅
+  // orphanRemoval: orders2 are NOT deleted ❌
+  // Both: orders3 are deleted ✅
+  
+  // Scenario 2: Remove child from collection
+  @Transactional
+  public void removeChild() {
+      User user = userRepository.findById(1L).orElseThrow();
+      user.getOrders1().remove(0);
+      user.getOrders2().remove(0);
+      user.getOrders3().remove(0);
+      userRepository.save(user);
+  }
+  
+  // CascadeType.REMOVE: order NOT deleted ❌
+  // orphanRemoval: order deleted ✅
+  // Both: order deleted ✅
+  ```
+
+  **Recommendation:**
+
+  ```java
+  // For parent-child relationships, use both
+  @OneToMany(
+      mappedBy = "user",
+      cascade = CascadeType.ALL,
+      orphanRemoval = true
+  )
+  private List<Order> orders;
+  ```
+
+</details>
+
+<details>
+  <summary>Cascade Direction</summary>
+  <br/>
+
+  Cascade direction matters - only cascades from owning side to inverse side.
+
+  **Correct usage:**
+
+  ```java
+  @Entity
+  public class User {
+      
+      // Cascade from User to Orders ✅
+      @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+      private List<Order> orders;
+  }
+  
+  @Entity
+  public class Order {
+      
+      @ManyToOne
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **Dangerous usage:**
+
+  ```java
+  @Entity
+  public class Order {
+      
+      // Cascade from Order to User ❌ DANGEROUS!
+      @ManyToOne(cascade = CascadeType.REMOVE)
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  
+  @Transactional
+  public void deleteOrder() {
+      Order order = orderRepository.findById(1L).orElseThrow();
+      orderRepository.delete(order);
+      // Deletes order AND user! All user's orders are lost!
+  }
+  ```
+
+  **Best practices:**
+
+  ```java
+  // ✅ DO: Cascade from parent to children
+  @Entity
+  public class User {
+      @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+      private List<Order> orders;
+  }
+  
+  // ❌ DON'T: Cascade from child to parent
+  @Entity
+  public class Order {
+      @ManyToOne(cascade = CascadeType.REMOVE)  // DANGEROUS!
+      private User user;
+  }
+  
+  // ✅ DO: Cascade PERSIST/MERGE on @ManyToOne if needed
+  @Entity
+  public class Order {
+      @ManyToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+      private User user;  // Safe - won't delete user
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use CascadeType.ALL with orphanRemoval for parent-child
+  @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+  private List<Order> orders;
+  
+  // ✅ DO: Use specific cascade types when needed
+  @OneToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+  private List<Order> orders;
+  
+  // ❌ DON'T: Use CascadeType.REMOVE on @ManyToOne
+  @ManyToOne(cascade = CascadeType.REMOVE)  // DANGEROUS!
+  private User user;
+  
+  // ❌ DON'T: Use CascadeType.ALL on @ManyToOne
+  @ManyToOne(cascade = CascadeType.ALL)  // DANGEROUS!
+  private User user;
+  
+  // ✅ DO: Use helper methods to maintain both sides
+  public void addOrder(Order order) {
+      orders.add(order);
+      order.setUser(this);
+  }
+  
+  public void removeOrder(Order order) {
+      orders.remove(order);
+      order.setUser(null);
+  }
+  
+  // ✅ DO: Initialize collections
+  @OneToMany(cascade = CascadeType.ALL)
+  private List<Order> orders = new ArrayList<>();
+  
+  // ✅ DO: Use cascade for composition relationships
+  @Entity
+  public class Order {
+      @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+      private List<OrderItem> items;  // OrderItems belong to Order
+  }
+  
+  // ❌ DON'T: Use cascade for association relationships
+  @Entity
+  public class Order {
+      @ManyToOne(cascade = CascadeType.ALL)
+      private Product product;  // Product is shared, don't cascade!
+  }
+  
+  // ✅ DO: Be explicit about cascade types
+  @OneToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+  private List<Order> orders;
+  
+  // ❌ DON'T: Use cascade blindly
+  @OneToMany(cascade = CascadeType.ALL)  // Think about implications!
+  private List<Order> orders;
+  
+  // ✅ DO: Test cascade behavior
+  @Test
+  public void testCascadeDelete() {
+      User user = createUserWithOrders();
+      userRepository.delete(user);
+      
+      // Verify orders are deleted
+      assertEquals(0, orderRepository.count());
+  }
+  ```
+
+  **Key Points**
+  <br/>
+
+  + **CascadeType.PERSIST** - Save children when saving parent
+  + **CascadeType.MERGE** - Update children when updating parent
+  + **CascadeType.REMOVE** - Delete children when deleting parent
+  + **CascadeType.REFRESH** - Reload children when reloading parent
+  + **CascadeType.DETACH** - Detach children when detaching parent
+  + **CascadeType.ALL** - All cascade operations
+  + Use **CascadeType.ALL + orphanRemoval** for parent-child relationships
+  + **Never use CascadeType.REMOVE** on @ManyToOne (dangerous!)
+  + **Never use CascadeType.ALL** on @ManyToOne (dangerous!)
+  + Cascade **PERSIST/MERGE** on @ManyToOne is usually safe
+  + **orphanRemoval** deletes children when removed from collection
+  + **CascadeType.REMOVE** deletes children when parent is deleted
+  + Use **both** for complete lifecycle management
+  + Cascade from **parent to children**, not child to parent
+  + Use cascade for **composition** (strong ownership)
+  + Don't use cascade for **association** (shared entities)
+  + Always use **helper methods** to maintain bidirectional relationships
+  + **Test cascade behavior** to avoid surprises
+  + Be **explicit** about cascade types - don't use ALL blindly
+
+</details>

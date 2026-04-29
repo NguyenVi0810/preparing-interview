@@ -1,0 +1,841 @@
+## Query Methods
+
+<details>
+  <summary>What are Query Methods?</summary>
+  <br/>
+
+  Query methods allow you to define queries by method names or annotations.
+
+  **Three types of query methods:**
+  + **Derived queries** - Spring generates query from method name
+  + **@Query annotation** - Custom JPQL or native SQL queries
+  + **Named queries** - Predefined queries in entity or XML
+
+  **Benefits:**
+  + Type-safe queries
+  + Less boilerplate code
+  + Compile-time validation
+  + Easy to read and maintain
+
+</details>
+
+<details>
+  <summary>Derived Query Methods</summary>
+  <br/>
+
+  Spring Data JPA generates queries automatically from method names.
+
+  **Basic pattern:**
+
+  ```
+  findBy + PropertyName + Condition
+  ```
+
+  **Simple examples:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Find by single field
+      User findByUsername(String username);
+      Optional<User> findByEmail(String email);
+      
+      // Find multiple results
+      List<User> findByLastName(String lastName);
+      
+      // Find with multiple conditions (AND)
+      User findByUsernameAndEmail(String username, String email);
+      
+      // Find with OR condition
+      List<User> findByUsernameOrEmail(String username, String email);
+  }
+  ```
+
+  **Generated SQL:**
+
+  ```java
+  // findByUsername("john")
+  // SELECT * FROM users WHERE username = 'john'
+  
+  // findByUsernameAndEmail("john", "john@example.com")
+  // SELECT * FROM users WHERE username = 'john' AND email = 'john@example.com'
+  
+  // findByUsernameOrEmail("john", "john@example.com")
+  // SELECT * FROM users WHERE username = 'john' OR email = 'john@example.com'
+  ```
+
+</details>
+
+<details>
+  <summary>Comparison Operators</summary>
+  <br/>
+
+  **Numeric comparisons:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Greater than
+      List<User> findByAgeGreaterThan(Integer age);
+      
+      // Greater than or equal
+      List<User> findByAgeGreaterThanEqual(Integer age);
+      
+      // Less than
+      List<User> findByAgeLessThan(Integer age);
+      
+      // Less than or equal
+      List<User> findByAgeLessThanEqual(Integer age);
+      
+      // Between
+      List<User> findByAgeBetween(Integer startAge, Integer endAge);
+      
+      // Not equal
+      List<User> findByAgeNot(Integer age);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  // Find users older than 18
+  List<User> adults = userRepository.findByAgeGreaterThanEqual(18);
+  
+  // Find users between 18 and 65
+  List<User> workingAge = userRepository.findByAgeBetween(18, 65);
+  ```
+
+</details>
+
+<details>
+  <summary>String Matching</summary>
+  <br/>
+
+  **String operations:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Like (requires % in parameter)
+      List<User> findByUsernameLike(String pattern);
+      
+      // Containing (auto adds %)
+      List<User> findByUsernameContaining(String text);
+      
+      // Starting with
+      List<User> findByUsernameStartingWith(String prefix);
+      
+      // Ending with
+      List<User> findByUsernameEndingWith(String suffix);
+      
+      // Ignore case
+      User findByUsernameIgnoreCase(String username);
+      
+      // Containing + ignore case
+      List<User> findByUsernameContainingIgnoreCase(String text);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  // Find usernames containing "john"
+  List<User> users = userRepository.findByUsernameContaining("john");
+  // SQL: WHERE username LIKE '%john%'
+  
+  // Find usernames starting with "admin"
+  List<User> admins = userRepository.findByUsernameStartingWith("admin");
+  // SQL: WHERE username LIKE 'admin%'
+  
+  // Case-insensitive search
+  User user = userRepository.findByUsernameIgnoreCase("JOHN");
+  // SQL: WHERE LOWER(username) = LOWER('JOHN')
+  ```
+
+</details>
+
+<details>
+  <summary>Collection and Null Operations</summary>
+  <br/>
+
+  **Collection operations:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // In collection
+      List<User> findByUsernameIn(List<String> usernames);
+      List<User> findByAgeIn(Collection<Integer> ages);
+      
+      // Not in collection
+      List<User> findByUsernameNotIn(List<String> usernames);
+  }
+  ```
+
+  **Null checks:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Is null
+      List<User> findByEmailIsNull();
+      
+      // Is not null
+      List<User> findByEmailIsNotNull();
+  }
+  ```
+
+  **Boolean checks:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // True
+      List<User> findByActiveTrue();
+      
+      // False
+      List<User> findByActiveFalse();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  // Find users by multiple usernames
+  List<String> names = Arrays.asList("john", "alice", "bob");
+  List<User> users = userRepository.findByUsernameIn(names);
+  // SQL: WHERE username IN ('john', 'alice', 'bob')
+  
+  // Find users without email
+  List<User> noEmail = userRepository.findByEmailIsNull();
+  // SQL: WHERE email IS NULL
+  
+  // Find active users
+  List<User> active = userRepository.findByActiveTrue();
+  // SQL: WHERE active = true
+  ```
+
+</details>
+
+<details>
+  <summary>Sorting and Limiting</summary>
+  <br/>
+
+  **Order by:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Order by single field ascending
+      List<User> findByLastNameOrderByFirstNameAsc(String lastName);
+      
+      // Order by single field descending
+      List<User> findByLastNameOrderByFirstNameDesc(String lastName);
+      
+      // Order by multiple fields
+      List<User> findByLastNameOrderByFirstNameAscAgeDesc(String lastName);
+  }
+  ```
+
+  **Limit results:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // First result
+      User findFirstByOrderByCreatedAtDesc();
+      
+      // Top N results
+      List<User> findTop3ByOrderByCreatedAtDesc();
+      List<User> findTop10ByLastName(String lastName);
+      
+      // First N results (same as Top)
+      List<User> findFirst5ByOrderByAgeDesc();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  // Get latest user
+  User latest = userRepository.findFirstByOrderByCreatedAtDesc();
+  
+  // Get top 3 oldest users
+  List<User> oldest = userRepository.findTop3ByOrderByAgeDesc();
+  
+  // Get users by last name, sorted by first name
+  List<User> smiths = userRepository.findByLastNameOrderByFirstNameAsc("Smith");
+  ```
+
+</details>
+
+<details>
+  <summary>Count, Exists, and Delete</summary>
+  <br/>
+
+  **Count queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Count by field
+      long countByLastName(String lastName);
+      
+      // Count with condition
+      long countByAgeGreaterThan(Integer age);
+      
+      // Count active users
+      long countByActiveTrue();
+  }
+  ```
+
+  **Exists queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Check existence
+      boolean existsByUsername(String username);
+      
+      // Check with condition
+      boolean existsByEmailAndActiveTrue(String email);
+  }
+  ```
+
+  **Delete queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Delete by field
+      void deleteByUsername(String username);
+      
+      // Delete with condition (returns count)
+      long deleteByActiveAndLastLoginBefore(boolean active, LocalDateTime date);
+      
+      // Remove (same as delete)
+      long removeByLastName(String lastName);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  // Count users by last name
+  long count = userRepository.countByLastName("Smith");
+  
+  // Check if username exists
+  boolean exists = userRepository.existsByUsername("john");
+  
+  // Delete inactive users
+  @Transactional
+  public void deleteInactiveUsers() {
+      long deleted = userRepository.deleteByActiveFalse();
+      System.out.println("Deleted " + deleted + " users");
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Distinct Queries</summary>
+  <br/>
+
+  **Remove duplicates:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Distinct results
+      List<User> findDistinctByLastName(String lastName);
+      
+      // Distinct with multiple conditions
+      List<User> findDistinctByLastNameAndFirstName(String lastName, String firstName);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  // Find distinct users by last name
+  List<User> users = userRepository.findDistinctByLastName("Smith");
+  // SQL: SELECT DISTINCT * FROM users WHERE last_name = 'Smith'
+  ```
+
+</details>
+
+<details>
+  <summary>@Query Annotation - JPQL</summary>
+  <br/>
+
+  Use `@Query` for complex queries that cannot be expressed with method names.
+
+  **Basic JPQL queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Simple query with positional parameter
+      @Query("SELECT u FROM User u WHERE u.email = ?1")
+      User findByEmailAddress(String email);
+      
+      // Named parameters (recommended)
+      @Query("SELECT u FROM User u WHERE u.username = :username")
+      User findByUsername(@Param("username") String username);
+      
+      // Multiple parameters
+      @Query("SELECT u FROM User u WHERE u.username = :username AND u.email = :email")
+      User findByUsernameAndEmail(
+          @Param("username") String username,
+          @Param("email") String email
+      );
+      
+      // Like query
+      @Query("SELECT u FROM User u WHERE u.username LIKE %:username%")
+      List<User> searchByUsername(@Param("username") String username);
+  }
+  ```
+
+  **Join queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Join with related entity
+      @Query("SELECT u FROM User u JOIN u.orders o WHERE o.status = :status")
+      List<User> findUsersWithOrderStatus(@Param("status") String status);
+      
+      // Fetch join (load related entities)
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+      User findByIdWithOrders(@Param("id") Long id);
+      
+      // Multiple joins
+      @Query("SELECT u FROM User u " +
+             "JOIN u.orders o " +
+             "JOIN o.items i " +
+             "WHERE i.product.name = :productName")
+      List<User> findUsersByProductName(@Param("productName") String productName);
+  }
+  ```
+
+  **Aggregate functions:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Count
+      @Query("SELECT COUNT(u) FROM User u WHERE u.active = true")
+      long countActiveUsers();
+      
+      // Sum
+      @Query("SELECT SUM(o.total) FROM Order o WHERE o.user.id = :userId")
+      BigDecimal getTotalOrderAmount(@Param("userId") Long userId);
+      
+      // Average
+      @Query("SELECT AVG(u.age) FROM User u WHERE u.active = true")
+      Double getAverageAge();
+      
+      // Max/Min
+      @Query("SELECT MAX(u.createdAt) FROM User u")
+      LocalDateTime getLatestRegistrationDate();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Query Annotation - Native SQL</summary>
+  <br/>
+
+  Use native SQL for database-specific features.
+
+  **Basic native queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Native query with positional parameter
+      @Query(value = "SELECT * FROM users WHERE email = ?1", nativeQuery = true)
+      User findByEmailNative(String email);
+      
+      // Native query with named parameter
+      @Query(value = "SELECT * FROM users WHERE username = :username", 
+             nativeQuery = true)
+      User findByUsernameNative(@Param("username") String username);
+      
+      // Native query with multiple parameters
+      @Query(value = "SELECT * FROM users WHERE username = :username AND email = :email",
+             nativeQuery = true)
+      User findByUsernameAndEmailNative(
+          @Param("username") String username,
+          @Param("email") String email
+      );
+  }
+  ```
+
+  **Database-specific features:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // PostgreSQL full-text search
+      @Query(value = "SELECT * FROM users WHERE to_tsvector(username) @@ to_tsquery(:query)",
+             nativeQuery = true)
+      List<User> fullTextSearch(@Param("query") String query);
+      
+      // MySQL JSON query
+      @Query(value = "SELECT * FROM users WHERE JSON_EXTRACT(metadata, '$.role') = :role",
+             nativeQuery = true)
+      List<User> findByJsonRole(@Param("role") String role);
+      
+      // Window function
+      @Query(value = "SELECT *, ROW_NUMBER() OVER (ORDER BY created_at DESC) as row_num " +
+                     "FROM users WHERE active = true",
+             nativeQuery = true)
+      List<User> findActiveUsersWithRowNumber();
+  }
+  ```
+
+  **Native query with pagination:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query(value = "SELECT * FROM users WHERE age > :age",
+             nativeQuery = true)
+      Page<User> findByAgeGreaterThan(@Param("age") Integer age, Pageable pageable);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Modifying Queries</summary>
+  <br/>
+
+  Use `@Modifying` for UPDATE and DELETE queries.
+
+  **Update queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Update single field
+      @Modifying
+      @Query("UPDATE User u SET u.active = :active WHERE u.id = :id")
+      int updateUserActive(@Param("id") Long id, @Param("active") boolean active);
+      
+      // Update multiple fields
+      @Modifying
+      @Query("UPDATE User u SET u.username = :username, u.email = :email WHERE u.id = :id")
+      int updateUser(
+          @Param("id") Long id,
+          @Param("username") String username,
+          @Param("email") String email
+      );
+      
+      // Bulk update
+      @Modifying
+      @Query("UPDATE User u SET u.active = false WHERE u.lastLogin < :date")
+      int deactivateInactiveUsers(@Param("date") LocalDateTime date);
+  }
+  ```
+
+  **Delete queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Delete by condition
+      @Modifying
+      @Query("DELETE FROM User u WHERE u.active = false")
+      int deleteInactiveUsers();
+      
+      // Delete with parameter
+      @Modifying
+      @Query("DELETE FROM User u WHERE u.lastLogin < :date")
+      int deleteUsersInactiveSince(@Param("date") LocalDateTime date);
+  }
+  ```
+
+  **Native update/delete:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Native update
+      @Modifying
+      @Query(value = "UPDATE users SET email = :email WHERE id = :id",
+             nativeQuery = true)
+      int updateEmailNative(@Param("id") Long id, @Param("email") String email);
+      
+      // Native delete
+      @Modifying
+      @Query(value = "DELETE FROM users WHERE active = false",
+             nativeQuery = true)
+      int deleteInactiveUsersNative();
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void deactivateUser(Long userId) {
+          int updated = userRepository.updateUserActive(userId, false);
+          System.out.println("Updated " + updated + " users");
+      }
+      
+      @Transactional
+      public void cleanupInactiveUsers() {
+          LocalDateTime cutoffDate = LocalDateTime.now().minusMonths(6);
+          int deleted = userRepository.deleteUsersInactiveSince(cutoffDate);
+          System.out.println("Deleted " + deleted + " inactive users");
+      }
+  }
+  ```
+
+  **Important notes:**
+  + Always use `@Transactional` with `@Modifying`
+  + Returns number of affected rows
+  + Bypasses entity lifecycle callbacks
+  + Doesn't update persistence context automatically
+
+</details>
+
+<details>
+  <summary>DTO Projections</summary>
+  <br/>
+
+  Use projections to fetch only needed fields.
+
+  **DTO class:**
+
+  ```java
+  public class UserDTO {
+      private Long id;
+      private String username;
+      private String email;
+      
+      public UserDTO(Long id, String username, String email) {
+          this.id = id;
+          this.username = username;
+          this.email = email;
+      }
+      
+      // Getters
+  }
+  ```
+
+  **Query with DTO projection:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Constructor expression
+      @Query("SELECT new com.example.dto.UserDTO(u.id, u.username, u.email) " +
+             "FROM User u WHERE u.active = true")
+      List<UserDTO> findActiveUsersDTO();
+      
+      // With parameters
+      @Query("SELECT new com.example.dto.UserDTO(u.id, u.username, u.email) " +
+             "FROM User u WHERE u.lastName = :lastName")
+      List<UserDTO> findByLastNameDTO(@Param("lastName") String lastName);
+  }
+  ```
+
+  **Interface projection:**
+
+  ```java
+  public interface UserSummary {
+      Long getId();
+      String getUsername();
+      String getEmail();
+  }
+  
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Spring Data creates proxy implementation
+      List<UserSummary> findByActiveTrue();
+      
+      UserSummary findByUsername(String username);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Named Queries</summary>
+  <br/>
+
+  Named queries are predefined queries in entity class or XML.
+
+  **Define in entity:**
+
+  ```java
+  @Entity
+  @NamedQuery(
+      name = "User.findByEmailAddress",
+      query = "SELECT u FROM User u WHERE u.email = :email"
+  )
+  @NamedQueries({
+      @NamedQuery(
+          name = "User.findActiveUsers",
+          query = "SELECT u FROM User u WHERE u.active = true"
+      ),
+      @NamedQuery(
+          name = "User.findByAgeRange",
+          query = "SELECT u FROM User u WHERE u.age BETWEEN :minAge AND :maxAge"
+      )
+  })
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+      private String email;
+      private boolean active;
+      private Integer age;
+  }
+  ```
+
+  **Use in repository:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Spring Data automatically finds named query
+      User findByEmailAddress(@Param("email") String email);
+      
+      List<User> findActiveUsers();
+      
+      List<User> findByAgeRange(@Param("minAge") Integer minAge, @Param("maxAge") Integer maxAge);
+  }
+  ```
+
+  **Named native query:**
+
+  ```java
+  @Entity
+  @NamedNativeQuery(
+      name = "User.findByEmailNative",
+      query = "SELECT * FROM users WHERE email = :email",
+      resultClass = User.class
+  )
+  public class User {
+      // Entity fields
+  }
+  
+  public interface UserRepository extends JpaRepository<User, Long> {
+      User findByEmailNative(@Param("email") String email);
+  }
+  ```
+
+  **When to use named queries:**
+  + Complex queries used in multiple places
+  + Queries validated at startup
+  + Better organization for large applications
+  + Easier to test and maintain
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use derived queries for simple cases
+  User findByUsername(String username);
+  List<User> findByAgeGreaterThan(Integer age);
+  
+  // ✅ DO: Use @Query for complex queries
+  @Query("SELECT u FROM User u JOIN u.orders o WHERE o.total > :amount")
+  List<User> findUsersWithLargeOrders(@Param("amount") BigDecimal amount);
+  
+  // ✅ DO: Use named parameters
+  @Query("SELECT u FROM User u WHERE u.username = :username")
+  User findByUsername(@Param("username") String username);
+  
+  // ❌ DON'T: Use positional parameters (less readable)
+  @Query("SELECT u FROM User u WHERE u.username = ?1")
+  User findByUsername(String username);
+  
+  // ✅ DO: Use Optional for single results
+  Optional<User> findByUsername(String username);
+  
+  // ❌ DON'T: Return null
+  User findByUsername(String username);  // Can return null
+  
+  // ✅ DO: Use existsBy for existence checks
+  boolean existsByUsername(String username);
+  
+  // ❌ DON'T: Load entity to check existence
+  User user = userRepository.findByUsername(username);
+  if (user != null) { ... }
+  
+  // ✅ DO: Use countBy for counting
+  long countByActive(boolean active);
+  
+  // ❌ DON'T: Load all to count
+  List<User> users = userRepository.findByActive(true);
+  int count = users.size();
+  
+  // ✅ DO: Use @Transactional with @Modifying
+  @Transactional
+  @Modifying
+  @Query("UPDATE User u SET u.active = false WHERE u.id = :id")
+  int deactivateUser(@Param("id") Long id);
+  
+  // ✅ DO: Use DTO projections for read-only data
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  List<UserDTO> findAllUserDTOs();
+  
+  // ✅ DO: Use fetch join to avoid N+1
+  @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+  User findByIdWithOrders(@Param("id") Long id);
+  
+  // ✅ DO: Use native queries for database-specific features
+  @Query(value = "SELECT * FROM users WHERE to_tsvector(username) @@ to_tsquery(:query)",
+         nativeQuery = true)
+  List<User> fullTextSearch(@Param("query") String query);
+  
+  // ✅ DO: Use Pageable for large result sets
+  Page<User> findByLastName(String lastName, Pageable pageable);
+  
+  // ✅ DO: Use descriptive method names
+  List<User> findByLastNameAndActiveTrue(String lastName);
+  
+  // ❌ DON'T: Use unclear names
+  List<User> findUsers(String name);
+  ```
+
+  **Key Points**
+  <br/>
+
+  + **Derived queries** - Spring generates query from method name
+  + **@Query** - Custom JPQL or native SQL queries
+  + **Named queries** - Predefined queries in entity or XML
+  + Use **derived queries** for simple cases
+  + Use **@Query** for complex queries
+  + Use **named parameters** (@Param) instead of positional
+  + Use **Optional** for single results
+  + Use **existsBy** instead of findBy for existence checks
+  + Use **countBy** instead of loading all entities
+  + Use **@Modifying** with @Transactional for UPDATE/DELETE
+  + Use **DTO projections** for read-only data
+  + Use **fetch join** to avoid N+1 problem
+  + Use **native queries** for database-specific features
+  + Use **Pageable** for large result sets
+  + Method naming: findBy, countBy, existsBy, deleteBy + field + condition
+  + Conditions: And, Or, GreaterThan, LessThan, Between, Like, In, IsNull
+  + String matching: Like, Containing, StartingWith, EndingWith, IgnoreCase
+  + Sorting: OrderBy + field + Asc/Desc
+  + Limiting: First, Top + number
+  + Always use **@Transactional** with @Modifying queries
+
+</details>

@@ -1,0 +1,730 @@
+## Caching
+
+<details>
+  <summary>What is Caching?</summary>
+  <br/>
+
+  Caching stores frequently accessed data in memory to improve performance.
+
+  **Benefits:**
+  + Reduces database queries
+  + Improves response time
+  + Reduces database load
+  + Better scalability
+
+  **Hibernate cache levels:**
+  + **First-level cache** (Session cache) - Always enabled
+  + **Second-level cache** (SessionFactory cache) - Optional
+  + **Query cache** - Caches query results
+
+  **Cache hierarchy:**
+
+  ```
+  Application
+      ↓
+  First-level cache (Session)
+      ↓
+  Second-level cache (SessionFactory)
+      ↓
+  Database
+  ```
+
+</details>
+
+<details>
+  <summary>First-Level Cache (Session Cache)</summary>
+  <br/>
+
+  **First-level cache** is associated with Hibernate Session (EntityManager).
+
+  **Characteristics:**
+  + Always enabled (cannot be disabled)
+  + Scoped to single transaction/session
+  + Stores entities loaded in current session
+  + Cleared when session closes
+
+  **Example:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void firstLevelCacheExample() {
+          // First query - hits database
+          User user1 = entityManager.find(User.class, 1L);
+          // SQL: SELECT * FROM users WHERE id = 1
+          
+          // Second query - hits first-level cache (no SQL)
+          User user2 = entityManager.find(User.class, 1L);
+          
+          // Same object reference
+          System.out.println(user1 == user2);  // true
+      }
+  }
+  ```
+
+  **Cache operations:**
+
+  ```java
+  @Transactional
+  public void cacheOperations() {
+      User user = entityManager.find(User.class, 1L);
+      
+      // Check if entity is in cache
+      boolean contains = entityManager.contains(user);
+      
+      // Remove entity from cache
+      entityManager.detach(user);
+      
+      // Clear entire cache
+      entityManager.clear();
+      
+      // Refresh entity from database
+      entityManager.refresh(user);
+  }
+  ```
+
+  **Benefits:**
+  + Automatic
+  + No configuration needed
+  + Prevents duplicate queries in same transaction
+
+  **Limitations:**
+  + Only within single session
+  + Not shared across transactions
+  + Cleared when session closes
+
+</details>
+
+<details>
+  <summary>Second-Level Cache (SessionFactory Cache)</summary>
+  <br/>
+
+  **Second-level cache** is shared across all sessions.
+
+  **Characteristics:**
+  + Optional (must be enabled)
+  + Scoped to SessionFactory (application-wide)
+  + Shared across all transactions
+  + Survives session closure
+
+  **Enable second-level cache:**
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.cache.use_second_level_cache=true
+  spring.jpa.properties.hibernate.cache.region.factory_class=org.hibernate.cache.jcache.JCacheRegionFactory
+  spring.jpa.properties.javax.persistence.sharedCache.mode=ENABLE_SELECTIVE
+  ```
+
+  **Add dependency (Ehcache):**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>org.hibernate</groupId>
+      <artifactId>hibernate-jcache</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.ehcache</groupId>
+      <artifactId>ehcache</artifactId>
+  </dependency>
+  ```
+
+  **Mark entity as cacheable:**
+
+  ```java
+  @Entity
+  @Cacheable
+  @org.hibernate.annotations.Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+      
+      @OneToMany(mappedBy = "user")
+      @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+      private List<Order> orders;
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void secondLevelCacheExample() {
+          // First transaction
+          User user1 = entityManager.find(User.class, 1L);
+          // SQL: SELECT * FROM users WHERE id = 1
+      }
+      
+      @Transactional
+      public void anotherTransaction() {
+          // Second transaction (different session)
+          User user2 = entityManager.find(User.class, 1L);
+          // No SQL - loaded from second-level cache!
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Cache Concurrency Strategies</summary>
+  <br/>
+
+  **Cache concurrency strategies** control how cache handles concurrent access.
+
+  **READ_ONLY:**
+  + For entities that never change
+  + Best performance
+  + Throws exception on update
+
+  ```java
+  @Entity
+  @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
+  public class Country {
+      @Id
+      private Long id;
+      private String name;
+  }
+  ```
+
+  **NONSTRICT_READ_WRITE:**
+  + For entities that rarely change
+  + No locking
+  + May return stale data briefly
+
+  ```java
+  @Entity
+  @Cache(usage = CacheConcurrencyStrategy.NONSTRICT_READ_WRITE)
+  public class Category {
+      @Id
+      private Long id;
+      private String name;
+  }
+  ```
+
+  **READ_WRITE:**
+  + For entities that change frequently
+  + Uses soft locks
+  + Prevents stale data
+
+  ```java
+  @Entity
+  @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+  }
+  ```
+
+  **TRANSACTIONAL:**
+  + Full transactional cache
+  + Requires JTA
+  + Best consistency
+
+  ```java
+  @Entity
+  @Cache(usage = CacheConcurrencyStrategy.TRANSACTIONAL)
+  public class Account {
+      @Id
+      private Long id;
+      private BigDecimal balance;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Ehcache Configuration</summary>
+  <br/>
+
+  **Ehcache** is a popular second-level cache provider.
+
+  **Create ehcache.xml:**
+
+  ```xml
+  <!-- src/main/resources/ehcache.xml -->
+  <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xmlns="http://www.ehcache.org/v3"
+          xsi:schemaLocation="http://www.ehcache.org/v3 
+                              http://www.ehcache.org/schema/ehcache-core-3.0.xsd">
+      
+      <!-- Default cache configuration -->
+      <cache-template name="default">
+          <expiry>
+              <ttl unit="minutes">10</ttl>
+          </expiry>
+          <heap unit="entries">1000</heap>
+      </cache-template>
+      
+      <!-- Entity cache -->
+      <cache alias="com.example.User" uses-template="default">
+          <expiry>
+              <ttl unit="minutes">30</ttl>
+          </expiry>
+          <heap unit="entries">500</heap>
+      </cache>
+      
+      <!-- Collection cache -->
+      <cache alias="com.example.User.orders" uses-template="default">
+          <expiry>
+              <ttl unit="minutes">15</ttl>
+          </expiry>
+          <heap unit="entries">1000</heap>
+      </cache>
+      
+      <!-- Query cache -->
+      <cache alias="default-query-results-region" uses-template="default"/>
+      <cache alias="default-update-timestamps-region" uses-template="default"/>
+  </config>
+  ```
+
+  **Configure in application.properties:**
+
+  ```properties
+  spring.jpa.properties.hibernate.cache.use_second_level_cache=true
+  spring.jpa.properties.hibernate.cache.region.factory_class=org.hibernate.cache.jcache.JCacheRegionFactory
+  spring.jpa.properties.hibernate.javax.cache.provider=org.ehcache.jsr107.EhcacheCachingProvider
+  spring.jpa.properties.hibernate.javax.cache.uri=classpath:ehcache.xml
+  ```
+
+</details>
+
+<details>
+  <summary>Redis as Second-Level Cache</summary>
+  <br/>
+
+  **Redis** can be used as distributed second-level cache.
+
+  **Add dependencies:**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.hibernate</groupId>
+      <artifactId>hibernate-jcache</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+  </dependency>
+  ```
+
+  **Configure Redis:**
+
+  ```properties
+  # application.properties
+  spring.redis.host=localhost
+  spring.redis.port=6379
+  
+  spring.jpa.properties.hibernate.cache.use_second_level_cache=true
+  spring.jpa.properties.hibernate.cache.region.factory_class=org.hibernate.cache.jcache.JCacheRegionFactory
+  ```
+
+  **Custom Redis cache configuration:**
+
+  ```java
+  @Configuration
+  @EnableCaching
+  public class CacheConfig {
+      
+      @Bean
+      public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+          RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+              .entryTtl(Duration.ofMinutes(10))
+              .serializeKeysWith(RedisSerializationContext.SerializationPair
+                  .fromSerializer(new StringRedisSerializer()))
+              .serializeValuesWith(RedisSerializationContext.SerializationPair
+                  .fromSerializer(new GenericJackson2JsonRedisSerializer()));
+          
+          return RedisCacheManager.builder(connectionFactory)
+              .cacheDefaults(config)
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Query Cache</summary>
+  <br/>
+
+  **Query cache** caches query results.
+
+  **Enable query cache:**
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.cache.use_query_cache=true
+  ```
+
+  **Mark query as cacheable:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
+      @Query("SELECT u FROM User u WHERE u.username = :username")
+      Optional<User> findByUsername(@Param("username") String username);
+  }
+  ```
+
+  **Using EntityManager:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public List<User> findActiveUsers() {
+          return entityManager
+              .createQuery("SELECT u FROM User u WHERE u.active = true", User.class)
+              .setHint("org.hibernate.cacheable", true)
+              .getResultList();
+      }
+  }
+  ```
+
+  **Important notes:**
+  + Query cache stores query results (IDs)
+  + Still needs second-level cache for entities
+  + Invalidated when table is updated
+  + Use for frequently executed queries
+
+</details>
+
+<details>
+  <summary>Cache Eviction</summary>
+  <br/>
+
+  **Cache eviction** removes stale data from cache.
+
+  **Manual eviction:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Transactional
+      public void evictCache() {
+          Cache cache = entityManager.getEntityManagerFactory().getCache();
+          
+          // Evict specific entity
+          cache.evict(User.class, 1L);
+          
+          // Evict all instances of entity
+          cache.evict(User.class);
+          
+          // Evict entire cache
+          cache.evictAll();
+      }
+  }
+  ```
+
+  **Automatic eviction on update:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void updateUser(Long id, String username) {
+          User user = userRepository.findById(id).orElseThrow();
+          user.setUsername(username);
+          userRepository.save(user);
+          // Cache automatically updated
+      }
+  }
+  ```
+
+  **Spring Cache eviction:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @CacheEvict(value = "users", key = "#id")
+      public void deleteUser(Long id) {
+          userRepository.deleteById(id);
+      }
+      
+      @CacheEvict(value = "users", allEntries = true)
+      public void deleteAllUsers() {
+          userRepository.deleteAll();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Spring Cache Annotations</summary>
+  <br/>
+
+  **Spring provides cache annotations** for method-level caching.
+
+  **Enable caching:**
+
+  ```java
+  @Configuration
+  @EnableCaching
+  public class CacheConfig {
+  }
+  ```
+
+  **@Cacheable - Cache method result:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Cacheable(value = "users", key = "#id")
+      public User findById(Long id) {
+          return userRepository.findById(id).orElseThrow();
+      }
+      
+      @Cacheable(value = "users", key = "#username")
+      public User findByUsername(String username) {
+          return userRepository.findByUsername(username).orElseThrow();
+      }
+  }
+  ```
+
+  **@CachePut - Update cache:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @CachePut(value = "users", key = "#user.id")
+      public User updateUser(User user) {
+          return userRepository.save(user);
+      }
+  }
+  ```
+
+  **@CacheEvict - Remove from cache:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @CacheEvict(value = "users", key = "#id")
+      public void deleteUser(Long id) {
+          userRepository.deleteById(id);
+      }
+      
+      @CacheEvict(value = "users", allEntries = true)
+      public void deleteAll() {
+          userRepository.deleteAll();
+      }
+  }
+  ```
+
+  **@Caching - Multiple cache operations:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Caching(
+          evict = {
+              @CacheEvict(value = "users", key = "#user.id"),
+              @CacheEvict(value = "usernames", key = "#user.username")
+          }
+      )
+      public void deleteUser(User user) {
+          userRepository.delete(user);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Cache Statistics</summary>
+  <br/>
+
+  **Monitor cache performance** with statistics.
+
+  **Enable statistics:**
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.generate_statistics=true
+  spring.jpa.properties.hibernate.cache.use_structured_entries=true
+  ```
+
+  **Get statistics:**
+
+  ```java
+  @Service
+  public class CacheStatsService {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      public void printCacheStats() {
+          Session session = entityManager.unwrap(Session.class);
+          Statistics stats = session.getSessionFactory().getStatistics();
+          
+          System.out.println("Second-level cache hits: " + stats.getSecondLevelCacheHitCount());
+          System.out.println("Second-level cache misses: " + stats.getSecondLevelCacheMissCount());
+          System.out.println("Second-level cache puts: " + stats.getSecondLevelCachePutCount());
+          
+          System.out.println("Query cache hits: " + stats.getQueryCacheHitCount());
+          System.out.println("Query cache misses: " + stats.getQueryCacheMissCount());
+          
+          // Clear statistics
+          stats.clear();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Cache read-only entities
+  @Entity
+  @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
+  public class Country {
+      @Id
+      private Long id;
+      private String name;
+  }
+  
+  // ✅ DO: Cache frequently accessed entities
+  @Entity
+  @Cacheable
+  @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+  public class User {
+      @Id
+      private Long id;
+      private String username;
+  }
+  
+  // ✅ DO: Cache collections
+  @OneToMany(mappedBy = "user")
+  @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+  private List<Order> orders;
+  
+  // ✅ DO: Use appropriate concurrency strategy
+  @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)  // Never changes
+  @Cache(usage = CacheConcurrencyStrategy.NONSTRICT_READ_WRITE)  // Rarely changes
+  @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)  // Frequently changes
+  
+  // ✅ DO: Set cache expiration
+  <cache alias="com.example.User">
+      <expiry>
+          <ttl unit="minutes">30</ttl>
+      </expiry>
+  </cache>
+  
+  // ✅ DO: Monitor cache statistics
+  spring.jpa.properties.hibernate.generate_statistics=true
+  
+  // ✅ DO: Use query cache for frequent queries
+  @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "true"))
+  List<User> findActiveUsers();
+  
+  // ✅ DO: Evict cache on updates
+  @CacheEvict(value = "users", key = "#id")
+  public void deleteUser(Long id) {
+      userRepository.deleteById(id);
+  }
+  
+  // ❌ DON'T: Cache entities that change frequently
+  @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+  public class AuditLog {  // Bad - changes constantly
+      // ...
+  }
+  
+  // ❌ DON'T: Cache large collections
+  @OneToMany(mappedBy = "user")
+  @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+  private List<Order> orders;  // Bad if user has thousands of orders
+  
+  // ❌ DON'T: Use READ_ONLY for mutable entities
+  @Cache(usage = CacheConcurrencyStrategy.READ_ONLY)
+  public class User {  // Bad - users can be updated
+      // ...
+  }
+  
+  // ❌ DON'T: Forget to configure cache size
+  <cache alias="com.example.User">
+      <heap unit="entries">1000</heap>  // Set limit
+  </cache>
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  **First-Level Cache:**
+  + Always enabled
+  + Session-scoped
+  + Automatic
+  + Cleared when session closes
+
+  **Second-Level Cache:**
+  + Optional (must be enabled)
+  + SessionFactory-scoped
+  + Shared across sessions
+  + Requires cache provider (Ehcache, Redis)
+
+  **Cache Strategies:**
+  + **READ_ONLY** - Never changes
+  + **NONSTRICT_READ_WRITE** - Rarely changes
+  + **READ_WRITE** - Frequently changes
+  + **TRANSACTIONAL** - Full transactional support
+
+  **Query Cache:**
+  + Caches query results
+  + Requires second-level cache
+  + Use for frequent queries
+  + Invalidated on table updates
+
+  **Cache Providers:**
+  + **Ehcache** - Local cache
+  + **Redis** - Distributed cache
+  + **Caffeine** - High-performance local cache
+
+  **Best Practices:**
+  + Cache read-only or rarely changing entities
+  + Use appropriate concurrency strategy
+  + Set cache expiration
+  + Monitor cache statistics
+  + Evict cache on updates
+  + Don't cache frequently changing data
+  + Don't cache large collections
+  + Configure cache size limits
+
+</details>

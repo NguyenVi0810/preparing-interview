@@ -1,0 +1,788 @@
+## Common Issues
+
+<details>
+  <summary>LazyInitializationException</summary>
+  <br/>
+
+  **LazyInitializationException** occurs when accessing lazy collection outside transaction.
+
+  **Error message:**
+
+  ```
+  org.hibernate.LazyInitializationException: 
+  failed to lazily initialize a collection of role: com.example.User.orders, 
+  could not initialize proxy - no Session
+  ```
+
+  **Common scenario:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public User getUser(Long id) {
+          return userRepository.findById(id).orElseThrow();
+      }  // Transaction ends, session closes
+  }
+  
+  @RestController
+  public class UserController {
+      
+      @GetMapping("/users/{id}")
+      public UserDTO getUser(@PathVariable Long id) {
+          User user = userService.getUser(id);
+          
+          // LazyInitializationException!
+          List<Order> orders = user.getOrders();
+          
+          return new UserDTO(user);
+      }
+  }
+  ```
+
+  **Why it happens:**
+  + LAZY collection not loaded within transaction
+  + Transaction ends, Hibernate session closes
+  + Accessing collection outside session fails
+
+  **Solution 1: Fetch join:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+      Optional<User> findByIdWithOrders(@Param("id") Long id);
+  }
+  ```
+
+  **Solution 2: Entity graph:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @EntityGraph(attributePaths = {"orders"})
+      Optional<User> findById(Long id);
+  }
+  ```
+
+  **Solution 3: Force initialization:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public User getUser(Long id) {
+          User user = userRepository.findById(id).orElseThrow();
+          user.getOrders().size();  // Force load
+          return user;
+      }
+  }
+  ```
+
+  **Solution 4: DTO projection:**
+
+  ```java
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  UserDTO findUserDTOById(Long id);
+  ```
+
+</details>
+
+<details>
+  <summary>MultipleBagFetchException</summary>
+  <br/>
+
+  **MultipleBagFetchException** occurs when fetching multiple collections with fetch join.
+
+  **Error message:**
+
+  ```
+  org.hibernate.loader.MultipleBagFetchException: 
+  cannot simultaneously fetch multiple bags
+  ```
+
+  **Problem:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      private List<Order> orders;  // Bag
+      
+      @OneToMany(mappedBy = "user")
+      private List<Address> addresses;  // Bag
+  }
+  
+  // ❌ Throws MultipleBagFetchException
+  @Query("SELECT u FROM User u " +
+         "LEFT JOIN FETCH u.orders " +
+         "LEFT JOIN FETCH u.addresses")
+  List<User> findAllWithOrdersAndAddresses();
+  ```
+
+  **What is a "bag"?**
+  + Hibernate term for unordered collection (List without @OrderColumn)
+  + Cannot fetch multiple bags simultaneously
+  + Causes ambiguity in result set mapping
+
+  **Solution 1: Use Set instead of List:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      private Set<Order> orders;  // Set instead of List
+      
+      @OneToMany(mappedBy = "user")
+      private Set<Address> addresses;  // Set instead of List
+  }
+  
+  // ✅ Works with Set
+  @Query("SELECT DISTINCT u FROM User u " +
+         "LEFT JOIN FETCH u.orders " +
+         "LEFT JOIN FETCH u.addresses")
+  List<User> findAllWithOrdersAndAddresses();
+  ```
+
+  **Solution 2: Multiple queries:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.orders")
+      List<User> findAllWithOrders();
+      
+      @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.addresses WHERE u IN :users")
+      List<User> findWithAddresses(@Param("users") List<User> users);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public List<User> findAllWithOrdersAndAddresses() {
+          List<User> users = userRepository.findAllWithOrders();
+          userRepository.findWithAddresses(users);
+          return users;
+      }
+  }
+  ```
+
+  **Solution 3: Use @OrderColumn:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      @OrderColumn(name = "order_index")  // Makes it ordered
+      private List<Order> orders;
+      
+      @OneToMany(mappedBy = "user")
+      private List<Address> addresses;
+  }
+  ```
+
+  **Solution 4: Batch fetching:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)
+      private List<Order> orders;
+      
+      @OneToMany(mappedBy = "user")
+      @BatchSize(size = 10)
+      private List<Address> addresses;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@OneToOne Lazy Fetch Problem</summary>
+  <br/>
+
+  **@OneToOne lazy loading doesn't work on non-owning side.**
+
+  **Problem:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      // Non-owning side (mappedBy)
+      @OneToOne(mappedBy = "user", fetch = FetchType.LAZY)
+      private UserProfile profile;  // Always loaded eagerly!
+  }
+  
+  @Entity
+  public class UserProfile {
+      @Id
+      private Long id;
+      
+      // Owning side (has @JoinColumn)
+      @OneToOne(fetch = FetchType.LAZY)
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **Why it happens:**
+  + Hibernate needs to know if profile exists
+  + Must query database to check
+  + Cannot create proxy without knowing if entity exists
+  + Results in eager loading despite LAZY setting
+
+  **Test:**
+
+  ```java
+  @Transactional
+  public void testLazyLoading() {
+      User user = userRepository.findById(1L).orElseThrow();
+      // SQL: SELECT u.*, p.* FROM users u 
+      //      LEFT JOIN user_profiles p ON u.id = p.user_id
+      //      WHERE u.id = 1
+      
+      // Profile already loaded (not lazy!)
+      System.out.println(user.getProfile().getBio());
+  }
+  ```
+
+  **Solution 1: Make relationship optional:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToOne(mappedBy = "user", fetch = FetchType.LAZY, optional = false)
+      private UserProfile profile;  // Still doesn't work
+  }
+  ```
+
+  **Solution 2: Use @MapsId (shared primary key):**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToOne(mappedBy = "user", fetch = FetchType.LAZY)
+      private UserProfile profile;  // Now works!
+  }
+  
+  @Entity
+  public class UserProfile {
+      @Id
+      private Long id;
+      
+      @MapsId  // Share primary key with User
+      @OneToOne(fetch = FetchType.LAZY)
+      @JoinColumn(name = "id")
+      private User user;
+  }
+  ```
+
+  **Solution 3: Use bytecode enhancement:**
+
+  ```xml
+  <!-- pom.xml -->
+  <plugin>
+      <groupId>org.hibernate.orm.tooling</groupId>
+      <artifactId>hibernate-enhance-maven-plugin</artifactId>
+      <version>${hibernate.version}</version>
+      <executions>
+          <execution>
+              <goals>
+                  <goal>enhance</goal>
+              </goals>
+          </execution>
+      </executions>
+  </plugin>
+  ```
+
+  ```properties
+  # application.properties
+  spring.jpa.properties.hibernate.bytecode.use_reflection_optimizer=false
+  spring.jpa.properties.hibernate.enhancer.enableLazyInitialization=true
+  ```
+
+  **Solution 4: Change to @ManyToOne:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      @OneToMany(mappedBy = "user")
+      private List<UserProfile> profiles;  // Changed to List
+  }
+  
+  @Entity
+  public class UserProfile {
+      @Id
+      private Long id;
+      
+      @ManyToOne(fetch = FetchType.LAZY)
+      @JoinColumn(name = "user_id")
+      private User user;
+  }
+  ```
+
+  **Solution 5: Use DTO projection:**
+
+  ```java
+  @Query("SELECT new com.example.dto.UserDTO(u.id, u.username) FROM User u")
+  UserDTO findUserDTOById(Long id);
+  ```
+
+</details>
+
+<details>
+  <summary>Detached Entity Passed to Persist</summary>
+  <br/>
+
+  **Error occurs when trying to persist entity with existing ID.**
+
+  **Error message:**
+
+  ```
+  org.hibernate.PersistentObjectException: 
+  detached entity passed to persist: com.example.User
+  ```
+
+  **Problem:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void saveUser() {
+          User user = new User();
+          user.setId(1L);  // Setting ID manually
+          user.setUsername("john");
+          
+          userRepository.save(user);  // Error!
+      }
+  }
+  ```
+
+  **Why it happens:**
+  + Entity has ID set
+  + Hibernate thinks it's detached (already persisted)
+  + Cannot persist detached entity
+
+  **Solution 1: Use merge instead:**
+
+  ```java
+  @Transactional
+  public void saveUser() {
+      User user = new User();
+      user.setId(1L);
+      user.setUsername("john");
+      
+      entityManager.merge(user);  // Use merge
+  }
+  ```
+
+  **Solution 2: Don't set ID:**
+
+  ```java
+  @Transactional
+  public void saveUser() {
+      User user = new User();
+      // Don't set ID - let database generate it
+      user.setUsername("john");
+      
+      userRepository.save(user);  // Works
+  }
+  ```
+
+  **Solution 3: Check if exists:**
+
+  ```java
+  @Transactional
+  public void saveUser(User user) {
+      if (user.getId() != null && userRepository.existsById(user.getId())) {
+          userRepository.save(user);  // Update
+      } else {
+          user.setId(null);
+          userRepository.save(user);  // Insert
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>NonUniqueResultException</summary>
+  <br/>
+
+  **Error occurs when query returns multiple results but expects single result.**
+
+  **Error message:**
+
+  ```
+  javax.persistence.NonUniqueResultException: 
+  query did not return a unique result: 2
+  ```
+
+  **Problem:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Expects single result
+      User findByUsername(String username);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void getUser() {
+          // If multiple users with same username exist
+          User user = userRepository.findByUsername("john");  // Error!
+      }
+  }
+  ```
+
+  **Solution 1: Return List:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      List<User> findByUsername(String username);
+  }
+  ```
+
+  **Solution 2: Return Optional:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      Optional<User> findByUsername(String username);
+  }
+  ```
+
+  **Solution 3: Use First or Top:**
+
+  ```java
+  @Repository
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      User findFirstByUsername(String username);
+      
+      User findTopByUsername(String username);
+  }
+  ```
+
+  **Solution 4: Add unique constraint:**
+
+  ```java
+  @Entity
+  @Table(uniqueConstraints = @UniqueConstraint(columnNames = "username"))
+  public class User {
+      @Id
+      private Long id;
+      
+      @Column(unique = true)
+      private String username;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>ConstraintViolationException</summary>
+  <br/>
+
+  **Error occurs when violating database constraints.**
+
+  **Error message:**
+
+  ```
+  org.hibernate.exception.ConstraintViolationException: 
+  could not execute statement
+  ```
+
+  **Common causes:**
+
+  ```java
+  // 1. Unique constraint violation
+  @Entity
+  public class User {
+      @Column(unique = true)
+      private String email;
+  }
+  
+  // Trying to insert duplicate email
+  User user1 = new User("john@example.com");
+  User user2 = new User("john@example.com");  // Error!
+  
+  // 2. Not null constraint violation
+  @Entity
+  public class User {
+      @Column(nullable = false)
+      private String username;
+  }
+  
+  User user = new User();
+  user.setUsername(null);  // Error!
+  
+  // 3. Foreign key constraint violation
+  @Entity
+  public class Order {
+      @ManyToOne
+      @JoinColumn(name = "user_id", nullable = false)
+      private User user;
+  }
+  
+  Order order = new Order();
+  order.setUser(null);  // Error!
+  ```
+
+  **Solution: Handle gracefully:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Transactional
+      public void createUser(String email) {
+          try {
+              User user = new User(email);
+              userRepository.save(user);
+          } catch (DataIntegrityViolationException e) {
+              if (e.getCause() instanceof ConstraintViolationException) {
+                  throw new DuplicateEmailException("Email already exists");
+              }
+              throw e;
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>StaleStateException / OptimisticLockException</summary>
+  <br/>
+
+  **Error occurs when updating entity that was modified by another transaction.**
+
+  **Error message:**
+
+  ```
+  org.hibernate.StaleStateException: 
+  Row was updated or deleted by another transaction
+  ```
+
+  **Problem:**
+
+  ```java
+  @Entity
+  public class Product {
+      @Id
+      private Long id;
+      
+      @Version
+      private Long version;
+      
+      private Integer stock;
+  }
+  
+  // Transaction 1
+  @Transactional
+  public void updateStock1() {
+      Product product = productRepository.findById(1L).orElseThrow();
+      product.setStock(10);
+      productRepository.save(product);  // version = 1
+  }
+  
+  // Transaction 2 (concurrent)
+  @Transactional
+  public void updateStock2() {
+      Product product = productRepository.findById(1L).orElseThrow();
+      product.setStock(20);
+      productRepository.save(product);  // Error! version mismatch
+  }
+  ```
+
+  **Solution: Retry logic:**
+
+  ```java
+  @Service
+  public class ProductService {
+      
+      @Transactional
+      public void updateStockWithRetry(Long id, Integer stock) {
+          int maxRetries = 3;
+          int attempt = 0;
+          
+          while (attempt < maxRetries) {
+              try {
+                  Product product = productRepository.findById(id).orElseThrow();
+                  product.setStock(stock);
+                  productRepository.save(product);
+                  return;
+              } catch (OptimisticLockException e) {
+                  attempt++;
+                  if (attempt >= maxRetries) {
+                      throw new RuntimeException("Failed after " + maxRetries + " attempts");
+                  }
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Load lazy collections within transaction
+  @Transactional
+  public User getUser(Long id) {
+      User user = userRepository.findById(id).orElseThrow();
+      user.getOrders().size();  // Force load
+      return user;
+  }
+  
+  // ✅ DO: Use fetch join to avoid LazyInitializationException
+  @Query("SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id")
+  Optional<User> findByIdWithOrders(@Param("id") Long id);
+  
+  // ✅ DO: Use Set for multiple fetch joins
+  @OneToMany(mappedBy = "user")
+  private Set<Order> orders;  // Set instead of List
+  
+  // ✅ DO: Use @MapsId for @OneToOne lazy loading
+  @MapsId
+  @OneToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "id")
+  private User user;
+  
+  // ✅ DO: Return Optional for single result queries
+  Optional<User> findByUsername(String username);
+  
+  // ✅ DO: Add unique constraints
+  @Column(unique = true)
+  private String email;
+  
+  // ✅ DO: Handle constraint violations
+  try {
+      userRepository.save(user);
+  } catch (DataIntegrityViolationException e) {
+      // Handle gracefully
+  }
+  
+  // ✅ DO: Use @Version for optimistic locking
+  @Version
+  private Long version;
+  
+  // ✅ DO: Implement retry logic for optimistic lock failures
+  @Retryable(value = OptimisticLockException.class, maxAttempts = 3)
+  public void updateProduct(Long id) {
+      // Update logic
+  }
+  
+  // ❌ DON'T: Access lazy collections outside transaction
+  public User getUser(Long id) {
+      return userRepository.findById(id).orElseThrow();
+  }
+  // Later: user.getOrders() → LazyInitializationException!
+  
+  // ❌ DON'T: Fetch multiple Lists with fetch join
+  @Query("SELECT u FROM User u " +
+         "LEFT JOIN FETCH u.orders " +
+         "LEFT JOIN FETCH u.addresses")  // MultipleBagFetchException!
+  List<User> findAll();
+  
+  // ❌ DON'T: Expect @OneToOne lazy loading on non-owning side
+  @OneToOne(mappedBy = "user", fetch = FetchType.LAZY)
+  private UserProfile profile;  // Doesn't work!
+  
+  // ❌ DON'T: Set ID manually when persisting
+  User user = new User();
+  user.setId(1L);  // Don't do this
+  userRepository.save(user);  // Error!
+  
+  // ❌ DON'T: Return single entity when multiple may exist
+  User findByUsername(String username);  // NonUniqueResultException!
+  ```
+
+</details>
+
+<details>
+  <summary>Key Points</summary>
+  <br/>
+
+  **LazyInitializationException:**
+  + Accessing lazy collection outside transaction
+  + Solution: Fetch join, entity graph, force initialization, DTO
+
+  **MultipleBagFetchException:**
+  + Fetching multiple Lists with fetch join
+  + Solution: Use Set, multiple queries, @OrderColumn, batch fetching
+
+  **@OneToOne Lazy Problem:**
+  + Lazy loading doesn't work on non-owning side
+  + Solution: @MapsId, bytecode enhancement, change to @ManyToOne
+
+  **Detached Entity:**
+  + Persisting entity with existing ID
+  + Solution: Use merge, don't set ID, check if exists
+
+  **NonUniqueResultException:**
+  + Query returns multiple results but expects single
+  + Solution: Return List/Optional, use First/Top, add unique constraint
+
+  **ConstraintViolationException:**
+  + Violating database constraints
+  + Solution: Handle gracefully, validate before save
+
+  **OptimisticLockException:**
+  + Concurrent modification with @Version
+  + Solution: Retry logic, handle gracefully
+
+  **Prevention:**
+  + Load lazy collections within transaction
+  + Use fetch join or entity graph
+  + Use Set for multiple collections
+  + Add proper constraints
+  + Use @Version for concurrent updates
+  + Return Optional for single results
+  + Validate data before save
+
+</details>

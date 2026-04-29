@@ -1,0 +1,750 @@
+## Repository Pattern
+
+<details>
+  <summary>What is Repository Pattern?</summary>
+  <br/>
+
+  Repository Pattern provides an abstraction layer between business logic and data access logic.
+
+  **Benefits:**
+  + Decouples business logic from data access
+  + Centralized data access logic
+  + Easy to test (can mock repositories)
+  + Reduces code duplication
+  + Consistent API for data operations
+
+  **Spring Data JPA Repository Hierarchy:**
+
+  ```
+  Repository (marker interface)
+       ↓
+  CrudRepository (basic CRUD)
+       ↓
+  PagingAndSortingRepository (pagination + sorting)
+       ↓
+  JpaRepository (JPA specific + batch operations)
+  ```
+
+</details>
+
+<details>
+  <summary>CrudRepository Interface</summary>
+  <br/>
+
+  `CrudRepository` provides basic CRUD operations.
+
+  **Create repository:**
+
+  ```java
+  public interface UserRepository extends CrudRepository<User, Long> {
+      // No methods needed - inherited from CrudRepository
+  }
+  ```
+
+  **Available methods:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void crudExamples() {
+          // Save single entity
+          User user = new User("john", "john@example.com");
+          userRepository.save(user);
+          
+          // Save multiple entities
+          List<User> users = Arrays.asList(
+              new User("alice", "alice@example.com"),
+              new User("bob", "bob@example.com")
+          );
+          userRepository.saveAll(users);
+          
+          // Find by ID
+          Optional<User> found = userRepository.findById(1L);
+          
+          // Check if exists
+          boolean exists = userRepository.existsById(1L);
+          
+          // Find all
+          Iterable<User> allUsers = userRepository.findAll();
+          
+          // Find multiple by IDs
+          Iterable<User> someUsers = userRepository.findAllById(Arrays.asList(1L, 2L, 3L));
+          
+          // Count
+          long count = userRepository.count();
+          
+          // Delete by ID
+          userRepository.deleteById(1L);
+          
+          // Delete entity
+          userRepository.delete(user);
+          
+          // Delete multiple
+          userRepository.deleteAll(users);
+          
+          // Delete all
+          userRepository.deleteAll();
+      }
+  }
+  ```
+
+  **save() behavior:**
+
+  ```java
+  // Insert new entity
+  User newUser = new User("john", "john@example.com");
+  userRepository.save(newUser);  // INSERT
+  
+  // Update existing entity
+  User existing = userRepository.findById(1L).orElseThrow();
+  existing.setEmail("newemail@example.com");
+  userRepository.save(existing);  // UPDATE
+  ```
+
+</details>
+
+<details>
+  <summary>PagingAndSortingRepository Interface</summary>
+  <br/>
+
+  `PagingAndSortingRepository` adds pagination and sorting capabilities.
+
+  **Create repository:**
+
+  ```java
+  public interface UserRepository extends PagingAndSortingRepository<User, Long> {
+  }
+  ```
+
+  **Sorting examples:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void sortingExamples() {
+          // Sort by single field ascending
+          Iterable<User> users = userRepository.findAll(Sort.by("username"));
+          
+          // Sort by single field descending
+          users = userRepository.findAll(Sort.by("username").descending());
+          
+          // Sort by multiple fields
+          users = userRepository.findAll(
+              Sort.by("lastName").ascending()
+                  .and(Sort.by("firstName").ascending())
+          );
+          
+          // Alternative syntax
+          users = userRepository.findAll(
+              Sort.by(
+                  Sort.Order.asc("lastName"),
+                  Sort.Order.desc("createdAt")
+              )
+          );
+      }
+  }
+  ```
+
+  **Pagination examples:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void paginationExamples() {
+          // Page 0 (first page), 10 items per page
+          Pageable pageable = PageRequest.of(0, 10);
+          Page<User> page = userRepository.findAll(pageable);
+          
+          System.out.println("Total elements: " + page.getTotalElements());
+          System.out.println("Total pages: " + page.getTotalPages());
+          System.out.println("Current page: " + page.getNumber());
+          System.out.println("Page size: " + page.getSize());
+          System.out.println("Has next: " + page.hasNext());
+          System.out.println("Has previous: " + page.hasPrevious());
+          
+          List<User> users = page.getContent();
+          
+          // Pagination with sorting
+          pageable = PageRequest.of(0, 10, Sort.by("username").descending());
+          page = userRepository.findAll(pageable);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>JpaRepository Interface</summary>
+  <br/>
+
+  `JpaRepository` is the most commonly used interface with additional JPA-specific methods.
+
+  **Create repository:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+  }
+  ```
+
+  **Additional methods:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void jpaExamples() {
+          // Flush changes to database
+          userRepository.flush();
+          
+          // Save and flush immediately
+          User user = new User("john", "john@example.com");
+          userRepository.saveAndFlush(user);
+          
+          // Save all and flush
+          List<User> users = Arrays.asList(
+              new User("alice", "alice@example.com"),
+              new User("bob", "bob@example.com")
+          );
+          userRepository.saveAllAndFlush(users);
+          
+          // Delete in batch (single DELETE query)
+          userRepository.deleteAllInBatch(users);
+          
+          // Delete all in batch
+          userRepository.deleteAllInBatch();
+          
+          // Get reference (lazy proxy)
+          User reference = userRepository.getReferenceById(1L);
+          // No database query until you access fields
+          
+          // Find all (returns List, not Iterable)
+          List<User> allUsers = userRepository.findAll();
+          
+          // Find all with sorting
+          allUsers = userRepository.findAll(Sort.by("username"));
+          
+          // Find all by IDs
+          List<User> someUsers = userRepository.findAllById(Arrays.asList(1L, 2L, 3L));
+      }
+  }
+  ```
+
+  **getReferenceById() vs findById():**
+
+  ```java
+  // findById() - executes SELECT immediately
+  Optional<User> user1 = userRepository.findById(1L);
+  // SELECT * FROM users WHERE id = 1
+  
+  // getReferenceById() - returns lazy proxy
+  User user2 = userRepository.getReferenceById(1L);
+  // No query yet
+  
+  user2.getUsername();  // Now executes SELECT
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Query Methods</summary>
+  <br/>
+
+  Spring Data JPA generates queries from method names.
+
+  **Method naming conventions:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Find by single field
+      User findByUsername(String username);
+      Optional<User> findByEmail(String email);
+      
+      // Find multiple
+      List<User> findByLastName(String lastName);
+      
+      // And condition
+      User findByUsernameAndEmail(String username, String email);
+      
+      // Or condition
+      List<User> findByUsernameOrEmail(String username, String email);
+      
+      // Comparison operators
+      List<User> findByAgeGreaterThan(Integer age);
+      List<User> findByAgeLessThan(Integer age);
+      List<User> findByAgeGreaterThanEqual(Integer age);
+      List<User> findByAgeLessThanEqual(Integer age);
+      List<User> findByAgeBetween(Integer startAge, Integer endAge);
+      
+      // Like / Contains
+      List<User> findByUsernameLike(String pattern);  // Requires % in parameter
+      List<User> findByUsernameContaining(String text);  // Auto adds %
+      List<User> findByUsernameStartingWith(String prefix);
+      List<User> findByUsernameEndingWith(String suffix);
+      
+      // Null checks
+      List<User> findByEmailIsNull();
+      List<User> findByEmailIsNotNull();
+      
+      // Boolean
+      List<User> findByActiveTrue();
+      List<User> findByActiveFalse();
+      
+      // In clause
+      List<User> findByUsernameIn(List<String> usernames);
+      List<User> findByAgeIn(List<Integer> ages);
+      
+      // Order by
+      List<User> findByLastNameOrderByFirstNameAsc(String lastName);
+      List<User> findByLastNameOrderByFirstNameDesc(String lastName);
+      
+      // Limit results
+      User findFirstByOrderByCreatedAtDesc();
+      List<User> findTop3ByOrderByCreatedAtDesc();
+      List<User> findFirst10ByLastName(String lastName);
+      
+      // Distinct
+      List<User> findDistinctByLastName(String lastName);
+      
+      // Count
+      long countByLastName(String lastName);
+      
+      // Exists
+      boolean existsByUsername(String username);
+      
+      // Delete
+      void deleteByUsername(String username);
+      long deleteByLastName(String lastName);  // Returns count
+  }
+  ```
+
+  **Usage examples:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void queryMethodExamples() {
+          // Find by username
+          User user = userRepository.findByUsername("john");
+          
+          // Find by age range
+          List<User> adults = userRepository.findByAgeGreaterThanEqual(18);
+          
+          // Find by username containing
+          List<User> users = userRepository.findByUsernameContaining("john");
+          // Generates: WHERE username LIKE '%john%'
+          
+          // Find by multiple usernames
+          List<User> selected = userRepository.findByUsernameIn(
+              Arrays.asList("john", "alice", "bob")
+          );
+          
+          // Get latest user
+          User latest = userRepository.findFirstByOrderByCreatedAtDesc();
+          
+          // Check if exists
+          boolean exists = userRepository.existsByUsername("john");
+          
+          // Count by last name
+          long count = userRepository.countByLastName("Smith");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Query Annotation</summary>
+  <br/>
+
+  Use `@Query` for complex queries that cannot be expressed with method names.
+
+  **JPQL queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Simple JPQL
+      @Query("SELECT u FROM User u WHERE u.email = ?1")
+      User findByEmailAddress(String email);
+      
+      // Named parameters
+      @Query("SELECT u FROM User u WHERE u.username = :username")
+      User findByUsername(@Param("username") String username);
+      
+      // Multiple parameters
+      @Query("SELECT u FROM User u WHERE u.username = :username AND u.email = :email")
+      User findByUsernameAndEmail(
+          @Param("username") String username,
+          @Param("email") String email
+      );
+      
+      // Like query
+      @Query("SELECT u FROM User u WHERE u.username LIKE %:username%")
+      List<User> findByUsernameLike(@Param("username") String username);
+      
+      // Join query
+      @Query("SELECT u FROM User u JOIN u.orders o WHERE o.status = :status")
+      List<User> findUsersWithOrderStatus(@Param("status") String status);
+      
+      // Aggregate functions
+      @Query("SELECT COUNT(u) FROM User u WHERE u.active = true")
+      long countActiveUsers();
+      
+      // Projection (select specific fields)
+      @Query("SELECT u.username FROM User u WHERE u.id = :id")
+      String findUsernameById(@Param("id") Long id);
+      
+      // Custom object projection
+      @Query("SELECT new com.example.dto.UserDTO(u.id, u.username, u.email) " +
+             "FROM User u WHERE u.active = true")
+      List<UserDTO> findActiveUsersDTO();
+  }
+  ```
+
+  **Native SQL queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Native query
+      @Query(value = "SELECT * FROM users WHERE email = ?1", nativeQuery = true)
+      User findByEmailNative(String email);
+      
+      // Native query with named parameters
+      @Query(value = "SELECT * FROM users WHERE username = :username", 
+             nativeQuery = true)
+      User findByUsernameNative(@Param("username") String username);
+      
+      // Native query with pagination
+      @Query(value = "SELECT * FROM users WHERE age > :age", 
+             nativeQuery = true)
+      Page<User> findByAgeGreaterThan(@Param("age") Integer age, Pageable pageable);
+  }
+  ```
+
+  **Modifying queries:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long> {
+      
+      // Update query
+      @Modifying
+      @Query("UPDATE User u SET u.active = :active WHERE u.id = :id")
+      int updateUserActive(@Param("id") Long id, @Param("active") boolean active);
+      
+      // Delete query
+      @Modifying
+      @Query("DELETE FROM User u WHERE u.active = false")
+      int deleteInactiveUsers();
+      
+      // Native update
+      @Modifying
+      @Query(value = "UPDATE users SET email = :email WHERE id = :id", 
+             nativeQuery = true)
+      int updateEmail(@Param("id") Long id, @Param("email") String email);
+  }
+  
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Transactional
+      public void updateUser(Long id, boolean active) {
+          int updated = userRepository.updateUserActive(id, active);
+          System.out.println("Updated rows: " + updated);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Repository Implementation</summary>
+  <br/>
+
+  Create custom repository for complex logic that cannot be expressed with @Query.
+
+  **Step 1: Define custom interface:**
+
+  ```java
+  public interface UserRepositoryCustom {
+      List<User> findUsersByCustomCriteria(String criteria);
+      void customBatchUpdate(List<User> users);
+  }
+  ```
+
+  **Step 2: Implement custom interface:**
+
+  ```java
+  @Repository
+  public class UserRepositoryImpl implements UserRepositoryCustom {
+      
+      @PersistenceContext
+      private EntityManager entityManager;
+      
+      @Override
+      public List<User> findUsersByCustomCriteria(String criteria) {
+          CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+          CriteriaQuery<User> query = cb.createQuery(User.class);
+          Root<User> user = query.from(User.class);
+          
+          // Build complex criteria
+          Predicate predicate = cb.like(user.get("username"), "%" + criteria + "%");
+          query.where(predicate);
+          
+          return entityManager.createQuery(query).getResultList();
+      }
+      
+      @Override
+      @Transactional
+      public void customBatchUpdate(List<User> users) {
+          int batchSize = 50;
+          for (int i = 0; i < users.size(); i++) {
+              entityManager.merge(users.get(i));
+              if (i % batchSize == 0 && i > 0) {
+                  entityManager.flush();
+                  entityManager.clear();
+              }
+          }
+      }
+  }
+  ```
+
+  **Step 3: Extend both interfaces:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long>, UserRepositoryCustom {
+      // Standard query methods
+      User findByUsername(String username);
+  }
+  ```
+
+  **Usage:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void useCustomMethods() {
+          // Standard method
+          User user = userRepository.findByUsername("john");
+          
+          // Custom method
+          List<User> users = userRepository.findUsersByCustomCriteria("john");
+          
+          // Custom batch update
+          userRepository.customBatchUpdate(users);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Specifications (Dynamic Queries)</summary>
+  <br/>
+
+  Use Specifications for dynamic query building.
+
+  **Enable Specifications:**
+
+  ```java
+  public interface UserRepository extends JpaRepository<User, Long>, 
+                                          JpaSpecificationExecutor<User> {
+  }
+  ```
+
+  **Create Specifications:**
+
+  ```java
+  public class UserSpecifications {
+      
+      public static Specification<User> hasUsername(String username) {
+          return (root, query, cb) -> 
+              cb.equal(root.get("username"), username);
+      }
+      
+      public static Specification<User> hasEmail(String email) {
+          return (root, query, cb) -> 
+              cb.equal(root.get("email"), email);
+      }
+      
+      public static Specification<User> ageGreaterThan(Integer age) {
+          return (root, query, cb) -> 
+              cb.greaterThan(root.get("age"), age);
+      }
+      
+      public static Specification<User> isActive() {
+          return (root, query, cb) -> 
+              cb.isTrue(root.get("active"));
+      }
+  }
+  ```
+
+  **Use Specifications:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public void specificationExamples() {
+          // Single specification
+          List<User> users = userRepository.findAll(
+              UserSpecifications.hasUsername("john")
+          );
+          
+          // Combine with AND
+          users = userRepository.findAll(
+              Specification.where(UserSpecifications.hasUsername("john"))
+                  .and(UserSpecifications.isActive())
+          );
+          
+          // Combine with OR
+          users = userRepository.findAll(
+              Specification.where(UserSpecifications.hasUsername("john"))
+                  .or(UserSpecifications.hasEmail("john@example.com"))
+          );
+          
+          // Complex combination
+          users = userRepository.findAll(
+              Specification.where(UserSpecifications.isActive())
+                  .and(UserSpecifications.ageGreaterThan(18))
+                  .and(UserSpecifications.hasUsername("john")
+                      .or(UserSpecifications.hasEmail("john@example.com")))
+          );
+          
+          // With pagination
+          Page<User> page = userRepository.findAll(
+              UserSpecifications.isActive(),
+              PageRequest.of(0, 10)
+          );
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use JpaRepository (most feature-rich)
+  public interface UserRepository extends JpaRepository<User, Long> {
+  }
+  
+  // ❌ DON'T: Use CrudRepository unless you need minimal features
+  public interface UserRepository extends CrudRepository<User, Long> {
+  }
+  
+  // ✅ DO: Use Optional for single results
+  Optional<User> findByUsername(String username);
+  
+  // ❌ DON'T: Return null
+  User findByUsername(String username);  // Can return null
+  
+  // ✅ DO: Use descriptive method names
+  List<User> findByLastNameAndActiveTrue(String lastName);
+  
+  // ❌ DON'T: Use unclear names
+  List<User> findUsers(String name);
+  
+  // ✅ DO: Use @Query for complex queries
+  @Query("SELECT u FROM User u JOIN u.orders o WHERE o.total > :amount")
+  List<User> findUsersWithLargeOrders(@Param("amount") BigDecimal amount);
+  
+  // ✅ DO: Use @Modifying for UPDATE/DELETE
+  @Modifying
+  @Query("UPDATE User u SET u.active = false WHERE u.lastLogin < :date")
+  int deactivateInactiveUsers(@Param("date") LocalDateTime date);
+  
+  // ✅ DO: Use Pageable for large result sets
+  Page<User> findByLastName(String lastName, Pageable pageable);
+  
+  // ❌ DON'T: Return all results without pagination
+  List<User> findByLastName(String lastName);  // Can return millions
+  
+  // ✅ DO: Use Specifications for dynamic queries
+  List<User> findAll(Specification<User> spec);
+  
+  // ✅ DO: Use custom repository for complex logic
+  public interface UserRepository extends JpaRepository<User, Long>, 
+                                          UserRepositoryCustom {
+  }
+  
+  // ✅ DO: Use existsBy instead of findBy for existence checks
+  boolean existsByUsername(String username);
+  
+  // ❌ DON'T: Load entity just to check existence
+  User user = userRepository.findByUsername(username);
+  if (user != null) { ... }
+  
+  // ✅ DO: Use countBy for counting
+  long countByActive(boolean active);
+  
+  // ❌ DON'T: Load all entities to count
+  List<User> users = userRepository.findByActive(true);
+  int count = users.size();
+  
+  // ✅ DO: Use deleteBy for bulk deletes
+  @Transactional
+  long deleteByActive(boolean active);
+  
+  // ✅ DO: Use @Transactional for modifying operations
+  @Transactional
+  public void updateUser(Long id) {
+      userRepository.updateUserActive(id, false);
+  }
+  ```
+
+  **Key Points**
+  <br/>
+
+  + Use **JpaRepository** for most cases (most feature-rich)
+  + **CrudRepository**: Basic CRUD operations
+  + **PagingAndSortingRepository**: Adds pagination and sorting
+  + **JpaRepository**: Adds batch operations and flush
+  + Use **query methods** for simple queries (findBy, countBy, existsBy, deleteBy)
+  + Use **@Query** for complex JPQL/SQL queries
+  + Use **@Modifying** with @Query for UPDATE/DELETE operations
+  + Use **Specifications** for dynamic query building
+  + Use **custom repository** for complex logic with EntityManager
+  + Always use **Optional** for single results
+  + Use **Pageable** for large result sets
+  + Use **existsBy** instead of findBy for existence checks
+  + Use **countBy** instead of loading all entities
+  + Always use **@Transactional** for modifying operations
+  + Method naming: findBy, countBy, existsBy, deleteBy + field name + condition
+  + Conditions: And, Or, GreaterThan, LessThan, Between, Like, In, IsNull, IsNotNull
+  + Sorting: OrderBy + field + Asc/Desc
+  + Limiting: First, Top + number
+
+</details>
