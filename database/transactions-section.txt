@@ -1,0 +1,725 @@
+## Transactions
+
+<details>
+  <summary>What are Transactions?</summary>
+  <br/>
+
+  **Transactions** are sequences of database operations that are treated as a single unit of work.
+
+  **Key characteristics:**
+  + **Atomicity** - All operations succeed or all fail (no partial completion)
+  + **Consistency** - Database moves from one valid state to another
+  + **Isolation** - Concurrent transactions don't interfere with each other
+  + **Durability** - Committed changes persist even after system failure
+
+  **Basic transaction commands:**
+
+  ```sql
+  -- Start transaction
+  BEGIN;  -- or START TRANSACTION;
+  
+  -- Execute operations
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+  
+  -- Commit (save changes)
+  COMMIT;
+  
+  -- Or rollback (undo changes)
+  ROLLBACK;
+  ```
+
+  **Why use transactions:**
+  + Ensure data integrity
+  + Handle errors gracefully
+  + Maintain consistency across multiple operations
+  + Prevent partial updates
+  + Support concurrent access
+
+</details>
+
+<details>
+  <summary>ACID Properties</summary>
+  <br/>
+
+  **ACID** ensures reliable transaction processing.
+
+  **Atomicity:**
+
+  ```sql
+  -- Transfer money between accounts
+  BEGIN;
+  
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  -- If this fails, the entire transaction is rolled back
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+  
+  COMMIT;
+  
+  -- Either both updates happen, or neither happens
+  -- No partial transfer (e.g., money deducted but not credited)
+  ```
+
+  **Consistency:**
+
+  ```sql
+  -- Constraint: balance cannot be negative
+  ALTER TABLE accounts ADD CONSTRAINT check_balance CHECK (balance >= 0);
+  
+  BEGIN;
+  
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  -- If balance would become negative, transaction fails
+  -- Database remains in consistent state
+  
+  COMMIT;
+  ```
+
+  **Isolation:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  -- Transaction 2 cannot see this change until COMMIT
+  COMMIT;
+  
+  -- Transaction 2 (running concurrently)
+  BEGIN;
+  SELECT balance FROM accounts WHERE id = 1;
+  -- Sees old balance until Transaction 1 commits
+  COMMIT;
+  ```
+
+  **Durability:**
+
+  ```sql
+  BEGIN;
+  
+  INSERT INTO orders (user_id, total) VALUES (1, 99.99);
+  
+  COMMIT;
+  -- Once committed, data persists even if:
+  -- - Database crashes
+  -- - Server restarts
+  -- - Power failure occurs
+  ```
+
+  **ACID violations and consequences:**
+
+  | Property | Violation | Consequence |
+  |----------|-----------|-------------|
+  | Atomicity | Partial update | Inconsistent data (e.g., money deducted but not credited) |
+  | Consistency | Constraint violation | Invalid data state (e.g., negative balance) |
+  | Isolation | Dirty read | Reading uncommitted changes from other transactions |
+  | Durability | Data loss | Committed data disappears after crash |
+
+</details>
+
+<details>
+  <summary>Transaction Commands</summary>
+  <br/>
+
+  **BEGIN / START TRANSACTION:**
+
+  ```sql
+  -- Start transaction (PostgreSQL, MySQL)
+  BEGIN;
+  
+  -- Alternative syntax
+  START TRANSACTION;
+  
+  -- With options (PostgreSQL)
+  BEGIN ISOLATION LEVEL READ COMMITTED;
+  BEGIN READ WRITE;
+  BEGIN READ ONLY;
+  ```
+
+  **COMMIT:**
+
+  ```sql
+  -- Save all changes permanently
+  BEGIN;
+  
+  INSERT INTO users (username, email) VALUES ('john', 'john@example.com');
+  UPDATE users SET status = 'active' WHERE id = 1;
+  DELETE FROM users WHERE status = 'deleted';
+  
+  COMMIT;  -- All changes are saved
+  ```
+
+  **ROLLBACK:**
+
+  ```sql
+  -- Undo all changes
+  BEGIN;
+  
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+  
+  -- Something went wrong, undo everything
+  ROLLBACK;  -- Both updates are undone
+  ```
+
+  **SAVEPOINT:**
+
+  ```sql
+  -- Create checkpoint within transaction
+  BEGIN;
+  
+  INSERT INTO orders (user_id, total) VALUES (1, 99.99);
+  
+  SAVEPOINT order_created;
+  
+  INSERT INTO order_items (order_id, product_id, quantity) 
+  VALUES (1, 101, 2);
+  
+  -- Rollback to savepoint (keeps order, removes order_items)
+  ROLLBACK TO SAVEPOINT order_created;
+  
+  -- Or commit everything
+  COMMIT;
+  ```
+
+  **RELEASE SAVEPOINT:**
+
+  ```sql
+  BEGIN;
+  
+  INSERT INTO users (username) VALUES ('john');
+  SAVEPOINT user_created;
+  
+  INSERT INTO profiles (user_id, bio) VALUES (1, 'Bio text');
+  
+  -- Release savepoint (can no longer rollback to it)
+  RELEASE SAVEPOINT user_created;
+  
+  COMMIT;
+  ```
+
+</details>
+
+<details>
+  <summary>Isolation Levels</summary>
+  <br/>
+
+  **Isolation levels** control how transactions interact with each other.
+
+  **Isolation levels (from weakest to strongest):**
+
+  | Level | Dirty Read | Non-Repeatable Read | Phantom Read | Performance |
+  |-------|------------|---------------------|--------------|-------------|
+  | READ UNCOMMITTED | ✅ Possible | ✅ Possible | ✅ Possible | Fastest |
+  | READ COMMITTED | ❌ Prevented | ✅ Possible | ✅ Possible | Fast |
+  | REPEATABLE READ | ❌ Prevented | ❌ Prevented | ✅ Possible | Slower |
+  | SERIALIZABLE | ❌ Prevented | ❌ Prevented | ❌ Prevented | Slowest |
+
+  **READ UNCOMMITTED:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  UPDATE accounts SET balance = 1000 WHERE id = 1;
+  -- Not committed yet
+  
+  -- Transaction 2 (READ UNCOMMITTED)
+  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+  BEGIN;
+  SELECT balance FROM accounts WHERE id = 1;
+  -- Sees 1000 (uncommitted change) - DIRTY READ
+  COMMIT;
+  
+  -- Transaction 1 rolls back
+  ROLLBACK;  -- Balance is NOT 1000!
+  ```
+
+  **READ COMMITTED (default in PostgreSQL, Oracle):**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  UPDATE accounts SET balance = 1000 WHERE id = 1;
+  -- Not committed yet
+  
+  -- Transaction 2 (READ COMMITTED)
+  SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+  BEGIN;
+  SELECT balance FROM accounts WHERE id = 1;
+  -- Sees old balance (e.g., 500) - NO DIRTY READ
+  
+  -- Transaction 1 commits
+  COMMIT;
+  
+  -- Transaction 2 reads again
+  SELECT balance FROM accounts WHERE id = 1;
+  -- Now sees 1000 - NON-REPEATABLE READ
+  COMMIT;
+  ```
+
+  **REPEATABLE READ (default in MySQL):**
+
+  ```sql
+  -- Transaction 1
+  SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+  BEGIN;
+  SELECT balance FROM accounts WHERE id = 1;  -- Sees 500
+  
+  -- Transaction 2
+  BEGIN;
+  UPDATE accounts SET balance = 1000 WHERE id = 1;
+  COMMIT;
+  
+  -- Transaction 1 reads again
+  SELECT balance FROM accounts WHERE id = 1;
+  -- Still sees 500 - NO NON-REPEATABLE READ
+  COMMIT;
+  ```
+
+  **SERIALIZABLE:**
+
+  ```sql
+  -- Transaction 1
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  BEGIN;
+  SELECT COUNT(*) FROM accounts WHERE balance > 100;  -- Returns 5
+  
+  -- Transaction 2
+  BEGIN;
+  INSERT INTO accounts (balance) VALUES (200);
+  COMMIT;
+  
+  -- Transaction 1 reads again
+  SELECT COUNT(*) FROM accounts WHERE balance > 100;
+  -- Still returns 5 - NO PHANTOM READ
+  COMMIT;
+  ```
+
+  **Set isolation level:**
+
+  ```sql
+  -- PostgreSQL
+  SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+  SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  
+  -- MySQL
+  SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+  SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+  SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+  SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  
+  -- For single transaction
+  BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  ```
+
+</details>
+
+<details>
+  <summary>Concurrency Problems</summary>
+  <br/>
+
+  **Dirty Read:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  UPDATE products SET stock = 0 WHERE id = 1;
+  -- Not committed
+  
+  -- Transaction 2 (READ UNCOMMITTED)
+  BEGIN;
+  SELECT stock FROM products WHERE id = 1;  -- Sees 0
+  -- Decides not to show product to customer
+  COMMIT;
+  
+  -- Transaction 1 rolls back
+  ROLLBACK;  -- Stock is NOT 0!
+  -- Product should have been shown to customer
+  ```
+
+  **Non-Repeatable Read:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  SELECT price FROM products WHERE id = 1;  -- Sees $100
+  
+  -- Do some calculations...
+  
+  -- Transaction 2
+  BEGIN;
+  UPDATE products SET price = 150 WHERE id = 1;
+  COMMIT;
+  
+  -- Transaction 1 reads again
+  SELECT price FROM products WHERE id = 1;  -- Now sees $150
+  -- Calculations are now incorrect!
+  COMMIT;
+  ```
+
+  **Phantom Read:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  SELECT COUNT(*) FROM orders WHERE status = 'pending';  -- Returns 10
+  
+  -- Calculate average...
+  
+  -- Transaction 2
+  BEGIN;
+  INSERT INTO orders (status) VALUES ('pending');
+  COMMIT;
+  
+  -- Transaction 1 reads again
+  SELECT COUNT(*) FROM orders WHERE status = 'pending';  -- Returns 11
+  -- Average calculation is now incorrect!
+  COMMIT;
+  ```
+
+  **Lost Update:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  SELECT stock FROM products WHERE id = 1;  -- Sees 10
+  -- Calculate new stock: 10 - 3 = 7
+  
+  -- Transaction 2
+  BEGIN;
+  SELECT stock FROM products WHERE id = 1;  -- Sees 10
+  -- Calculate new stock: 10 - 5 = 5
+  UPDATE products SET stock = 5 WHERE id = 1;
+  COMMIT;
+  
+  -- Transaction 1 continues
+  UPDATE products SET stock = 7 WHERE id = 1;  -- Overwrites Transaction 2's update!
+  COMMIT;
+  -- Stock should be 2 (10 - 3 - 5), but it's 7!
+  ```
+
+  **Solution: Use locking or optimistic concurrency:**
+
+  ```sql
+  -- Pessimistic locking (FOR UPDATE)
+  BEGIN;
+  SELECT stock FROM products WHERE id = 1 FOR UPDATE;  -- Locks row
+  -- Other transactions must wait
+  UPDATE products SET stock = stock - 3 WHERE id = 1;
+  COMMIT;
+  
+  -- Optimistic locking (version column)
+  BEGIN;
+  SELECT stock, version FROM products WHERE id = 1;  -- stock=10, version=1
+  UPDATE products 
+  SET stock = 7, version = 2 
+  WHERE id = 1 AND version = 1;  -- Only updates if version hasn't changed
+  -- If version changed, retry transaction
+  COMMIT;
+  ```
+
+</details>
+
+<details>
+  <summary>Locking Mechanisms</summary>
+  <br/>
+
+  **Pessimistic Locking (FOR UPDATE):**
+
+  ```sql
+  -- Lock row for update
+  BEGIN;
+  SELECT * FROM accounts WHERE id = 1 FOR UPDATE;
+  -- Other transactions cannot read or update this row
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  COMMIT;
+  ```
+
+  **FOR UPDATE NOWAIT:**
+
+  ```sql
+  -- Don't wait if row is locked
+  BEGIN;
+  SELECT * FROM accounts WHERE id = 1 FOR UPDATE NOWAIT;
+  -- If row is locked, immediately throws error
+  -- Instead of waiting
+  COMMIT;
+  ```
+
+  **FOR UPDATE SKIP LOCKED:**
+
+  ```sql
+  -- Skip locked rows
+  BEGIN;
+  SELECT * FROM tasks 
+  WHERE status = 'pending' 
+  ORDER BY created_at 
+  LIMIT 10
+  FOR UPDATE SKIP LOCKED;
+  -- Returns only unlocked rows
+  -- Useful for job queues
+  COMMIT;
+  ```
+
+  **FOR SHARE (Shared Lock):**
+
+  ```sql
+  -- Allow other transactions to read, but not update
+  BEGIN;
+  SELECT * FROM products WHERE id = 1 FOR SHARE;
+  -- Other transactions can SELECT FOR SHARE
+  -- But cannot UPDATE or DELETE
+  COMMIT;
+  ```
+
+  **Optimistic Locking (Version Column):**
+
+  ```sql
+  -- Add version column
+  ALTER TABLE products ADD COLUMN version INT DEFAULT 1;
+  
+  -- Read with version
+  SELECT id, name, price, version FROM products WHERE id = 1;
+  -- Returns: id=1, name='Product', price=100, version=5
+  
+  -- Update with version check
+  UPDATE products 
+  SET price = 120, version = version + 1
+  WHERE id = 1 AND version = 5;
+  
+  -- If version changed (another transaction updated), no rows affected
+  -- Application should retry
+  ```
+
+  **Table-Level Locking:**
+
+  ```sql
+  -- Lock entire table
+  BEGIN;
+  LOCK TABLE accounts IN EXCLUSIVE MODE;
+  -- No other transaction can read or write
+  UPDATE accounts SET balance = balance * 1.05;
+  COMMIT;
+  
+  -- Lock modes:
+  -- ACCESS SHARE - Allows reads, blocks writes
+  -- ROW SHARE - Allows reads and row locks
+  -- ROW EXCLUSIVE - Allows reads, blocks table locks
+  -- SHARE - Allows reads, blocks writes
+  -- EXCLUSIVE - Blocks all access
+  ```
+
+</details>
+
+<details>
+  <summary>Deadlocks</summary>
+  <br/>
+
+  **What is a deadlock?**
+
+  Two or more transactions waiting for each other to release locks.
+
+  **Deadlock example:**
+
+  ```sql
+  -- Transaction 1
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;  -- Locks account 1
+  -- Waiting for lock on account 2...
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;  -- Blocked!
+  
+  -- Transaction 2 (running concurrently)
+  BEGIN;
+  UPDATE accounts SET balance = balance - 50 WHERE id = 2;   -- Locks account 2
+  -- Waiting for lock on account 1...
+  UPDATE accounts SET balance = balance + 50 WHERE id = 1;   -- Blocked!
+  
+  -- DEADLOCK! Both transactions waiting for each other
+  -- Database detects deadlock and aborts one transaction
+  ```
+
+  **Deadlock detection:**
+
+  ```sql
+  -- PostgreSQL: Check for deadlocks
+  SELECT * FROM pg_stat_activity WHERE wait_event_type = 'Lock';
+  
+  -- MySQL: Check for deadlocks
+  SHOW ENGINE INNODB STATUS;
+  ```
+
+  **Preventing deadlocks:**
+
+  ```sql
+  -- 1. Always access resources in same order
+  -- Transaction 1
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;  -- Lock 1 first
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;  -- Then lock 2
+  COMMIT;
+  
+  -- Transaction 2
+  BEGIN;
+  UPDATE accounts SET balance = balance - 50 WHERE id = 1;   -- Lock 1 first
+  UPDATE accounts SET balance = balance + 50 WHERE id = 2;   -- Then lock 2
+  COMMIT;
+  -- No deadlock! Both access in same order
+  
+  -- 2. Keep transactions short
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  COMMIT;  -- Release lock quickly
+  
+  -- 3. Use lower isolation levels
+  SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+  
+  -- 4. Use timeouts
+  SET lock_timeout = '5s';  -- PostgreSQL
+  SET innodb_lock_wait_timeout = 5;  -- MySQL
+  
+  -- 5. Use NOWAIT
+  BEGIN;
+  SELECT * FROM accounts WHERE id = 1 FOR UPDATE NOWAIT;
+  -- Fails immediately if locked, instead of waiting
+  COMMIT;
+  ```
+
+  **Handling deadlocks in application:**
+
+  ```java
+  // Retry logic for deadlocks
+  int maxRetries = 3;
+  for (int i = 0; i < maxRetries; i++) {
+      try {
+          // Execute transaction
+          transferMoney(fromAccount, toAccount, amount);
+          break;  // Success
+      } catch (DeadlockException e) {
+          if (i == maxRetries - 1) {
+              throw e;  // Max retries reached
+          }
+          Thread.sleep(100 * (i + 1));  // Exponential backoff
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Transaction Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Keep transactions short
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+  COMMIT;  -- Quick commit
+  
+  -- ❌ DON'T: Include slow operations in transactions
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  -- Call external API (slow!)
+  -- Send email (slow!)
+  COMMIT;  -- Holds locks for too long
+  
+  -- ✅ DO: Use appropriate isolation level
+  -- For most cases, READ COMMITTED is sufficient
+  SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+  
+  -- ❌ DON'T: Use SERIALIZABLE unless necessary
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;  -- Slowest
+  
+  -- ✅ DO: Handle errors and rollback
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  -- Check if balance is sufficient
+  IF (SELECT balance FROM accounts WHERE id = 1) < 0 THEN
+      ROLLBACK;
+  ELSE
+      COMMIT;
+  END IF;
+  
+  -- ✅ DO: Use savepoints for partial rollback
+  BEGIN;
+  INSERT INTO orders (user_id, total) VALUES (1, 99.99);
+  SAVEPOINT order_created;
+  
+  INSERT INTO order_items (order_id, product_id) VALUES (1, 101);
+  -- If this fails, rollback to savepoint
+  ROLLBACK TO SAVEPOINT order_created;
+  
+  COMMIT;
+  
+  -- ✅ DO: Access resources in consistent order
+  -- Always lock accounts in ascending ID order
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+  COMMIT;
+  
+  -- ✅ DO: Use FOR UPDATE for pessimistic locking
+  BEGIN;
+  SELECT * FROM accounts WHERE id = 1 FOR UPDATE;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  COMMIT;
+  
+  -- ✅ DO: Use version column for optimistic locking
+  UPDATE products 
+  SET stock = stock - 1, version = version + 1
+  WHERE id = 1 AND version = 5;
+  
+  -- ✅ DO: Set lock timeouts
+  SET lock_timeout = '5s';  -- PostgreSQL
+  SET innodb_lock_wait_timeout = 5;  -- MySQL
+  
+  -- ✅ DO: Use indexes on frequently locked columns
+  CREATE INDEX idx_accounts_id ON accounts(id);
+  
+  -- ✅ DO: Monitor long-running transactions
+  SELECT * FROM pg_stat_activity 
+  WHERE state = 'active' 
+  AND xact_start < NOW() - INTERVAL '1 minute';
+  
+  -- ❌ DON'T: Use SELECT * in transactions
+  SELECT * FROM accounts WHERE id = 1;  -- Locks all columns
+  
+  -- ✅ DO: Select only needed columns
+  SELECT id, balance FROM accounts WHERE id = 1;
+  
+  -- ✅ DO: Use batch operations when possible
+  -- Instead of multiple transactions
+  BEGIN;
+  INSERT INTO users (username) VALUES ('user1');
+  COMMIT;
+  BEGIN;
+  INSERT INTO users (username) VALUES ('user2');
+  COMMIT;
+  
+  -- Better: Single transaction
+  BEGIN;
+  INSERT INTO users (username) VALUES ('user1'), ('user2');
+  COMMIT;
+  
+  -- ✅ DO: Use connection pooling
+  -- Reuse database connections instead of creating new ones
+  
+  -- ✅ DO: Log transaction details for debugging
+  -- Transaction ID, start time, duration, operations
+  ```
+
+  **Summary:**
+  + **Transactions** ensure ACID properties (Atomicity, Consistency, Isolation, Durability)
+  + Use **BEGIN/COMMIT/ROLLBACK** to control transactions
+  + Choose appropriate **isolation level** (READ COMMITTED is usually sufficient)
+  + Use **FOR UPDATE** for pessimistic locking
+  + Use **version column** for optimistic locking
+  + **Prevent deadlocks** by accessing resources in consistent order
+  + Keep transactions **short** to minimize lock contention
+  + Use **savepoints** for partial rollback
+  + Set **lock timeouts** to prevent indefinite waiting
+  + **Monitor** long-running transactions
+  + Use **batch operations** when possible
+  + Always **handle errors** and rollback when necessary
+
+</details>

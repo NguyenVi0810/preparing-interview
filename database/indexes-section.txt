@@ -1,0 +1,1014 @@
+## Indexes
+
+<details>
+  <summary>What are Indexes?</summary>
+  <br/>
+
+  **Indexes** are database structures that improve query performance by allowing faster data retrieval.
+
+  **How indexes work:**
+  + Similar to a book index - helps find data without scanning entire table
+  + Creates a separate data structure (usually B-tree) with pointers to table rows
+  + Trades storage space and write performance for faster reads
+
+  **Benefits:**
+  + **Faster SELECT queries** - Especially with WHERE, JOIN, ORDER BY
+  + **Faster sorting** - ORDER BY uses index instead of sorting
+  + **Faster joins** - JOIN operations use indexes on join columns
+  + **Enforce uniqueness** - UNIQUE indexes prevent duplicate values
+
+  **Costs:**
+  + **Storage space** - Indexes consume disk space
+  + **Slower writes** - INSERT, UPDATE, DELETE must update indexes
+  + **Maintenance overhead** - Indexes need to be maintained
+
+  **Basic example:**
+
+  ```sql
+  -- Without index: Full table scan (slow)
+  SELECT * FROM users WHERE email = 'john@example.com';
+  -- Scans all rows to find matching email
+  
+  -- Create index
+  CREATE INDEX idx_users_email ON users(email);
+  
+  -- With index: Index lookup (fast)
+  SELECT * FROM users WHERE email = 'john@example.com';
+  -- Uses index to quickly find matching row
+  ```
+
+</details>
+
+<details>
+  <summary>B-Tree Index (Default)</summary>
+  <br/>
+
+  **B-Tree** (Balanced Tree) is the default and most common index type.
+
+  **Characteristics:**
+  + Balanced tree structure
+  + Good for equality and range queries
+  + Supports ORDER BY
+  + Works with most data types
+
+  **Create B-Tree index:**
+
+  ```sql
+  -- Single column index
+  CREATE INDEX idx_users_email ON users(email);
+  
+  -- Composite index (multiple columns)
+  CREATE INDEX idx_users_country_city ON users(country, city);
+  
+  -- Unique index
+  CREATE UNIQUE INDEX idx_users_username ON users(username);
+  
+  -- Index with specific name
+  CREATE INDEX idx_orders_user_created ON orders(user_id, created_at);
+  ```
+
+  **When B-Tree is efficient:**
+
+  ```sql
+  -- Equality queries
+  SELECT * FROM users WHERE email = 'john@example.com';
+  
+  -- Range queries
+  SELECT * FROM orders WHERE created_at BETWEEN '2024-01-01' AND '2024-12-31';
+  SELECT * FROM products WHERE price > 100;
+  
+  -- Sorting
+  SELECT * FROM users ORDER BY username;
+  
+  -- Joins
+  SELECT u.username, o.total
+  FROM users u
+  JOIN orders o ON u.id = o.user_id;
+  
+  -- IN queries
+  SELECT * FROM users WHERE country IN ('USA', 'Canada', 'UK');
+  
+  -- LIKE with prefix
+  SELECT * FROM users WHERE username LIKE 'john%';
+  ```
+
+  **When B-Tree is NOT efficient:**
+
+  ```sql
+  -- LIKE with leading wildcard (can't use index)
+  SELECT * FROM users WHERE email LIKE '%@gmail.com';
+  
+  -- Functions on indexed column (can't use index)
+  SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
+  
+  -- OR conditions on different columns (may not use index)
+  SELECT * FROM users WHERE email = 'john@example.com' OR username = 'john';
+  ```
+
+</details>
+
+<details>
+  <summary>Composite Indexes</summary>
+  <br/>
+
+  **Composite indexes** (multi-column indexes) index multiple columns together.
+
+  **Create composite index:**
+
+  ```sql
+  -- Index on country and city
+  CREATE INDEX idx_users_country_city ON users(country, city);
+  
+  -- Index on user_id and created_at
+  CREATE INDEX idx_orders_user_created ON orders(user_id, created_at);
+  
+  -- Index on category_id, brand, and price
+  CREATE INDEX idx_products_cat_brand_price ON products(category_id, brand, price);
+  ```
+
+  **Column order matters (left-to-right rule):**
+
+  ```sql
+  -- Index: (country, city, age)
+  CREATE INDEX idx_users_country_city_age ON users(country, city, age);
+  
+  -- ✅ Uses index (matches left-most columns)
+  SELECT * FROM users WHERE country = 'USA';
+  SELECT * FROM users WHERE country = 'USA' AND city = 'NYC';
+  SELECT * FROM users WHERE country = 'USA' AND city = 'NYC' AND age > 18;
+  
+  -- ✅ Partially uses index (country only)
+  SELECT * FROM users WHERE country = 'USA' AND age > 18;
+  
+  -- ❌ Cannot use index (doesn't start with country)
+  SELECT * FROM users WHERE city = 'NYC';
+  SELECT * FROM users WHERE age > 18;
+  SELECT * FROM users WHERE city = 'NYC' AND age > 18;
+  ```
+
+  **Best practices for column order:**
+
+  ```sql
+  -- 1. Equality columns first, range columns last
+  CREATE INDEX idx_orders_user_status_created ON orders(user_id, status, created_at);
+  
+  -- Good: Uses full index
+  SELECT * FROM orders 
+  WHERE user_id = 1 AND status = 'completed' AND created_at > '2024-01-01';
+  
+  -- 2. High cardinality columns first
+  -- email (unique) before country (low cardinality)
+  CREATE INDEX idx_users_email_country ON users(email, country);
+  
+  -- 3. Most frequently queried columns first
+  CREATE INDEX idx_products_category_brand ON products(category_id, brand);
+  ```
+
+  **When to use composite vs separate indexes:**
+
+  ```sql
+  -- Composite index (better for combined queries)
+  CREATE INDEX idx_users_country_city ON users(country, city);
+  SELECT * FROM users WHERE country = 'USA' AND city = 'NYC';
+  
+  -- Separate indexes (better for individual queries)
+  CREATE INDEX idx_users_country ON users(country);
+  CREATE INDEX idx_users_city ON users(city);
+  SELECT * FROM users WHERE country = 'USA';  -- Uses first index
+  SELECT * FROM users WHERE city = 'NYC';     -- Uses second index
+  ```
+
+</details>
+
+<details>
+  <summary>Unique Indexes</summary>
+  <br/>
+
+  **Unique indexes** enforce uniqueness and improve query performance.
+
+  **Create unique index:**
+
+  ```sql
+  -- Single column unique index
+  CREATE UNIQUE INDEX idx_users_email ON users(email);
+  
+  -- Composite unique index
+  CREATE UNIQUE INDEX idx_users_username_email ON users(username, email);
+  
+  -- Unique constraint (creates unique index automatically)
+  ALTER TABLE users ADD CONSTRAINT uk_users_email UNIQUE (email);
+  ```
+
+  **Unique index vs unique constraint:**
+
+  ```sql
+  -- Unique index (lower level, database-specific)
+  CREATE UNIQUE INDEX idx_users_email ON users(email);
+  
+  -- Unique constraint (higher level, SQL standard)
+  ALTER TABLE users ADD CONSTRAINT uk_users_email UNIQUE (email);
+  -- Creates unique index automatically
+  ```
+
+  **NULL handling in unique indexes:**
+
+  ```sql
+  -- Most databases allow multiple NULLs in unique index
+  CREATE UNIQUE INDEX idx_users_phone ON users(phone);
+  
+  INSERT INTO users (username, phone) VALUES ('john', NULL);   -- OK
+  INSERT INTO users (username, phone) VALUES ('jane', NULL);   -- OK (multiple NULLs allowed)
+  INSERT INTO users (username, phone) VALUES ('bob', '123');   -- OK
+  INSERT INTO users (username, phone) VALUES ('alice', '123'); -- ERROR (duplicate)
+  ```
+
+  **Partial unique index (PostgreSQL):**
+
+  ```sql
+  -- Unique only for non-NULL values
+  CREATE UNIQUE INDEX idx_users_phone ON users(phone) WHERE phone IS NOT NULL;
+  ```
+
+</details>
+
+<details>
+  <summary>Partial Indexes</summary>
+  <br/>
+
+  **Partial indexes** (filtered indexes) index only rows that meet a condition.
+
+  **Create partial index (PostgreSQL):**
+
+  ```sql
+  -- Index only active users
+  CREATE INDEX idx_users_active ON users(username) WHERE status = 'active';
+  
+  -- Index only recent orders
+  CREATE INDEX idx_orders_recent ON orders(user_id, created_at) 
+  WHERE created_at > '2024-01-01';
+  
+  -- Index only non-NULL emails
+  CREATE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
+  
+  -- Index only high-value orders
+  CREATE INDEX idx_orders_high_value ON orders(user_id, total) WHERE total > 1000;
+  ```
+
+  **Benefits:**
+  + **Smaller index size** - Only indexes relevant rows
+  + **Faster writes** - Fewer rows to update
+  + **Better performance** - More focused index
+
+  **Usage:**
+
+  ```sql
+  -- Query must match index condition to use partial index
+  
+  -- ✅ Uses partial index
+  SELECT * FROM users WHERE status = 'active' AND username = 'john';
+  
+  -- ❌ Cannot use partial index (different condition)
+  SELECT * FROM users WHERE status = 'inactive' AND username = 'john';
+  ```
+
+  **SQL Server filtered index:**
+
+  ```sql
+  -- SQL Server syntax
+  CREATE INDEX idx_users_active ON users(username) WHERE status = 'active';
+  ```
+
+</details>
+
+<details>
+  <summary>Covering Indexes</summary>
+  <br/>
+
+  **Covering indexes** include all columns needed by a query (index-only scan).
+
+  **Create covering index:**
+
+  ```sql
+  -- Index includes all columns in query
+  CREATE INDEX idx_users_email_username_age ON users(email, username, age);
+  
+  -- Query uses only indexed columns (index-only scan)
+  SELECT username, age FROM users WHERE email = 'john@example.com';
+  -- No need to access table - all data in index
+  ```
+
+  **INCLUDE clause (PostgreSQL, SQL Server):**
+
+  ```sql
+  -- PostgreSQL
+  CREATE INDEX idx_users_email_inc ON users(email) INCLUDE (username, age);
+  
+  -- SQL Server
+  CREATE INDEX idx_users_email_inc ON users(email) INCLUDE (username, age);
+  
+  -- Query uses index-only scan
+  SELECT username, age FROM users WHERE email = 'john@example.com';
+  ```
+
+  **Benefits:**
+  + **Faster queries** - No table access needed
+  + **Reduced I/O** - Reads only index, not table
+
+  **Trade-offs:**
+  + **Larger index** - Stores additional columns
+  + **Slower writes** - More data to update
+
+  **Example:**
+
+  ```sql
+  -- Without covering index
+  CREATE INDEX idx_orders_user ON orders(user_id);
+  SELECT user_id, total, status FROM orders WHERE user_id = 1;
+  -- 1. Index lookup (user_id)
+  -- 2. Table access (total, status)
+  
+  -- With covering index
+  CREATE INDEX idx_orders_user_inc ON orders(user_id) INCLUDE (total, status);
+  SELECT user_id, total, status FROM orders WHERE user_id = 1;
+  -- 1. Index-only scan (all columns in index)
+  ```
+
+</details>
+
+<details>
+  <summary>Full-Text Indexes</summary>
+  <br/>
+
+  **Full-text indexes** enable efficient text search.
+
+  **Create full-text index (MySQL):**
+
+  ```sql
+  -- Create full-text index
+  CREATE FULLTEXT INDEX idx_products_name_desc ON products(name, description);
+  
+  -- Full-text search
+  SELECT * FROM products 
+  WHERE MATCH(name, description) AGAINST ('laptop computer');
+  
+  -- Boolean mode
+  SELECT * FROM products 
+  WHERE MATCH(name, description) AGAINST ('+laptop -refurbished' IN BOOLEAN MODE);
+  ```
+
+  **Create full-text index (PostgreSQL):**
+
+  ```sql
+  -- Add tsvector column
+  ALTER TABLE products ADD COLUMN search_vector tsvector;
+  
+  -- Update search vector
+  UPDATE products 
+  SET search_vector = to_tsvector('english', name || ' ' || description);
+  
+  -- Create GIN index
+  CREATE INDEX idx_products_search ON products USING GIN(search_vector);
+  
+  -- Full-text search
+  SELECT * FROM products 
+  WHERE search_vector @@ to_tsquery('english', 'laptop & computer');
+  ```
+
+  **Use cases:**
+  + Search product names and descriptions
+  + Search article content
+  + Search user comments
+  + Any text-heavy search
+
+</details>
+
+<details>
+  <summary>Hash Indexes</summary>
+  <br/>
+
+  **Hash indexes** use hash table for equality comparisons (PostgreSQL).
+
+  **Create hash index:**
+
+  ```sql
+  -- PostgreSQL only
+  CREATE INDEX idx_users_email_hash ON users USING HASH(email);
+  ```
+
+  **Characteristics:**
+  + **Fast equality lookups** - O(1) average case
+  + **No range queries** - Only supports = operator
+  + **No sorting** - Cannot be used for ORDER BY
+  + **Smaller than B-tree** - More compact
+
+  **When to use:**
+
+  ```sql
+  -- ✅ Good for equality queries
+  SELECT * FROM users WHERE email = 'john@example.com';
+  
+  -- ❌ Cannot use for range queries
+  SELECT * FROM users WHERE email > 'john@example.com';
+  
+  -- ❌ Cannot use for LIKE
+  SELECT * FROM users WHERE email LIKE 'john%';
+  
+  -- ❌ Cannot use for ORDER BY
+  SELECT * FROM users ORDER BY email;
+  ```
+
+  **Note:** B-tree indexes are usually preferred over hash indexes in PostgreSQL.
+
+</details>
+
+<details>
+  <summary>When to Create Indexes</summary>
+  <br/>
+
+  **Create indexes for:**
+
+  ```sql
+  -- 1. Primary keys (automatic)
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY  -- Automatically creates index
+  );
+  
+  -- 2. Foreign keys (manual)
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  
+  -- 3. Columns in WHERE clause
+  CREATE INDEX idx_users_email ON users(email);
+  SELECT * FROM users WHERE email = 'john@example.com';
+  
+  -- 4. Columns in JOIN conditions
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  SELECT * FROM users u JOIN orders o ON u.id = o.user_id;
+  
+  -- 5. Columns in ORDER BY
+  CREATE INDEX idx_users_created ON users(created_at);
+  SELECT * FROM users ORDER BY created_at DESC;
+  
+  -- 6. Columns in GROUP BY
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  SELECT user_id, COUNT(*) FROM orders GROUP BY user_id;
+  
+  -- 7. Columns with high cardinality (many unique values)
+  CREATE INDEX idx_users_email ON users(email);  -- Good (unique)
+  -- Don't index: gender (low cardinality - only 2-3 values)
+  
+  -- 8. Frequently queried columns
+  CREATE INDEX idx_products_category ON products(category_id);
+  ```
+
+</details>
+
+<details>
+  <summary>When NOT to Create Indexes</summary>
+  <br/>
+
+  **Avoid indexes for:**
+
+  ```sql
+  -- 1. Small tables (< 1000 rows)
+  -- Full table scan is faster than index lookup
+  
+  -- 2. Columns with low cardinality
+  -- Don't index: gender, boolean flags, status with few values
+  CREATE INDEX idx_users_gender ON users(gender);  -- BAD (only 2-3 values)
+  
+  -- 3. Frequently updated columns
+  -- Index maintenance overhead > query benefit
+  CREATE INDEX idx_users_last_login ON users(last_login);  -- BAD (updated often)
+  
+  -- 4. Columns never used in queries
+  -- Wastes space and slows writes
+  
+  -- 5. Tables with heavy write workload
+  -- Indexes slow down INSERT, UPDATE, DELETE
+  
+  -- 6. Columns used with functions
+  -- Index won't be used anyway
+  SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
+  -- Index on email won't help (use functional index instead)
+  
+  -- 7. Redundant indexes
+  -- Index on (country, city) makes index on (country) redundant
+  CREATE INDEX idx_users_country_city ON users(country, city);
+  CREATE INDEX idx_users_country ON users(country);  -- REDUNDANT
+  ```
+
+</details>
+
+<details>
+  <summary>Index Maintenance</summary>
+  <br/>
+
+  **View indexes:**
+
+  ```sql
+  -- PostgreSQL
+  SELECT 
+      tablename,
+      indexname,
+      indexdef
+  FROM pg_indexes
+  WHERE tablename = 'users';
+  
+  -- MySQL
+  SHOW INDEXES FROM users;
+  
+  -- SQL Server
+  SELECT 
+      i.name AS index_name,
+      c.name AS column_name
+  FROM sys.indexes i
+  JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+  JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+  WHERE i.object_id = OBJECT_ID('users');
+  ```
+
+  **Drop index:**
+
+  ```sql
+  -- PostgreSQL, MySQL
+  DROP INDEX idx_users_email;
+  
+  -- SQL Server
+  DROP INDEX idx_users_email ON users;
+  ```
+
+  **Rebuild index (defragmentation):**
+
+  ```sql
+  -- PostgreSQL
+  REINDEX INDEX idx_users_email;
+  REINDEX TABLE users;
+  
+  -- MySQL
+  ALTER TABLE users ENGINE=InnoDB;  -- Rebuilds all indexes
+  
+  -- SQL Server
+  ALTER INDEX idx_users_email ON users REBUILD;
+  ```
+
+  **Analyze index usage:**
+
+  ```sql
+  -- PostgreSQL
+  SELECT 
+      schemaname,
+      tablename,
+      indexname,
+      idx_scan,
+      idx_tup_read,
+      idx_tup_fetch
+  FROM pg_stat_user_indexes
+  WHERE tablename = 'users';
+  
+  -- Find unused indexes
+  SELECT 
+      schemaname,
+      tablename,
+      indexname,
+      idx_scan
+  FROM pg_stat_user_indexes
+  WHERE idx_scan = 0
+  AND indexname NOT LIKE '%_pkey';  -- Exclude primary keys
+  ```
+
+</details>
+
+<details>
+  <summary>Index Performance Impact</summary>
+  <br/>
+
+  **Why indexes make SELECT fast:**
+
+  **1. Reduces rows scanned:**
+
+  ```sql
+  -- Table with 1,000,000 users
+  
+  -- WITHOUT INDEX: Full table scan
+  SELECT * FROM users WHERE email = 'john@example.com';
+  -- Scans ALL 1,000,000 rows to find 1 matching row
+  -- Time: ~500ms (reads entire table from disk)
+  
+  -- WITH INDEX: Index lookup
+  CREATE INDEX idx_users_email ON users(email);
+  SELECT * FROM users WHERE email = 'john@example.com';
+  -- Scans only ~3-4 index pages (B-tree depth) to find matching row
+  -- Time: ~5ms (reads only index pages + 1 table row)
+  ```
+
+  **2. B-Tree structure enables fast lookup:**
+
+  ```
+  Without Index (Sequential Scan):
+  Row 1 → Row 2 → Row 3 → ... → Row 1,000,000
+  Must check EVERY row until match found
+  Time Complexity: O(n) - linear
+  
+  With B-Tree Index (Binary Search):
+  Root Node
+    ├─ Branch Node (emails A-M)
+    │   ├─ Leaf Node (emails A-D)
+    │   └─ Leaf Node (emails E-M)
+    └─ Branch Node (emails N-Z)
+        ├─ Leaf Node (emails N-S)
+        └─ Leaf Node (emails T-Z) ← john@example.com found here
+  
+  Only traverses 3-4 levels (tree depth)
+  Time Complexity: O(log n) - logarithmic
+  
+  Example: 1,000,000 rows
+  - Without index: 1,000,000 comparisons
+  - With index: ~20 comparisons (log₂ 1,000,000 ≈ 20)
+  ```
+
+  **3. Index stores sorted data:**
+
+  ```sql
+  -- Table data (unsorted):
+  id | email
+  1  | zoe@example.com
+  2  | alice@example.com
+  3  | john@example.com
+  4  | bob@example.com
+  
+  -- Index data (sorted):
+  email               | row_pointer
+  alice@example.com   | → Row 2
+  bob@example.com     | → Row 4
+  john@example.com    | → Row 3
+  zoe@example.com     | → Row 1
+  
+  -- Binary search on sorted data is FAST
+  -- Jump to middle → compare → jump left/right → repeat
+  ```
+
+  **4. Index-only scans (covering indexes):**
+
+  ```sql
+  -- Without covering index: Index + Table access
+  CREATE INDEX idx_users_email ON users(email);
+  SELECT email, username FROM users WHERE email = 'john@example.com';
+  -- Step 1: Index lookup (find row pointer)
+  -- Step 2: Table access (read username from table row)
+  -- 2 disk reads
+  
+  -- With covering index: Index-only scan
+  CREATE INDEX idx_users_email_username ON users(email, username);
+  SELECT email, username FROM users WHERE email = 'john@example.com';
+  -- Step 1: Index lookup (find email AND username in index)
+  -- No table access needed!
+  -- 1 disk read (50% faster)
+  ```
+
+  **5. Avoids sorting:**
+
+  ```sql
+  -- Without index: Full scan + sort
+  SELECT * FROM users ORDER BY email LIMIT 10;
+  -- Step 1: Read all 1,000,000 rows
+  -- Step 2: Sort all rows by email (expensive!)
+  -- Step 3: Return first 10
+  -- Time: ~1000ms
+  
+  -- With index: Index scan (already sorted)
+  CREATE INDEX idx_users_email ON users(email);
+  SELECT * FROM users ORDER BY email LIMIT 10;
+  -- Step 1: Read first 10 rows from index (already sorted)
+  -- No sorting needed!
+  -- Time: ~5ms
+  ```
+
+  **Why indexes make writes SLOWER:**
+
+  **1. Must update multiple data structures:**
+
+  ```sql
+  -- Table with 5 indexes
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,           -- Index 1: pk_users_id
+      username VARCHAR(50),
+      email VARCHAR(100),
+      country VARCHAR(50),
+      created_at TIMESTAMP
+  );
+  
+  CREATE INDEX idx_users_username ON users(username);    -- Index 2
+  CREATE INDEX idx_users_email ON users(email);          -- Index 3
+  CREATE INDEX idx_users_country ON users(country);      -- Index 4
+  CREATE INDEX idx_users_created ON users(created_at);   -- Index 5
+  
+  -- INSERT without indexes: 1 write operation
+  INSERT INTO users (username, email, country, created_at)
+  VALUES ('john', 'john@example.com', 'USA', NOW());
+  -- Writes to: Table only
+  -- Time: ~1ms
+  
+  -- INSERT with 5 indexes: 6 write operations
+  INSERT INTO users (username, email, country, created_at)
+  VALUES ('john', 'john@example.com', 'USA', NOW());
+  -- Writes to:
+  -- 1. Table (insert row)
+  -- 2. Primary key index (insert id)
+  -- 3. Username index (insert username)
+  -- 4. Email index (insert email)
+  -- 5. Country index (insert country)
+  -- 6. Created_at index (insert timestamp)
+  -- Time: ~6ms (6x slower)
+  ```
+
+  **2. B-Tree rebalancing overhead:**
+
+  ```
+  INSERT into indexed column:
+  
+  Step 1: Find correct position in B-tree
+  Step 2: Insert value into leaf node
+  Step 3: If leaf node is full → SPLIT node
+  Step 4: Update parent node pointers
+  Step 5: If parent is full → SPLIT parent (recursive)
+  Step 6: May need to create new root node
+  
+  Example: Insert 'john@example.com'
+  
+  Before:
+  Leaf Node: [alice@..., bob@..., charlie@...]
+  
+  After:
+  Leaf Node 1: [alice@..., bob@...]
+  Leaf Node 2: [charlie@..., john@...]  ← Split occurred
+  Parent Node: Updated with new pointers
+  
+  This rebalancing takes time!
+  ```
+
+  **3. UPDATE affects multiple indexes:**
+
+  ```sql
+  -- UPDATE without indexes: 1 write
+  UPDATE users SET email = 'newemail@example.com' WHERE id = 1;
+  -- Writes to: Table only
+  -- Time: ~1ms
+  
+  -- UPDATE with indexes: Multiple writes
+  UPDATE users SET email = 'newemail@example.com' WHERE id = 1;
+  -- Writes to:
+  -- 1. Table (update row)
+  -- 2. Email index (delete old email, insert new email)
+  -- Each index update requires:
+  --   - Find old value in B-tree
+  --   - Delete old value
+  --   - Find position for new value
+  --   - Insert new value
+  --   - Possibly rebalance tree
+  -- Time: ~3-5ms
+  ```
+
+  **4. DELETE must remove from all indexes:**
+
+  ```sql
+  -- DELETE without indexes: 1 write
+  DELETE FROM users WHERE id = 1;
+  -- Writes to: Table only
+  -- Time: ~1ms
+  
+  -- DELETE with 5 indexes: 6 writes
+  DELETE FROM users WHERE id = 1;
+  -- Writes to:
+  -- 1. Table (mark row as deleted)
+  -- 2. Primary key index (remove id)
+  -- 3. Username index (remove username)
+  -- 4. Email index (remove email)
+  -- 5. Country index (remove country)
+  -- 6. Created_at index (remove timestamp)
+  -- Each removal may trigger B-tree rebalancing
+  -- Time: ~5-7ms
+  ```
+
+  **5. Index fragmentation over time:**
+
+  ```
+  After many INSERT/UPDATE/DELETE operations:
+  
+  Fragmented Index (inefficient):
+  Page 1: [alice@...] [empty] [empty] [empty]
+  Page 2: [bob@...] [empty] [charlie@...] [empty]
+  Page 3: [empty] [david@...] [empty] [empty]
+  
+  - Wasted space (empty slots)
+  - More pages to read
+  - Slower queries
+  
+  Solution: REINDEX (rebuilds index)
+  
+  Rebuilt Index (efficient):
+  Page 1: [alice@...] [bob@...] [charlie@...] [david@...]
+  Page 2: [eve@...] [frank@...] [grace@...] [henry@...]
+  
+  - No wasted space
+  - Fewer pages to read
+  - Faster queries
+  ```
+
+  **Real-world performance comparison:**
+
+  ```sql
+  -- Test table: 1,000,000 users
+  
+  -- SELECT without index
+  SELECT * FROM users WHERE email = 'john@example.com';
+  -- Execution time: 450ms
+  -- Rows scanned: 1,000,000
+  -- Pages read: 10,000
+  
+  -- SELECT with index
+  CREATE INDEX idx_users_email ON users(email);
+  SELECT * FROM users WHERE email = 'john@example.com';
+  -- Execution time: 3ms (150x faster!)
+  -- Rows scanned: 1
+  -- Pages read: 4 (index pages) + 1 (table page) = 5
+  
+  -- INSERT without indexes (1000 rows)
+  INSERT INTO users (username, email) VALUES (...);  -- x1000
+  -- Execution time: 100ms
+  -- Average per row: 0.1ms
+  
+  -- INSERT with 5 indexes (1000 rows)
+  INSERT INTO users (username, email) VALUES (...);  -- x1000
+  -- Execution time: 600ms (6x slower)
+  -- Average per row: 0.6ms
+  ```
+
+  **Index size impact:**
+
+  ```sql
+  -- PostgreSQL
+  SELECT 
+      tablename,
+      indexname,
+      pg_size_pretty(pg_relation_size(indexname::regclass)) AS index_size
+  FROM pg_indexes
+  WHERE tablename = 'users';
+  
+  -- Example output:
+  -- tablename | indexname              | index_size
+  -- users     | pk_users_id            | 21 MB
+  -- users     | idx_users_email        | 35 MB
+  -- users     | idx_users_username     | 32 MB
+  -- users     | idx_users_country_city | 28 MB
+  -- Total index size: 116 MB
+  -- Table size: 150 MB
+  -- Indexes consume 77% of table size!
+  
+  -- MySQL
+  SELECT 
+      table_name,
+      index_name,
+      ROUND(stat_value * @@innodb_page_size / 1024 / 1024, 2) AS size_mb
+  FROM mysql.innodb_index_stats
+  WHERE table_name = 'users' AND stat_name = 'size';
+  ```
+
+  **Memory impact:**
+
+  ```
+  Database memory usage:
+  
+  Without indexes:
+  - Buffer pool: Caches table pages
+  - Memory needed: ~150 MB (table size)
+  
+  With indexes:
+  - Buffer pool: Caches table pages + index pages
+  - Memory needed: ~266 MB (table + indexes)
+  - 77% more memory required!
+  
+  If indexes don't fit in memory:
+  - Must read from disk (slow)
+  - Defeats purpose of index
+  ```
+
+  **Trade-offs summary:**
+
+  | Aspect | Without Index | With Index | Impact |
+  |--------|--------------|------------|--------|
+  | SELECT speed | 450ms (full scan) | 3ms (index lookup) | **150x faster** |
+  | INSERT speed | 0.1ms | 0.6ms | **6x slower** |
+  | UPDATE speed | 1ms | 3-5ms | **3-5x slower** |
+  | DELETE speed | 1ms | 5-7ms | **5-7x slower** |
+  | Storage | 150 MB | 266 MB | **+77% space** |
+  | Memory | 150 MB | 266 MB | **+77% RAM** |
+  | Maintenance | None | Periodic rebuild | **Admin overhead** |
+
+  **When to use indexes:**
+
+  ```sql
+  -- ✅ Read-heavy workload (90% SELECT, 10% writes)
+  -- Benefit: 150x faster reads
+  -- Cost: 6x slower writes (acceptable)
+  
+  -- ❌ Write-heavy workload (10% SELECT, 90% writes)
+  -- Benefit: 150x faster reads (rarely used)
+  -- Cost: 6x slower writes (significant impact)
+  
+  -- ✅ Large tables (1M+ rows)
+  -- Benefit: Huge performance gain
+  -- Cost: Worth the overhead
+  
+  -- ❌ Small tables (< 1000 rows)
+  -- Benefit: Minimal (full scan is fast anyway)
+  -- Cost: Not worth the overhead
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Index foreign keys
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  
+  -- ✅ DO: Index columns in WHERE clause
+  CREATE INDEX idx_users_email ON users(email);
+  SELECT * FROM users WHERE email = 'john@example.com';
+  
+  -- ✅ DO: Index columns in JOIN conditions
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  SELECT * FROM users u JOIN orders o ON u.id = o.user_id;
+  
+  -- ✅ DO: Use composite indexes for combined queries
+  CREATE INDEX idx_users_country_city ON users(country, city);
+  SELECT * FROM users WHERE country = 'USA' AND city = 'NYC';
+  
+  -- ✅ DO: Put equality columns before range columns
+  CREATE INDEX idx_orders_user_status_created ON orders(user_id, status, created_at);
+  
+  -- ✅ DO: Use covering indexes for frequently accessed columns
+  CREATE INDEX idx_users_email_inc ON users(email) INCLUDE (username, age);
+  
+  -- ✅ DO: Use partial indexes for filtered queries
+  CREATE INDEX idx_users_active ON users(username) WHERE status = 'active';
+  
+  -- ✅ DO: Use EXPLAIN to verify index usage
+  EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
+  
+  -- ✅ DO: Monitor index usage and remove unused indexes
+  SELECT indexname, idx_scan FROM pg_stat_user_indexes WHERE idx_scan = 0;
+  
+  -- ✅ DO: Rebuild indexes periodically
+  REINDEX TABLE users;
+  
+  -- ❌ DON'T: Index small tables
+  -- Full table scan is faster for tables < 1000 rows
+  
+  -- ❌ DON'T: Index low cardinality columns
+  CREATE INDEX idx_users_gender ON users(gender);  -- BAD (only 2-3 values)
+  
+  -- ❌ DON'T: Create redundant indexes
+  CREATE INDEX idx_users_country_city ON users(country, city);
+  CREATE INDEX idx_users_country ON users(country);  -- REDUNDANT
+  
+  -- ❌ DON'T: Index columns used with functions
+  SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
+  -- Index on email won't help
+  
+  -- ✅ DO: Use functional index instead
+  CREATE INDEX idx_users_email_lower ON users(LOWER(email));
+  
+  -- ❌ DON'T: Over-index (too many indexes slow writes)
+  -- Aim for 3-5 indexes per table
+  
+  -- ✅ DO: Name indexes descriptively
+  CREATE INDEX idx_users_email ON users(email);  -- Good
+  CREATE INDEX idx1 ON users(email);  -- Bad
+  
+  -- ✅ DO: Consider index size vs benefit
+  -- Large indexes consume memory and disk space
+  
+  -- ✅ DO: Test query performance with and without index
+  EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'john@example.com';
+  ```
+
+  **Summary:**
+  + **Indexes** improve read performance but slow writes
+  + **B-Tree** is the default and most common index type
+  + **Composite indexes** follow left-to-right rule
+  + **Unique indexes** enforce uniqueness
+  + **Partial indexes** index only filtered rows
+  + **Covering indexes** include all query columns (index-only scan)
+  + Index **foreign keys** for faster joins
+  + Index columns in **WHERE, JOIN, ORDER BY, GROUP BY**
+  + Don't index **small tables** or **low cardinality** columns
+  + Use **EXPLAIN** to verify index usage
+  + Monitor and **remove unused indexes**
+  + **Rebuild indexes** periodically
+  + Balance **read performance** vs **write performance**
+  + Aim for **3-5 indexes per table**
+
+</details>

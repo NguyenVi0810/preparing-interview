@@ -1,0 +1,643 @@
+## Joins
+
+<details>
+  <summary>What are Joins?</summary>
+  <br/>
+
+  **Joins** combine rows from two or more tables based on a related column.
+
+  **Sample tables:**
+
+  ```sql
+  -- users table
+  CREATE TABLE users (
+      id INT PRIMARY KEY,
+      username VARCHAR(50),
+      email VARCHAR(100)
+  );
+  
+  INSERT INTO users VALUES
+      (1, 'john', 'john@example.com'),
+      (2, 'jane', 'jane@example.com'),
+      (3, 'bob', 'bob@example.com'),
+      (4, 'alice', 'alice@example.com');
+  
+  -- orders table
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      user_id INT,
+      total DECIMAL(10, 2),
+      status VARCHAR(20)
+  );
+  
+  INSERT INTO orders VALUES
+      (101, 1, 99.99, 'completed'),
+      (102, 1, 149.99, 'pending'),
+      (103, 2, 79.99, 'completed'),
+      (104, 5, 199.99, 'completed');  -- user_id 5 doesn't exist in users
+  ```
+
+  **Join types:**
+  + **INNER JOIN** - Returns matching rows from both tables
+  + **LEFT JOIN** - Returns all rows from left table + matching rows from right
+  + **RIGHT JOIN** - Returns all rows from right table + matching rows from left
+  + **FULL OUTER JOIN** - Returns all rows from both tables
+  + **CROSS JOIN** - Returns Cartesian product (all combinations)
+
+</details>
+
+<details>
+  <summary>INNER JOIN</summary>
+  <br/>
+
+  **INNER JOIN** returns only rows that have matching values in both tables.
+
+  **Basic INNER JOIN:**
+
+  ```sql
+  -- Get users with their orders
+  SELECT 
+      users.id,
+      users.username,
+      orders.id AS order_id,
+      orders.total
+  FROM users
+  INNER JOIN orders ON users.id = orders.user_id;
+  
+  -- Result:
+  -- id | username | order_id | total
+  -- 1  | john     | 101      | 99.99
+  -- 1  | john     | 102      | 149.99
+  -- 2  | jane     | 103      | 79.99
+  -- (bob and alice excluded - no orders)
+  -- (order 104 excluded - user_id 5 doesn't exist)
+  ```
+
+  **Using table aliases:**
+
+  ```sql
+  SELECT 
+      u.id,
+      u.username,
+      o.id AS order_id,
+      o.total,
+      o.status
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  ```
+
+  **Multiple INNER JOINs:**
+
+  ```sql
+  -- Join three tables
+  SELECT 
+      u.username,
+      o.id AS order_id,
+      oi.product_name,
+      oi.quantity,
+      oi.price
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id
+  INNER JOIN order_items oi ON o.id = oi.order_id;
+  ```
+
+  **INNER JOIN with WHERE:**
+
+  ```sql
+  -- Filter joined results
+  SELECT 
+      u.username,
+      o.id AS order_id,
+      o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id
+  WHERE o.status = 'completed' AND o.total > 100;
+  ```
+
+  **INNER JOIN with aggregation:**
+
+  ```sql
+  -- Count orders per user
+  SELECT 
+      u.username,
+      COUNT(o.id) AS order_count,
+      SUM(o.total) AS total_spent
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id
+  GROUP BY u.id, u.username;
+  ```
+
+  **Alternative syntax (implicit join):**
+
+  ```sql
+  -- Old style (not recommended)
+  SELECT u.username, o.total
+  FROM users u, orders o
+  WHERE u.id = o.user_id;
+  ```
+
+</details>
+
+<details>
+  <summary>LEFT JOIN (LEFT OUTER JOIN)</summary>
+  <br/>
+
+  **LEFT JOIN** returns all rows from the left table and matching rows from the right table. If no match, NULL values for right table columns.
+
+  **Basic LEFT JOIN:**
+
+  ```sql
+  -- Get all users with their orders (including users without orders)
+  SELECT 
+      u.id,
+      u.username,
+      o.id AS order_id,
+      o.total
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id;
+  
+  -- Result:
+  -- id | username | order_id | total
+  -- 1  | john     | 101      | 99.99
+  -- 1  | john     | 102      | 149.99
+  -- 2  | jane     | 103      | 79.99
+  -- 3  | bob      | NULL     | NULL     (no orders)
+  -- 4  | alice    | NULL     | NULL     (no orders)
+  ```
+
+  **Find users without orders:**
+
+  ```sql
+  SELECT 
+      u.id,
+      u.username
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  WHERE o.id IS NULL;
+  
+  -- Result:
+  -- id | username
+  -- 3  | bob
+  -- 4  | alice
+  ```
+
+  **LEFT JOIN with aggregation:**
+
+  ```sql
+  -- Count orders per user (including users with 0 orders)
+  SELECT 
+      u.username,
+      COUNT(o.id) AS order_count,
+      COALESCE(SUM(o.total), 0) AS total_spent
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  GROUP BY u.id, u.username;
+  
+  -- Result:
+  -- username | order_count | total_spent
+  -- john     | 2           | 249.98
+  -- jane     | 1           | 79.99
+  -- bob      | 0           | 0.00
+  -- alice    | 0           | 0.00
+  ```
+
+  **Multiple LEFT JOINs:**
+
+  ```sql
+  -- Get users with orders and order items (all users included)
+  SELECT 
+      u.username,
+      o.id AS order_id,
+      oi.product_name,
+      oi.quantity
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  LEFT JOIN order_items oi ON o.id = oi.order_id;
+  ```
+
+  **LEFT JOIN with WHERE (careful!):**
+
+  ```sql
+  -- This filters AFTER join (excludes users without orders)
+  SELECT u.username, o.total
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  WHERE o.status = 'completed';  -- Filters out NULL orders
+  
+  -- Better: Use AND in ON clause to keep all users
+  SELECT u.username, o.total
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id AND o.status = 'completed';
+  ```
+
+</details>
+
+<details>
+  <summary>RIGHT JOIN (RIGHT OUTER JOIN)</summary>
+  <br/>
+
+  **RIGHT JOIN** returns all rows from the right table and matching rows from the left table. If no match, NULL values for left table columns.
+
+  **Basic RIGHT JOIN:**
+
+  ```sql
+  -- Get all orders with their users (including orders without users)
+  SELECT 
+      u.id,
+      u.username,
+      o.id AS order_id,
+      o.total
+  FROM users u
+  RIGHT JOIN orders o ON u.id = o.user_id;
+  
+  -- Result:
+  -- id   | username | order_id | total
+  -- 1    | john     | 101      | 99.99
+  -- 1    | john     | 102      | 149.99
+  -- 2    | jane     | 103      | 79.99
+  -- NULL | NULL     | 104      | 199.99   (user_id 5 doesn't exist)
+  ```
+
+  **Find orders without users:**
+
+  ```sql
+  SELECT 
+      o.id AS order_id,
+      o.user_id,
+      o.total
+  FROM users u
+  RIGHT JOIN orders o ON u.id = o.user_id
+  WHERE u.id IS NULL;
+  
+  -- Result:
+  -- order_id | user_id | total
+  -- 104      | 5       | 199.99
+  ```
+
+  **RIGHT JOIN is equivalent to LEFT JOIN with reversed tables:**
+
+  ```sql
+  -- These are equivalent:
+  
+  -- RIGHT JOIN
+  SELECT u.username, o.total
+  FROM users u
+  RIGHT JOIN orders o ON u.id = o.user_id;
+  
+  -- LEFT JOIN (reversed)
+  SELECT u.username, o.total
+  FROM orders o
+  LEFT JOIN users u ON o.user_id = u.id;
+  ```
+
+  **Note:** Most developers prefer LEFT JOIN over RIGHT JOIN for readability.
+
+</details>
+
+<details>
+  <summary>FULL OUTER JOIN</summary>
+  <br/>
+
+  **FULL OUTER JOIN** returns all rows from both tables. If no match, NULL values for missing side.
+
+  **Basic FULL OUTER JOIN:**
+
+  ```sql
+  -- Get all users and all orders (including unmatched)
+  SELECT 
+      u.id AS user_id,
+      u.username,
+      o.id AS order_id,
+      o.total
+  FROM users u
+  FULL OUTER JOIN orders o ON u.id = o.user_id;
+  
+  -- Result:
+  -- user_id | username | order_id | total
+  -- 1       | john     | 101      | 99.99
+  -- 1       | john     | 102      | 149.99
+  -- 2       | jane     | 103      | 79.99
+  -- 3       | bob      | NULL     | NULL     (no orders)
+  -- 4       | alice    | NULL     | NULL     (no orders)
+  -- NULL    | NULL     | 104      | 199.99   (no user)
+  ```
+
+  **Find unmatched rows from both tables:**
+
+  ```sql
+  -- Users without orders OR orders without users
+  SELECT 
+      u.id AS user_id,
+      u.username,
+      o.id AS order_id,
+      o.total
+  FROM users u
+  FULL OUTER JOIN orders o ON u.id = o.user_id
+  WHERE u.id IS NULL OR o.id IS NULL;
+  
+  -- Result:
+  -- user_id | username | order_id | total
+  -- 3       | bob      | NULL     | NULL
+  -- 4       | alice    | NULL     | NULL
+  -- NULL    | NULL     | 104      | 199.99
+  ```
+
+  **Emulate FULL OUTER JOIN (MySQL doesn't support it):**
+
+  ```sql
+  -- MySQL workaround using UNION
+  SELECT u.id AS user_id, u.username, o.id AS order_id, o.total
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  
+  UNION
+  
+  SELECT u.id AS user_id, u.username, o.id AS order_id, o.total
+  FROM users u
+  RIGHT JOIN orders o ON u.id = o.user_id
+  WHERE u.id IS NULL;
+  ```
+
+</details>
+
+<details>
+  <summary>CROSS JOIN</summary>
+  <br/>
+
+  **CROSS JOIN** returns the Cartesian product of both tables (all possible combinations).
+
+  **Basic CROSS JOIN:**
+
+  ```sql
+  -- Sample tables
+  CREATE TABLE colors (id INT, name VARCHAR(20));
+  INSERT INTO colors VALUES (1, 'Red'), (2, 'Blue'), (3, 'Green');
+  
+  CREATE TABLE sizes (id INT, name VARCHAR(20));
+  INSERT INTO sizes VALUES (1, 'Small'), (2, 'Medium'), (3, 'Large');
+  
+  -- Get all color-size combinations
+  SELECT 
+      c.name AS color,
+      s.name AS size
+  FROM colors c
+  CROSS JOIN sizes s;
+  
+  -- Result (9 rows = 3 colors × 3 sizes):
+  -- color | size
+  -- Red   | Small
+  -- Red   | Medium
+  -- Red   | Large
+  -- Blue  | Small
+  -- Blue  | Medium
+  -- Blue  | Large
+  -- Green | Small
+  -- Green | Medium
+  -- Green | Large
+  ```
+
+  **Alternative syntax:**
+
+  ```sql
+  -- Implicit CROSS JOIN
+  SELECT c.name AS color, s.name AS size
+  FROM colors c, sizes s;
+  ```
+
+  **CROSS JOIN with WHERE (becomes INNER JOIN):**
+
+  ```sql
+  -- This is effectively an INNER JOIN
+  SELECT c.name, s.name
+  FROM colors c
+  CROSS JOIN sizes s
+  WHERE c.id = s.id;
+  ```
+
+  **Use cases:**
+  + Generate all combinations (product variants, test cases)
+  + Create calendar tables (dates × time slots)
+  + Generate report templates
+
+</details>
+
+<details>
+  <summary>SELF JOIN</summary>
+  <br/>
+
+  **SELF JOIN** joins a table to itself.
+
+  **Employee hierarchy example:**
+
+  ```sql
+  -- employees table
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(50),
+      manager_id INT
+  );
+  
+  INSERT INTO employees VALUES
+      (1, 'Alice', NULL),      -- CEO (no manager)
+      (2, 'Bob', 1),           -- Reports to Alice
+      (3, 'Charlie', 1),       -- Reports to Alice
+      (4, 'David', 2),         -- Reports to Bob
+      (5, 'Eve', 2);           -- Reports to Bob
+  
+  -- Get employees with their managers
+  SELECT 
+      e.name AS employee,
+      m.name AS manager
+  FROM employees e
+  LEFT JOIN employees m ON e.manager_id = m.id;
+  
+  -- Result:
+  -- employee | manager
+  -- Alice    | NULL
+  -- Bob      | Alice
+  -- Charlie  | Alice
+  -- David    | Bob
+  -- Eve      | Bob
+  ```
+
+  **Find employees without managers:**
+
+  ```sql
+  SELECT name
+  FROM employees
+  WHERE manager_id IS NULL;
+  ```
+
+  **Find employees in same department:**
+
+  ```sql
+  -- Find pairs of employees with same manager
+  SELECT 
+      e1.name AS employee1,
+      e2.name AS employee2,
+      m.name AS manager
+  FROM employees e1
+  INNER JOIN employees e2 ON e1.manager_id = e2.manager_id
+  INNER JOIN employees m ON e1.manager_id = m.id
+  WHERE e1.id < e2.id;  -- Avoid duplicates
+  ```
+
+</details>
+
+<details>
+  <summary>Join Performance Tips</summary>
+  <br/>
+
+  **Optimize join performance:**
+
+  ```sql
+  -- ✅ DO: Create indexes on join columns
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+  
+  -- ✅ DO: Use INNER JOIN when possible (faster than OUTER JOIN)
+  SELECT u.username, o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- ✅ DO: Filter early with WHERE in ON clause
+  SELECT u.username, o.total
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id AND o.status = 'completed';
+  
+  -- ❌ DON'T: Filter late with WHERE (slower)
+  SELECT u.username, o.total
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  WHERE o.status = 'completed';
+  
+  -- ✅ DO: Use EXPLAIN to analyze query performance
+  EXPLAIN SELECT u.username, o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- ✅ DO: Join on indexed columns
+  -- Good: Join on primary key
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- Bad: Join on non-indexed column
+  FROM users u
+  INNER JOIN orders o ON u.email = o.user_email;
+  
+  -- ✅ DO: Use appropriate join type
+  -- INNER JOIN - Only matching rows (fastest)
+  -- LEFT JOIN - All left rows + matching right rows
+  -- FULL OUTER JOIN - All rows from both tables (slowest)
+  
+  -- ✅ DO: Limit result set
+  SELECT u.username, o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id
+  ORDER BY o.created_at DESC
+  LIMIT 100;
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Use explicit JOIN syntax (not implicit)
+  SELECT u.username, o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- ❌ DON'T: Use implicit join (old style)
+  SELECT u.username, o.total
+  FROM users u, orders o
+  WHERE u.id = o.user_id;
+  
+  -- ✅ DO: Use table aliases for readability
+  SELECT u.username, o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- ✅ DO: Specify join columns explicitly
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- ❌ DON'T: Use NATURAL JOIN (implicit column matching)
+  FROM users u
+  NATURAL JOIN orders o;  -- Matches all columns with same name
+  
+  -- ✅ DO: Use LEFT JOIN to include all rows from left table
+  SELECT u.username, COUNT(o.id) AS order_count
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  GROUP BY u.id, u.username;
+  
+  -- ✅ DO: Use INNER JOIN when you only want matching rows
+  SELECT u.username, o.total
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  
+  -- ✅ DO: Create indexes on foreign key columns
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  
+  -- ✅ DO: Use COALESCE for NULL handling in LEFT JOIN
+  SELECT 
+      u.username,
+      COALESCE(SUM(o.total), 0) AS total_spent
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  GROUP BY u.id, u.username;
+  
+  -- ✅ DO: Filter in ON clause for LEFT JOIN
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id AND o.status = 'completed';
+  
+  -- ❌ DON'T: Filter in WHERE clause for LEFT JOIN (changes behavior)
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  WHERE o.status = 'completed';  -- Excludes users without orders
+  
+  -- ✅ DO: Use appropriate join type
+  -- INNER JOIN - Only matching rows
+  -- LEFT JOIN - All left + matching right
+  -- RIGHT JOIN - All right + matching left (prefer LEFT JOIN)
+  -- FULL OUTER JOIN - All rows from both tables
+  -- CROSS JOIN - Cartesian product
+  
+  -- ✅ DO: Order joins from smallest to largest table
+  FROM small_table s
+  INNER JOIN large_table l ON s.id = l.small_id;
+  
+  -- ✅ DO: Use EXISTS instead of JOIN for existence checks
+  SELECT u.username
+  FROM users u
+  WHERE EXISTS (
+      SELECT 1 FROM orders o WHERE o.user_id = u.id
+  );
+  
+  -- ❌ DON'T: Use JOIN just to check existence
+  SELECT DISTINCT u.username
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id;
+  ```
+
+  **Summary:**
+  + **INNER JOIN** - Returns only matching rows from both tables
+  + **LEFT JOIN** - Returns all rows from left table + matching rows from right
+  + **RIGHT JOIN** - Returns all rows from right table + matching rows from left
+  + **FULL OUTER JOIN** - Returns all rows from both tables
+  + **CROSS JOIN** - Returns Cartesian product (all combinations)
+  + **SELF JOIN** - Joins table to itself
+  + Use **explicit JOIN syntax** (not implicit)
+  + Use **table aliases** for readability
+  + Create **indexes on join columns**
+  + Use **INNER JOIN** when possible (faster)
+  + Use **LEFT JOIN** to include all rows from left table
+  + Filter in **ON clause** for LEFT JOIN (not WHERE)
+  + Use **COALESCE** for NULL handling
+  + Use **EXPLAIN** to analyze query performance
+  + Use **appropriate join type** for your use case
+
+</details>

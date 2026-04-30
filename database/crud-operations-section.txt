@@ -1,0 +1,571 @@
+## CRUD Operations
+
+<details>
+  <summary>SELECT - Retrieve Data</summary>
+  <br/>
+
+  **SELECT** retrieves data from database tables.
+
+  **Basic SELECT:**
+
+  ```sql
+  -- Select all columns
+  SELECT * FROM users;
+  
+  -- Select specific columns
+  SELECT id, username, email FROM users;
+  
+  -- Select with alias
+  SELECT 
+      id AS user_id,
+      username AS user_name,
+      email AS user_email
+  FROM users;
+  ```
+
+  **WHERE clause (filtering):**
+
+  ```sql
+  -- Single condition
+  SELECT * FROM users WHERE age > 18;
+  
+  -- Multiple conditions (AND)
+  SELECT * FROM users WHERE age > 18 AND country = 'USA';
+  
+  -- Multiple conditions (OR)
+  SELECT * FROM users WHERE country = 'USA' OR country = 'Canada';
+  
+  -- IN operator
+  SELECT * FROM users WHERE country IN ('USA', 'Canada', 'UK');
+  
+  -- BETWEEN operator
+  SELECT * FROM users WHERE age BETWEEN 18 AND 65;
+  
+  -- LIKE operator (pattern matching)
+  SELECT * FROM users WHERE email LIKE '%@gmail.com';
+  SELECT * FROM users WHERE username LIKE 'john%';
+  
+  -- IS NULL / IS NOT NULL
+  SELECT * FROM users WHERE phone IS NULL;
+  SELECT * FROM users WHERE phone IS NOT NULL;
+  ```
+
+  **ORDER BY (sorting):**
+
+  ```sql
+  -- Ascending order (default)
+  SELECT * FROM users ORDER BY username;
+  SELECT * FROM users ORDER BY username ASC;
+  
+  -- Descending order
+  SELECT * FROM users ORDER BY created_at DESC;
+  
+  -- Multiple columns
+  SELECT * FROM users ORDER BY country ASC, age DESC;
+  ```
+
+  **LIMIT and OFFSET (pagination):**
+
+  ```sql
+  -- First 10 records
+  SELECT * FROM users LIMIT 10;
+  
+  -- Skip first 10, get next 10 (pagination)
+  SELECT * FROM users LIMIT 10 OFFSET 10;
+  
+  -- Alternative syntax (MySQL)
+  SELECT * FROM users LIMIT 10, 10;  -- OFFSET, LIMIT
+  ```
+
+  **DISTINCT (unique values):**
+
+  ```sql
+  -- Get unique countries
+  SELECT DISTINCT country FROM users;
+  
+  -- Get unique combinations
+  SELECT DISTINCT country, city FROM users;
+  ```
+
+</details>
+
+<details>
+  <summary>INSERT - Add Data</summary>
+  <br/>
+
+  **INSERT** adds new records to a table.
+
+  **Insert single row:**
+
+  ```sql
+  -- Insert with all columns
+  INSERT INTO users (id, username, email, age, country)
+  VALUES (1, 'john_doe', 'john@example.com', 25, 'USA');
+  
+  -- Insert without specifying columns (must match table order)
+  INSERT INTO users
+  VALUES (2, 'jane_doe', 'jane@example.com', 30, 'Canada');
+  
+  -- Insert with some columns (others will be NULL or default)
+  INSERT INTO users (username, email)
+  VALUES ('bob_smith', 'bob@example.com');
+  ```
+
+  **Insert multiple rows:**
+
+  ```sql
+  INSERT INTO users (username, email, age, country)
+  VALUES 
+      ('alice', 'alice@example.com', 28, 'USA'),
+      ('charlie', 'charlie@example.com', 35, 'UK'),
+      ('david', 'david@example.com', 22, 'Canada');
+  ```
+
+  **Insert from SELECT:**
+
+  ```sql
+  -- Copy data from another table
+  INSERT INTO users_backup (username, email, age)
+  SELECT username, email, age FROM users WHERE age > 18;
+  
+  -- Insert with transformation
+  INSERT INTO user_summary (username, email_domain)
+  SELECT username, SUBSTRING(email, POSITION('@' IN email) + 1)
+  FROM users;
+  ```
+
+  **Insert with RETURNING (PostgreSQL):**
+
+  ```sql
+  -- Return inserted row
+  INSERT INTO users (username, email)
+  VALUES ('new_user', 'new@example.com')
+  RETURNING id, username, created_at;
+  ```
+
+  **Insert with ON CONFLICT (PostgreSQL - Upsert):**
+
+  ```sql
+  -- Insert or update if exists
+  INSERT INTO users (id, username, email)
+  VALUES (1, 'john_doe', 'john@example.com')
+  ON CONFLICT (id) 
+  DO UPDATE SET 
+      username = EXCLUDED.username,
+      email = EXCLUDED.email,
+      updated_at = CURRENT_TIMESTAMP;
+  
+  -- Insert or do nothing if exists
+  INSERT INTO users (username, email)
+  VALUES ('john_doe', 'john@example.com')
+  ON CONFLICT (username) DO NOTHING;
+  ```
+
+  **Insert with IGNORE (MySQL):**
+
+  ```sql
+  -- Insert or ignore if duplicate key
+  INSERT IGNORE INTO users (username, email)
+  VALUES ('john_doe', 'john@example.com');
+  ```
+
+</details>
+
+<details>
+  <summary>UPDATE - Modify Data</summary>
+  <br/>
+
+  **UPDATE** modifies existing records in a table.
+
+  **Basic UPDATE:**
+
+  ```sql
+  -- Update single column
+  UPDATE users
+  SET email = 'newemail@example.com'
+  WHERE id = 1;
+  
+  -- Update multiple columns
+  UPDATE users
+  SET 
+      email = 'newemail@example.com',
+      age = 26,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = 1;
+  ```
+
+  **Update with conditions:**
+
+  ```sql
+  -- Update based on condition
+  UPDATE users
+  SET status = 'active'
+  WHERE last_login > CURRENT_DATE - INTERVAL '30 days';
+  
+  -- Update multiple rows
+  UPDATE users
+  SET country = 'USA'
+  WHERE country IS NULL;
+  
+  -- Update with IN
+  UPDATE users
+  SET status = 'premium'
+  WHERE id IN (1, 2, 3, 4, 5);
+  ```
+
+  **Update with calculations:**
+
+  ```sql
+  -- Increment value
+  UPDATE products
+  SET stock = stock + 10
+  WHERE id = 1;
+  
+  -- Decrement value
+  UPDATE products
+  SET stock = stock - 5
+  WHERE id = 1;
+  
+  -- Calculate percentage
+  UPDATE products
+  SET price = price * 1.1  -- 10% increase
+  WHERE category = 'electronics';
+  ```
+
+  **Update with subquery:**
+
+  ```sql
+  -- Update based on another table
+  UPDATE users
+  SET status = 'vip'
+  WHERE id IN (
+      SELECT user_id 
+      FROM orders 
+      GROUP BY user_id 
+      HAVING SUM(total) > 1000
+  );
+  
+  -- Update with JOIN (MySQL)
+  UPDATE users u
+  INNER JOIN orders o ON u.id = o.user_id
+  SET u.total_spent = o.total
+  WHERE o.id = 123;
+  ```
+
+  **Update with CASE:**
+
+  ```sql
+  -- Conditional update
+  UPDATE users
+  SET discount = CASE
+      WHEN age < 18 THEN 0.05
+      WHEN age BETWEEN 18 AND 65 THEN 0.10
+      ELSE 0.15
+  END;
+  ```
+
+  **Update all rows (dangerous!):**
+
+  ```sql
+  -- Update all rows (use with caution!)
+  UPDATE users
+  SET status = 'inactive';
+  
+  -- Always use WHERE clause to avoid updating all rows
+  ```
+
+</details>
+
+<details>
+  <summary>DELETE - Remove Data</summary>
+  <br/>
+
+  **DELETE** removes records from a table.
+
+  **Basic DELETE:**
+
+  ```sql
+  -- Delete single row
+  DELETE FROM users WHERE id = 1;
+  
+  -- Delete multiple rows
+  DELETE FROM users WHERE age < 18;
+  
+  -- Delete with IN
+  DELETE FROM users WHERE id IN (1, 2, 3, 4, 5);
+  ```
+
+  **Delete with conditions:**
+
+  ```sql
+  -- Delete based on date
+  DELETE FROM logs
+  WHERE created_at < CURRENT_DATE - INTERVAL '90 days';
+  
+  -- Delete based on NULL
+  DELETE FROM users WHERE email IS NULL;
+  
+  -- Delete with multiple conditions
+  DELETE FROM users
+  WHERE status = 'inactive' AND last_login < '2023-01-01';
+  ```
+
+  **Delete with subquery:**
+
+  ```sql
+  -- Delete based on another table
+  DELETE FROM users
+  WHERE id IN (
+      SELECT user_id 
+      FROM banned_users
+  );
+  
+  -- Delete with NOT EXISTS
+  DELETE FROM users u
+  WHERE NOT EXISTS (
+      SELECT 1 
+      FROM orders o 
+      WHERE o.user_id = u.id
+  );
+  ```
+
+  **Delete with JOIN (MySQL):**
+
+  ```sql
+  -- Delete with JOIN
+  DELETE u
+  FROM users u
+  INNER JOIN banned_users b ON u.id = b.user_id;
+  
+  -- Delete from multiple tables
+  DELETE u, o
+  FROM users u
+  INNER JOIN orders o ON u.id = o.user_id
+  WHERE u.status = 'deleted';
+  ```
+
+  **Delete all rows (dangerous!):**
+
+  ```sql
+  -- Delete all rows (use with extreme caution!)
+  DELETE FROM users;
+  
+  -- Better: Use TRUNCATE for deleting all rows (faster, resets auto-increment)
+  TRUNCATE TABLE users;
+  ```
+
+  **Delete with RETURNING (PostgreSQL):**
+
+  ```sql
+  -- Return deleted rows
+  DELETE FROM users
+  WHERE status = 'inactive'
+  RETURNING id, username, email;
+  ```
+
+  **Soft delete (recommended):**
+
+  ```sql
+  -- Instead of DELETE, use UPDATE to mark as deleted
+  UPDATE users
+  SET 
+      deleted_at = CURRENT_TIMESTAMP,
+      status = 'deleted'
+  WHERE id = 1;
+  
+  -- Query only active records
+  SELECT * FROM users WHERE deleted_at IS NULL;
+  ```
+
+</details>
+
+<details>
+  <summary>Aggregate Functions</summary>
+  <br/>
+
+  **Aggregate functions** perform calculations on multiple rows.
+
+  **Common aggregate functions:**
+
+  ```sql
+  -- COUNT - Count rows
+  SELECT COUNT(*) FROM users;
+  SELECT COUNT(DISTINCT country) FROM users;
+  
+  -- SUM - Sum values
+  SELECT SUM(price) FROM products;
+  SELECT SUM(quantity * price) AS total_revenue FROM order_items;
+  
+  -- AVG - Average value
+  SELECT AVG(age) FROM users;
+  SELECT AVG(price) FROM products WHERE category = 'electronics';
+  
+  -- MIN - Minimum value
+  SELECT MIN(price) FROM products;
+  SELECT MIN(created_at) FROM users;
+  
+  -- MAX - Maximum value
+  SELECT MAX(price) FROM products;
+  SELECT MAX(age) FROM users;
+  ```
+
+  **GROUP BY:**
+
+  ```sql
+  -- Group by single column
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country;
+  
+  -- Group by multiple columns
+  SELECT country, city, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country, city;
+  
+  -- Group with multiple aggregates
+  SELECT 
+      category,
+      COUNT(*) AS product_count,
+      AVG(price) AS avg_price,
+      MIN(price) AS min_price,
+      MAX(price) AS max_price
+  FROM products
+  GROUP BY category;
+  ```
+
+  **HAVING (filter groups):**
+
+  ```sql
+  -- Filter groups after aggregation
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  HAVING COUNT(*) > 100;
+  
+  -- Multiple HAVING conditions
+  SELECT category, AVG(price) AS avg_price
+  FROM products
+  GROUP BY category
+  HAVING AVG(price) > 100 AND COUNT(*) > 10;
+  ```
+
+  **GROUP BY with ORDER BY:**
+
+  ```sql
+  -- Order by aggregate
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  ORDER BY user_count DESC;
+  
+  -- Top 5 countries by user count
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  ORDER BY user_count DESC
+  LIMIT 5;
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Always use WHERE clause with UPDATE/DELETE
+  UPDATE users SET status = 'inactive' WHERE id = 1;
+  DELETE FROM users WHERE id = 1;
+  
+  -- ❌ DON'T: Update/delete without WHERE (affects all rows!)
+  UPDATE users SET status = 'inactive';  -- Updates ALL rows!
+  DELETE FROM users;  -- Deletes ALL rows!
+  
+  -- ✅ DO: Use specific columns in SELECT
+  SELECT id, username, email FROM users;
+  
+  -- ❌ DON'T: Use SELECT * in production (performance impact)
+  SELECT * FROM users;  -- Retrieves all columns
+  
+  -- ✅ DO: Use LIMIT for large result sets
+  SELECT * FROM users ORDER BY created_at DESC LIMIT 100;
+  
+  -- ✅ DO: Use indexes on WHERE/JOIN columns
+  CREATE INDEX idx_users_email ON users(email);
+  CREATE INDEX idx_users_country ON users(country);
+  
+  -- ✅ DO: Use transactions for multiple operations
+  BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+  COMMIT;
+  
+  -- ✅ DO: Use prepared statements to prevent SQL injection
+  -- Java example:
+  PreparedStatement stmt = conn.prepareStatement(
+      "SELECT * FROM users WHERE email = ?"
+  );
+  stmt.setString(1, email);
+  
+  -- ❌ DON'T: Concatenate user input (SQL injection risk!)
+  String sql = "SELECT * FROM users WHERE email = '" + email + "'";
+  
+  -- ✅ DO: Use soft delete instead of hard delete
+  UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = 1;
+  
+  -- ✅ DO: Add timestamps to track changes
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(50),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- ✅ DO: Use RETURNING to get inserted/updated data (PostgreSQL)
+  INSERT INTO users (username, email)
+  VALUES ('john', 'john@example.com')
+  RETURNING id, created_at;
+  
+  -- ✅ DO: Use batch inserts for multiple rows
+  INSERT INTO users (username, email) VALUES
+      ('user1', 'user1@example.com'),
+      ('user2', 'user2@example.com'),
+      ('user3', 'user3@example.com');
+  
+  -- ❌ DON'T: Use multiple single inserts
+  INSERT INTO users (username, email) VALUES ('user1', 'user1@example.com');
+  INSERT INTO users (username, email) VALUES ('user2', 'user2@example.com');
+  INSERT INTO users (username, email) VALUES ('user3', 'user3@example.com');
+  
+  -- ✅ DO: Use DISTINCT only when necessary (performance impact)
+  SELECT DISTINCT country FROM users;
+  
+  -- ✅ DO: Use COUNT(*) instead of COUNT(column) for counting rows
+  SELECT COUNT(*) FROM users;  -- Faster
+  SELECT COUNT(id) FROM users;  -- Slower (checks for NULL)
+  
+  -- ✅ DO: Use EXISTS instead of COUNT for existence checks
+  SELECT EXISTS(SELECT 1 FROM users WHERE email = 'john@example.com');
+  
+  -- ❌ DON'T: Use COUNT for existence checks
+  SELECT COUNT(*) FROM users WHERE email = 'john@example.com';
+  ```
+
+  **Summary:**
+  + **SELECT** - Retrieve data with WHERE, ORDER BY, LIMIT
+  + **INSERT** - Add new records (single or multiple rows)
+  + **UPDATE** - Modify existing records (always use WHERE!)
+  + **DELETE** - Remove records (always use WHERE!)
+  + Use **aggregate functions** (COUNT, SUM, AVG, MIN, MAX)
+  + Use **GROUP BY** to group rows
+  + Use **HAVING** to filter groups
+  + Always use **WHERE clause** with UPDATE/DELETE
+  + Use **specific columns** instead of SELECT *
+  + Use **prepared statements** to prevent SQL injection
+  + Use **soft delete** instead of hard delete
+  + Use **transactions** for multiple operations
+  + Use **indexes** on frequently queried columns
+  + Use **LIMIT** for pagination
+  + Use **batch inserts** for multiple rows
+
+</details>

@@ -1,0 +1,701 @@
+## Aggregations
+
+<details>
+  <summary>What are Aggregate Functions?</summary>
+  <br/>
+
+  **Aggregate functions** perform calculations on multiple rows and return a single value.
+
+  **Common aggregate functions:**
+  + **COUNT()** - Count rows
+  + **SUM()** - Sum values
+  + **AVG()** - Average value
+  + **MIN()** - Minimum value
+  + **MAX()** - Maximum value
+
+  **Basic example:**
+
+  ```sql
+  -- Count total users
+  SELECT COUNT(*) FROM users;
+  
+  -- Average age
+  SELECT AVG(age) FROM users;
+  
+  -- Total revenue
+  SELECT SUM(total) FROM orders;
+  ```
+
+</details>
+
+<details>
+  <summary>COUNT Function</summary>
+  <br/>
+
+  **COUNT()** counts the number of rows.
+
+  **COUNT variations:**
+
+  ```sql
+  -- Count all rows (including NULLs)
+  SELECT COUNT(*) FROM users;
+  
+  -- Count non-NULL values in column
+  SELECT COUNT(email) FROM users;
+  
+  -- Count distinct values
+  SELECT COUNT(DISTINCT country) FROM users;
+  
+  -- Count with condition
+  SELECT COUNT(*) FROM users WHERE age > 18;
+  ```
+
+  **COUNT with GROUP BY:**
+
+  ```sql
+  -- Count users per country
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country;
+  
+  -- Count orders per user
+  SELECT user_id, COUNT(*) AS order_count
+  FROM orders
+  GROUP BY user_id;
+  
+  -- Count products per category
+  SELECT category_id, COUNT(*) AS product_count
+  FROM products
+  GROUP BY category_id;
+  ```
+
+  **COUNT vs COUNT(column):**
+
+  ```sql
+  -- Sample data
+  CREATE TABLE users (
+      id INT,
+      username VARCHAR(50),
+      email VARCHAR(100)  -- Some emails are NULL
+  );
+  
+  INSERT INTO users VALUES
+      (1, 'john', 'john@example.com'),
+      (2, 'jane', NULL),
+      (3, 'bob', 'bob@example.com'),
+      (4, 'alice', NULL);
+  
+  -- COUNT(*) - Counts all rows (4)
+  SELECT COUNT(*) FROM users;  -- Result: 4
+  
+  -- COUNT(email) - Counts non-NULL emails (2)
+  SELECT COUNT(email) FROM users;  -- Result: 2
+  
+  -- COUNT(DISTINCT email) - Counts unique non-NULL emails (2)
+  SELECT COUNT(DISTINCT email) FROM users;  -- Result: 2
+  ```
+
+</details>
+
+<details>
+  <summary>SUM Function</summary>
+  <br/>
+
+  **SUM()** calculates the sum of numeric values.
+
+  **Basic SUM:**
+
+  ```sql
+  -- Total revenue
+  SELECT SUM(total) FROM orders;
+  
+  -- Total quantity sold
+  SELECT SUM(quantity) FROM order_items;
+  
+  -- Total salary
+  SELECT SUM(salary) FROM employees;
+  ```
+
+  **SUM with GROUP BY:**
+
+  ```sql
+  -- Total revenue per user
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id;
+  
+  -- Total sales per product
+  SELECT product_id, SUM(quantity) AS total_sold
+  FROM order_items
+  GROUP BY product_id;
+  
+  -- Total revenue per month
+  SELECT 
+      DATE_TRUNC('month', created_at) AS month,
+      SUM(total) AS monthly_revenue
+  FROM orders
+  GROUP BY DATE_TRUNC('month', created_at)
+  ORDER BY month;
+  ```
+
+  **SUM with calculations:**
+
+  ```sql
+  -- Total revenue (quantity * price)
+  SELECT SUM(quantity * price) AS total_revenue
+  FROM order_items;
+  
+  -- Total with tax
+  SELECT SUM(total * 1.1) AS total_with_tax
+  FROM orders;
+  
+  -- Total profit (revenue - cost)
+  SELECT SUM(price - cost) AS total_profit
+  FROM products;
+  ```
+
+  **SUM with CASE:**
+
+  ```sql
+  -- Sum completed orders only
+  SELECT SUM(
+      CASE 
+          WHEN status = 'completed' THEN total 
+          ELSE 0 
+      END
+  ) AS completed_revenue
+  FROM orders;
+  
+  -- Sum by status
+  SELECT 
+      SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END) AS completed,
+      SUM(CASE WHEN status = 'pending' THEN total ELSE 0 END) AS pending,
+      SUM(CASE WHEN status = 'cancelled' THEN total ELSE 0 END) AS cancelled
+  FROM orders;
+  ```
+
+</details>
+
+<details>
+  <summary>AVG Function</summary>
+  <br/>
+
+  **AVG()** calculates the average of numeric values.
+
+  **Basic AVG:**
+
+  ```sql
+  -- Average age
+  SELECT AVG(age) FROM users;
+  
+  -- Average order total
+  SELECT AVG(total) FROM orders;
+  
+  -- Average product price
+  SELECT AVG(price) FROM products;
+  ```
+
+  **AVG with GROUP BY:**
+
+  ```sql
+  -- Average age per country
+  SELECT country, AVG(age) AS avg_age
+  FROM users
+  GROUP BY country;
+  
+  -- Average order total per user
+  SELECT user_id, AVG(total) AS avg_order
+  FROM orders
+  GROUP BY user_id;
+  
+  -- Average price per category
+  SELECT category_id, AVG(price) AS avg_price
+  FROM products
+  GROUP BY category_id;
+  ```
+
+  **AVG with ROUND:**
+
+  ```sql
+  -- Round to 2 decimal places
+  SELECT ROUND(AVG(price), 2) AS avg_price
+  FROM products;
+  
+  -- Round to integer
+  SELECT ROUND(AVG(age)) AS avg_age
+  FROM users;
+  ```
+
+  **AVG with filtering:**
+
+  ```sql
+  -- Average of completed orders only
+  SELECT AVG(total) AS avg_completed_order
+  FROM orders
+  WHERE status = 'completed';
+  
+  -- Average age of adults
+  SELECT AVG(age) AS avg_adult_age
+  FROM users
+  WHERE age >= 18;
+  ```
+
+</details>
+
+<details>
+  <summary>MIN and MAX Functions</summary>
+  <br/>
+
+  **MIN()** finds the minimum value, **MAX()** finds the maximum value.
+
+  **Basic MIN/MAX:**
+
+  ```sql
+  -- Youngest and oldest user
+  SELECT MIN(age) AS youngest, MAX(age) AS oldest
+  FROM users;
+  
+  -- Cheapest and most expensive product
+  SELECT MIN(price) AS cheapest, MAX(price) AS most_expensive
+  FROM products;
+  
+  -- First and last order date
+  SELECT MIN(created_at) AS first_order, MAX(created_at) AS last_order
+  FROM orders;
+  ```
+
+  **MIN/MAX with GROUP BY:**
+
+  ```sql
+  -- Min/max age per country
+  SELECT 
+      country,
+      MIN(age) AS youngest,
+      MAX(age) AS oldest
+  FROM users
+  GROUP BY country;
+  
+  -- Min/max price per category
+  SELECT 
+      category_id,
+      MIN(price) AS cheapest,
+      MAX(price) AS most_expensive
+  FROM products
+  GROUP BY category_id;
+  ```
+
+  **MIN/MAX with dates:**
+
+  ```sql
+  -- First and last login per user
+  SELECT 
+      user_id,
+      MIN(login_at) AS first_login,
+      MAX(login_at) AS last_login
+  FROM user_logins
+  GROUP BY user_id;
+  
+  -- Earliest and latest order per user
+  SELECT 
+      user_id,
+      MIN(created_at) AS first_order,
+      MAX(created_at) AS last_order
+  FROM orders
+  GROUP BY user_id;
+  ```
+
+</details>
+
+<details>
+  <summary>GROUP BY Clause</summary>
+  <br/>
+
+  **GROUP BY** groups rows with same values into summary rows.
+
+  **Basic GROUP BY:**
+
+  ```sql
+  -- Count users per country
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country;
+  
+  -- Total revenue per user
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id;
+  
+  -- Average price per category
+  SELECT category_id, AVG(price) AS avg_price
+  FROM products
+  GROUP BY category_id;
+  ```
+
+  **GROUP BY multiple columns:**
+
+  ```sql
+  -- Count users per country and city
+  SELECT country, city, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country, city;
+  
+  -- Revenue per user and status
+  SELECT user_id, status, SUM(total) AS revenue
+  FROM orders
+  GROUP BY user_id, status;
+  
+  -- Product count per category and brand
+  SELECT category_id, brand, COUNT(*) AS product_count
+  FROM products
+  GROUP BY category_id, brand;
+  ```
+
+  **GROUP BY with multiple aggregates:**
+
+  ```sql
+  -- User statistics per country
+  SELECT 
+      country,
+      COUNT(*) AS user_count,
+      AVG(age) AS avg_age,
+      MIN(age) AS youngest,
+      MAX(age) AS oldest
+  FROM users
+  GROUP BY country;
+  
+  -- Order statistics per user
+  SELECT 
+      user_id,
+      COUNT(*) AS order_count,
+      SUM(total) AS total_spent,
+      AVG(total) AS avg_order,
+      MIN(total) AS min_order,
+      MAX(total) AS max_order
+  FROM orders
+  GROUP BY user_id;
+  ```
+
+  **GROUP BY with ORDER BY:**
+
+  ```sql
+  -- Top 10 countries by user count
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  ORDER BY user_count DESC
+  LIMIT 10;
+  
+  -- Top spenders
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id
+  ORDER BY total_spent DESC
+  LIMIT 10;
+  ```
+
+  **GROUP BY with dates:**
+
+  ```sql
+  -- Orders per day
+  SELECT 
+      DATE(created_at) AS order_date,
+      COUNT(*) AS order_count,
+      SUM(total) AS daily_revenue
+  FROM orders
+  GROUP BY DATE(created_at)
+  ORDER BY order_date;
+  
+  -- Orders per month
+  SELECT 
+      DATE_TRUNC('month', created_at) AS month,
+      COUNT(*) AS order_count,
+      SUM(total) AS monthly_revenue
+  FROM orders
+  GROUP BY DATE_TRUNC('month', created_at)
+  ORDER BY month;
+  
+  -- Orders per year
+  SELECT 
+      EXTRACT(YEAR FROM created_at) AS year,
+      COUNT(*) AS order_count,
+      SUM(total) AS yearly_revenue
+  FROM orders
+  GROUP BY EXTRACT(YEAR FROM created_at)
+  ORDER BY year;
+  ```
+
+</details>
+
+<details>
+  <summary>HAVING Clause</summary>
+  <br/>
+
+  **HAVING** filters groups after aggregation (WHERE filters before aggregation).
+
+  **Basic HAVING:**
+
+  ```sql
+  -- Countries with more than 100 users
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  HAVING COUNT(*) > 100;
+  
+  -- Users who spent more than $1000
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id
+  HAVING SUM(total) > 1000;
+  
+  -- Categories with average price > $50
+  SELECT category_id, AVG(price) AS avg_price
+  FROM products
+  GROUP BY category_id
+  HAVING AVG(price) > 50;
+  ```
+
+  **HAVING with multiple conditions:**
+
+  ```sql
+  -- Countries with 100+ users and avg age > 30
+  SELECT country, COUNT(*) AS user_count, AVG(age) AS avg_age
+  FROM users
+  GROUP BY country
+  HAVING COUNT(*) > 100 AND AVG(age) > 30;
+  
+  -- Users with 5+ orders and total spent > $500
+  SELECT user_id, COUNT(*) AS order_count, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id
+  HAVING COUNT(*) >= 5 AND SUM(total) > 500;
+  ```
+
+  **WHERE vs HAVING:**
+
+  ```sql
+  -- WHERE filters rows BEFORE grouping
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  WHERE age > 18  -- Filter individual rows first
+  GROUP BY country
+  HAVING COUNT(*) > 50;  -- Then filter groups
+  
+  -- Execution order:
+  -- 1. WHERE filters rows (age > 18)
+  -- 2. GROUP BY groups remaining rows
+  -- 3. HAVING filters groups (count > 50)
+  ```
+
+  **HAVING with ORDER BY:**
+
+  ```sql
+  -- Top 10 countries by user count (min 100 users)
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  HAVING COUNT(*) > 100
+  ORDER BY user_count DESC
+  LIMIT 10;
+  ```
+
+  **HAVING with aggregate aliases:**
+
+  ```sql
+  -- Some databases allow using aliases in HAVING
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id
+  HAVING total_spent > 1000  -- PostgreSQL, MySQL allow this
+  ORDER BY total_spent DESC;
+  
+  -- Standard SQL (works everywhere)
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id
+  HAVING SUM(total) > 1000
+  ORDER BY total_spent DESC;
+  ```
+
+</details>
+
+<details>
+  <summary>Advanced Aggregations</summary>
+  <br/>
+
+  **DISTINCT with aggregates:**
+
+  ```sql
+  -- Count distinct countries
+  SELECT COUNT(DISTINCT country) AS country_count
+  FROM users;
+  
+  -- Count distinct users who ordered
+  SELECT COUNT(DISTINCT user_id) AS customer_count
+  FROM orders;
+  
+  -- Sum distinct order totals (removes duplicates)
+  SELECT SUM(DISTINCT total) FROM orders;
+  ```
+
+  **Conditional aggregation:**
+
+  ```sql
+  -- Count by status using CASE
+  SELECT 
+      COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed,
+      COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending,
+      COUNT(CASE WHEN status = 'cancelled' THEN 1 END) AS cancelled
+  FROM orders;
+  
+  -- Sum by status
+  SELECT 
+      SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END) AS completed_revenue,
+      SUM(CASE WHEN status = 'pending' THEN total ELSE 0 END) AS pending_revenue
+  FROM orders;
+  ```
+
+  **FILTER clause (PostgreSQL):**
+
+  ```sql
+  -- Cleaner syntax for conditional aggregation
+  SELECT 
+      COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+      COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+      SUM(total) FILTER (WHERE status = 'completed') AS completed_revenue
+  FROM orders;
+  ```
+
+  **String aggregation:**
+
+  ```sql
+  -- Concatenate values (PostgreSQL)
+  SELECT 
+      user_id,
+      STRING_AGG(product_name, ', ') AS products
+  FROM order_items
+  GROUP BY user_id;
+  
+  -- MySQL
+  SELECT 
+      user_id,
+      GROUP_CONCAT(product_name SEPARATOR ', ') AS products
+  FROM order_items
+  GROUP BY user_id;
+  ```
+
+  **Array aggregation (PostgreSQL):**
+
+  ```sql
+  -- Collect values into array
+  SELECT 
+      user_id,
+      ARRAY_AGG(product_id) AS product_ids
+  FROM order_items
+  GROUP BY user_id;
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Use COUNT(*) to count rows (faster)
+  SELECT COUNT(*) FROM users;
+  
+  -- ❌ DON'T: Use COUNT(column) unless checking for NULLs
+  SELECT COUNT(id) FROM users;  -- Slower, checks for NULLs
+  
+  -- ✅ DO: Use WHERE to filter before aggregation
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  WHERE age > 18  -- Filter first
+  GROUP BY country;
+  
+  -- ✅ DO: Use HAVING to filter after aggregation
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country
+  HAVING COUNT(*) > 100;  -- Filter groups
+  
+  -- ✅ DO: Include all non-aggregated columns in GROUP BY
+  SELECT country, city, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country, city;  -- Both country and city in GROUP BY
+  
+  -- ❌ DON'T: Select non-aggregated columns not in GROUP BY
+  SELECT country, city, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country;  -- ERROR: city not in GROUP BY
+  
+  -- ✅ DO: Use COALESCE for NULL handling
+  SELECT 
+      user_id,
+      COALESCE(SUM(total), 0) AS total_spent
+  FROM orders
+  GROUP BY user_id;
+  
+  -- ✅ DO: Use ROUND for decimal precision
+  SELECT ROUND(AVG(price), 2) AS avg_price
+  FROM products;
+  
+  -- ✅ DO: Use meaningful aliases
+  SELECT 
+      country,
+      COUNT(*) AS user_count,
+      AVG(age) AS avg_age
+  FROM users
+  GROUP BY country;
+  
+  -- ✅ DO: Order by aggregate for rankings
+  SELECT user_id, SUM(total) AS total_spent
+  FROM orders
+  GROUP BY user_id
+  ORDER BY total_spent DESC
+  LIMIT 10;
+  
+  -- ✅ DO: Use indexes on GROUP BY columns
+  CREATE INDEX idx_users_country ON users(country);
+  CREATE INDEX idx_orders_user_id ON orders(user_id);
+  
+  -- ✅ DO: Use DISTINCT only when necessary
+  SELECT COUNT(DISTINCT country) FROM users;  -- Good
+  SELECT DISTINCT country FROM users;  -- Good
+  
+  -- ❌ DON'T: Use DISTINCT unnecessarily (performance impact)
+  SELECT DISTINCT * FROM users;  -- Usually not needed
+  
+  -- ✅ DO: Use conditional aggregation for pivoting
+  SELECT 
+      user_id,
+      SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END) AS completed,
+      SUM(CASE WHEN status = 'pending' THEN total ELSE 0 END) AS pending
+  FROM orders
+  GROUP BY user_id;
+  
+  -- ✅ DO: Use EXPLAIN to analyze aggregation performance
+  EXPLAIN SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country;
+  ```
+
+  **Summary:**
+  + **COUNT()** - Count rows (use COUNT(*) for all rows)
+  + **SUM()** - Sum numeric values
+  + **AVG()** - Calculate average
+  + **MIN()** - Find minimum value
+  + **MAX()** - Find maximum value
+  + **GROUP BY** - Group rows for aggregation
+  + **HAVING** - Filter groups after aggregation
+  + Use **WHERE** to filter before aggregation (faster)
+  + Use **HAVING** to filter after aggregation
+  + Include all **non-aggregated columns** in GROUP BY
+  + Use **COALESCE** for NULL handling
+  + Use **ROUND** for decimal precision
+  + Use **indexes** on GROUP BY columns
+  + Use **DISTINCT** only when necessary
+  + Use **conditional aggregation** for pivoting
+  + Use **EXPLAIN** to analyze performance
+
+</details>

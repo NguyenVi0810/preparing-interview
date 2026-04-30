@@ -1,0 +1,700 @@
+## Window Functions
+
+<details>
+  <summary>What are Window Functions?</summary>
+  <br/>
+
+  **Window functions** perform calculations across a set of rows related to the current row (without grouping).
+
+  **Key differences from aggregate functions:**
+  + **Aggregate functions** (GROUP BY) - Collapse rows into groups
+  + **Window functions** - Keep all rows, add calculated columns
+
+  **Common window functions:**
+  + **ROW_NUMBER()** - Unique sequential number for each row
+  + **RANK()** - Rank with gaps for ties
+  + **DENSE_RANK()** - Rank without gaps for ties
+  + **NTILE()** - Divide rows into N groups
+  + **LAG()** - Access previous row value
+  + **LEAD()** - Access next row value
+  + **FIRST_VALUE()** - First value in window
+  + **LAST_VALUE()** - Last value in window
+
+  **Basic syntax:**
+
+  ```sql
+  SELECT 
+      column1,
+      column2,
+      WINDOW_FUNCTION() OVER (
+          PARTITION BY partition_column
+          ORDER BY order_column
+          ROWS/RANGE frame_specification
+      ) AS result
+  FROM table;
+  ```
+
+</details>
+
+<details>
+  <summary>ROW_NUMBER Function</summary>
+  <br/>
+
+  **ROW_NUMBER()** assigns a unique sequential number to each row.
+
+  **Basic ROW_NUMBER:**
+
+  ```sql
+  -- Assign row numbers to all users
+  SELECT 
+      username,
+      email,
+      ROW_NUMBER() OVER (ORDER BY username) AS row_num
+  FROM users;
+  
+  -- Result:
+  -- username | email              | row_num
+  -- alice    | alice@example.com  | 1
+  -- bob      | bob@example.com    | 2
+  -- charlie  | charlie@example.com| 3
+  -- john     | john@example.com   | 4
+  ```
+
+  **ROW_NUMBER with PARTITION BY:**
+
+  ```sql
+  -- Row number per country
+  SELECT 
+      username,
+      country,
+      ROW_NUMBER() OVER (PARTITION BY country ORDER BY username) AS row_num
+  FROM users;
+  
+  -- Result:
+  -- username | country | row_num
+  -- alice    | USA     | 1
+  -- john     | USA     | 2
+  -- bob      | UK      | 1
+  -- charlie  | UK      | 2
+  ```
+
+  **Get top N per group:**
+
+  ```sql
+  -- Top 3 orders per user
+  WITH ranked_orders AS (
+      SELECT 
+          user_id,
+          id AS order_id,
+          total,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY total DESC) AS rank
+      FROM orders
+  )
+  SELECT user_id, order_id, total
+  FROM ranked_orders
+  WHERE rank <= 3;
+  ```
+
+  **Pagination with ROW_NUMBER:**
+
+  ```sql
+  -- Get rows 11-20
+  WITH numbered_rows AS (
+      SELECT 
+          *,
+          ROW_NUMBER() OVER (ORDER BY created_at DESC) AS row_num
+      FROM users
+  )
+  SELECT *
+  FROM numbered_rows
+  WHERE row_num BETWEEN 11 AND 20;
+  ```
+
+</details>
+
+<details>
+  <summary>RANK and DENSE_RANK Functions</summary>
+  <br/>
+
+  **RANK()** assigns rank with gaps for ties, **DENSE_RANK()** assigns rank without gaps.
+
+  **RANK vs DENSE_RANK:**
+
+  ```sql
+  -- Sample data: users with scores
+  SELECT 
+      username,
+      score,
+      RANK() OVER (ORDER BY score DESC) AS rank,
+      DENSE_RANK() OVER (ORDER BY score DESC) AS dense_rank,
+      ROW_NUMBER() OVER (ORDER BY score DESC) AS row_num
+  FROM users;
+  
+  -- Result:
+  -- username | score | rank | dense_rank | row_num
+  -- alice    | 100   | 1    | 1          | 1
+  -- bob      | 100   | 1    | 1          | 2  (tie)
+  -- charlie  | 95    | 3    | 2          | 3  (RANK skips 2)
+  -- david    | 90    | 4    | 3          | 4
+  -- eve      | 90    | 4    | 3          | 5  (tie)
+  -- frank    | 85    | 6    | 4          | 6  (RANK skips 5)
+  ```
+
+  **RANK with PARTITION BY:**
+
+  ```sql
+  -- Rank users by score within each country
+  SELECT 
+      username,
+      country,
+      score,
+      RANK() OVER (PARTITION BY country ORDER BY score DESC) AS country_rank
+  FROM users;
+  
+  -- Result:
+  -- username | country | score | country_rank
+  -- alice    | USA     | 100   | 1
+  -- john     | USA     | 95    | 2
+  -- bob      | UK      | 100   | 1
+  -- charlie  | UK      | 90    | 2
+  ```
+
+  **Find top ranked items:**
+
+  ```sql
+  -- Top 3 products per category by sales
+  WITH ranked_products AS (
+      SELECT 
+          p.name,
+          p.category_id,
+          SUM(oi.quantity) AS total_sold,
+          RANK() OVER (PARTITION BY p.category_id ORDER BY SUM(oi.quantity) DESC) AS rank
+      FROM products p
+      JOIN order_items oi ON p.id = oi.product_id
+      GROUP BY p.id, p.name, p.category_id
+  )
+  SELECT name, category_id, total_sold, rank
+  FROM ranked_products
+  WHERE rank <= 3;
+  ```
+
+</details>
+
+<details>
+  <summary>NTILE Function</summary>
+  <br/>
+
+  **NTILE(n)** divides rows into n approximately equal groups.
+
+  **Basic NTILE:**
+
+  ```sql
+  -- Divide users into 4 quartiles by age
+  SELECT 
+      username,
+      age,
+      NTILE(4) OVER (ORDER BY age) AS quartile
+  FROM users;
+  
+  -- Result:
+  -- username | age | quartile
+  -- alice    | 20  | 1  (youngest 25%)
+  -- bob      | 25  | 1
+  -- charlie  | 30  | 2
+  -- david    | 35  | 2
+  -- eve      | 40  | 3
+  -- frank    | 45  | 3
+  -- grace    | 50  | 4
+  -- henry    | 55  | 4  (oldest 25%)
+  ```
+
+  **NTILE with PARTITION BY:**
+
+  ```sql
+  -- Divide users into 3 groups per country
+  SELECT 
+      username,
+      country,
+      age,
+      NTILE(3) OVER (PARTITION BY country ORDER BY age) AS age_group
+  FROM users;
+  ```
+
+  **Use cases:**
+  + Divide customers into segments (high/medium/low value)
+  + Create percentile groups
+  + Distribute workload evenly
+
+  **Customer segmentation example:**
+
+  ```sql
+  -- Segment customers by spending
+  WITH customer_spending AS (
+      SELECT 
+          user_id,
+          SUM(total) AS total_spent,
+          NTILE(3) OVER (ORDER BY SUM(total) DESC) AS segment
+      FROM orders
+      GROUP BY user_id
+  )
+  SELECT 
+      user_id,
+      total_spent,
+      CASE segment
+          WHEN 1 THEN 'High Value'
+          WHEN 2 THEN 'Medium Value'
+          WHEN 3 THEN 'Low Value'
+      END AS customer_segment
+  FROM customer_spending;
+  ```
+
+</details>
+
+<details>
+  <summary>LAG and LEAD Functions</summary>
+  <br/>
+
+  **LAG()** accesses previous row value, **LEAD()** accesses next row value.
+
+  **Basic LAG:**
+
+  ```sql
+  -- Get previous order total for each user
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      LAG(total) OVER (PARTITION BY user_id ORDER BY created_at) AS previous_order
+  FROM orders;
+  
+  -- Result:
+  -- user_id | order_id | total  | previous_order
+  -- 1       | 101      | 99.99  | NULL (first order)
+  -- 1       | 102      | 149.99 | 99.99
+  -- 1       | 103      | 79.99  | 149.99
+  -- 2       | 201      | 199.99 | NULL (first order)
+  -- 2       | 202      | 89.99  | 199.99
+  ```
+
+  **Basic LEAD:**
+
+  ```sql
+  -- Get next order total for each user
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      LEAD(total) OVER (PARTITION BY user_id ORDER BY created_at) AS next_order
+  FROM orders;
+  
+  -- Result:
+  -- user_id | order_id | total  | next_order
+  -- 1       | 101      | 99.99  | 149.99
+  -- 1       | 102      | 149.99 | 79.99
+  -- 1       | 103      | 79.99  | NULL (last order)
+  ```
+
+  **LAG with offset and default:**
+
+  ```sql
+  -- Get value from 2 rows back, default to 0
+  SELECT 
+      user_id,
+      total,
+      LAG(total, 2, 0) OVER (PARTITION BY user_id ORDER BY created_at) AS two_orders_ago
+  FROM orders;
+  ```
+
+  **Calculate differences:**
+
+  ```sql
+  -- Calculate order-to-order change
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      total - LAG(total) OVER (PARTITION BY user_id ORDER BY created_at) AS change
+  FROM orders;
+  
+  -- Calculate percentage change
+  SELECT 
+      user_id,
+      total,
+      ROUND(
+          (total - LAG(total) OVER (PARTITION BY user_id ORDER BY created_at)) 
+          / LAG(total) OVER (PARTITION BY user_id ORDER BY created_at) * 100,
+          2
+      ) AS pct_change
+  FROM orders;
+  ```
+
+  **Time series analysis:**
+
+  ```sql
+  -- Daily revenue with previous day comparison
+  SELECT 
+      DATE(created_at) AS order_date,
+      SUM(total) AS daily_revenue,
+      LAG(SUM(total)) OVER (ORDER BY DATE(created_at)) AS prev_day_revenue,
+      SUM(total) - LAG(SUM(total)) OVER (ORDER BY DATE(created_at)) AS revenue_change
+  FROM orders
+  GROUP BY DATE(created_at);
+  ```
+
+</details>
+
+<details>
+  <summary>FIRST_VALUE and LAST_VALUE Functions</summary>
+  <br/>
+
+  **FIRST_VALUE()** returns first value in window, **LAST_VALUE()** returns last value.
+
+  **Basic FIRST_VALUE:**
+
+  ```sql
+  -- Get first order total for each user
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      FIRST_VALUE(total) OVER (PARTITION BY user_id ORDER BY created_at) AS first_order
+  FROM orders;
+  
+  -- Result:
+  -- user_id | order_id | total  | first_order
+  -- 1       | 101      | 99.99  | 99.99
+  -- 1       | 102      | 149.99 | 99.99
+  -- 1       | 103      | 79.99  | 99.99
+  ```
+
+  **Basic LAST_VALUE:**
+
+  ```sql
+  -- Get last order total for each user
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      LAST_VALUE(total) OVER (
+          PARTITION BY user_id 
+          ORDER BY created_at
+          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+      ) AS last_order
+  FROM orders;
+  
+  -- Note: ROWS BETWEEN clause is important for LAST_VALUE
+  ```
+
+  **Compare with first/last values:**
+
+  ```sql
+  -- Compare each order with user's first and last order
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      FIRST_VALUE(total) OVER (
+          PARTITION BY user_id ORDER BY created_at
+      ) AS first_order,
+      LAST_VALUE(total) OVER (
+          PARTITION BY user_id ORDER BY created_at
+          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+      ) AS last_order,
+      total - FIRST_VALUE(total) OVER (
+          PARTITION BY user_id ORDER BY created_at
+      ) AS diff_from_first
+  FROM orders;
+  ```
+
+</details>
+
+<details>
+  <summary>Aggregate Window Functions</summary>
+  <br/>
+
+  **Aggregate functions** can be used as window functions.
+
+  **Running totals:**
+
+  ```sql
+  -- Running total of orders per user
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      SUM(total) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total
+  FROM orders;
+  
+  -- Result:
+  -- user_id | order_id | total  | running_total
+  -- 1       | 101      | 99.99  | 99.99
+  -- 1       | 102      | 149.99 | 249.98
+  -- 1       | 103      | 79.99  | 329.97
+  ```
+
+  **Running average:**
+
+  ```sql
+  -- Running average of order totals
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      ROUND(AVG(total) OVER (PARTITION BY user_id ORDER BY created_at), 2) AS running_avg
+  FROM orders;
+  ```
+
+  **Moving average:**
+
+  ```sql
+  -- 3-order moving average
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      ROUND(AVG(total) OVER (
+          PARTITION BY user_id 
+          ORDER BY created_at
+          ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+      ), 2) AS moving_avg_3
+  FROM orders;
+  ```
+
+  **Cumulative count:**
+
+  ```sql
+  -- Count of orders up to current row
+  SELECT 
+      user_id,
+      id AS order_id,
+      created_at,
+      COUNT(*) OVER (PARTITION BY user_id ORDER BY created_at) AS order_number
+  FROM orders;
+  ```
+
+  **Compare with overall average:**
+
+  ```sql
+  -- Compare each order with user's average
+  SELECT 
+      user_id,
+      id AS order_id,
+      total,
+      ROUND(AVG(total) OVER (PARTITION BY user_id), 2) AS user_avg,
+      ROUND(total - AVG(total) OVER (PARTITION BY user_id), 2) AS diff_from_avg
+  FROM orders;
+  ```
+
+</details>
+
+<details>
+  <summary>Window Frame Specification</summary>
+  <br/>
+
+  **Window frames** define which rows to include in calculation.
+
+  **Frame types:**
+  + **ROWS** - Physical rows
+  + **RANGE** - Logical range based on values
+
+  **Frame boundaries:**
+  + **UNBOUNDED PRECEDING** - Start of partition
+  + **N PRECEDING** - N rows before current
+  + **CURRENT ROW** - Current row
+  + **N FOLLOWING** - N rows after current
+  + **UNBOUNDED FOLLOWING** - End of partition
+
+  **Frame examples:**
+
+  ```sql
+  -- Default frame (RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+  SELECT 
+      id,
+      total,
+      SUM(total) OVER (ORDER BY id) AS running_total
+  FROM orders;
+  
+  -- Explicit frame: all rows up to current
+  SELECT 
+      id,
+      total,
+      SUM(total) OVER (
+          ORDER BY id
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS running_total
+  FROM orders;
+  
+  -- Frame: 2 rows before to 2 rows after (5-row window)
+  SELECT 
+      id,
+      total,
+      AVG(total) OVER (
+          ORDER BY id
+          ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING
+      ) AS moving_avg_5
+  FROM orders;
+  
+  -- Frame: 3 rows before to current (4-row window)
+  SELECT 
+      id,
+      total,
+      AVG(total) OVER (
+          ORDER BY id
+          ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+      ) AS moving_avg_4
+  FROM orders;
+  
+  -- Frame: current to 2 rows after
+  SELECT 
+      id,
+      total,
+      SUM(total) OVER (
+          ORDER BY id
+          ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING
+      ) AS next_3_total
+  FROM orders;
+  
+  -- Frame: entire partition
+  SELECT 
+      user_id,
+      total,
+      AVG(total) OVER (
+          PARTITION BY user_id
+          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+      ) AS user_avg
+  FROM orders;
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Use ROW_NUMBER for unique sequential numbers
+  SELECT 
+      username,
+      ROW_NUMBER() OVER (ORDER BY created_at) AS row_num
+  FROM users;
+  
+  -- ✅ DO: Use RANK for rankings with gaps
+  SELECT 
+      username,
+      score,
+      RANK() OVER (ORDER BY score DESC) AS rank
+  FROM users;
+  
+  -- ✅ DO: Use DENSE_RANK for rankings without gaps
+  SELECT 
+      username,
+      score,
+      DENSE_RANK() OVER (ORDER BY score DESC) AS dense_rank
+  FROM users;
+  
+  -- ✅ DO: Use PARTITION BY to group calculations
+  SELECT 
+      username,
+      country,
+      ROW_NUMBER() OVER (PARTITION BY country ORDER BY username) AS row_num
+  FROM users;
+  
+  -- ✅ DO: Use LAG/LEAD for time series analysis
+  SELECT 
+      order_date,
+      revenue,
+      revenue - LAG(revenue) OVER (ORDER BY order_date) AS daily_change
+  FROM daily_sales;
+  
+  -- ✅ DO: Use NTILE for segmentation
+  SELECT 
+      user_id,
+      total_spent,
+      NTILE(4) OVER (ORDER BY total_spent DESC) AS quartile
+  FROM customer_spending;
+  
+  -- ✅ DO: Use CTEs with window functions for readability
+  WITH ranked_orders AS (
+      SELECT 
+          user_id,
+          order_id,
+          total,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY total DESC) AS rank
+      FROM orders
+  )
+  SELECT * FROM ranked_orders WHERE rank <= 3;
+  
+  -- ✅ DO: Specify frame for LAST_VALUE
+  SELECT 
+      id,
+      total,
+      LAST_VALUE(total) OVER (
+          ORDER BY id
+          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+      ) AS last_total
+  FROM orders;
+  
+  -- ✅ DO: Use window functions instead of self-joins
+  -- Window function (better)
+  SELECT 
+      id,
+      total,
+      LAG(total) OVER (ORDER BY id) AS prev_total
+  FROM orders;
+  
+  -- Self-join (slower)
+  SELECT 
+      o1.id,
+      o1.total,
+      o2.total AS prev_total
+  FROM orders o1
+  LEFT JOIN orders o2 ON o2.id = o1.id - 1;
+  
+  -- ✅ DO: Use indexes on PARTITION BY and ORDER BY columns
+  CREATE INDEX idx_orders_user_created ON orders(user_id, created_at);
+  
+  -- ✅ DO: Use window functions for running totals
+  SELECT 
+      order_date,
+      daily_revenue,
+      SUM(daily_revenue) OVER (ORDER BY order_date) AS running_total
+  FROM daily_sales;
+  
+  -- ❌ DON'T: Use window functions when simple aggregation suffices
+  -- Window function (unnecessary)
+  SELECT DISTINCT
+      country,
+      COUNT(*) OVER (PARTITION BY country) AS user_count
+  FROM users;
+  
+  -- Simple GROUP BY (better)
+  SELECT country, COUNT(*) AS user_count
+  FROM users
+  GROUP BY country;
+  
+  -- ✅ DO: Use EXPLAIN to analyze window function performance
+  EXPLAIN SELECT 
+      username,
+      ROW_NUMBER() OVER (ORDER BY created_at) AS row_num
+  FROM users;
+  ```
+
+  **Summary:**
+  + **Window functions** perform calculations without grouping rows
+  + **ROW_NUMBER()** - Unique sequential number for each row
+  + **RANK()** - Rank with gaps for ties
+  + **DENSE_RANK()** - Rank without gaps for ties
+  + **NTILE(n)** - Divide rows into n groups
+  + **LAG()** - Access previous row value
+  + **LEAD()** - Access next row value
+  + **FIRST_VALUE()** - First value in window
+  + **LAST_VALUE()** - Last value in window (specify frame!)
+  + Use **PARTITION BY** to group calculations
+  + Use **ORDER BY** to define row order
+  + Use **frame specification** to define calculation window
+  + Use **CTEs** for readability
+  + Use **indexes** on PARTITION BY and ORDER BY columns
+  + Use window functions instead of **self-joins**
+  + Don't use window functions when **simple aggregation** suffices
+
+</details>

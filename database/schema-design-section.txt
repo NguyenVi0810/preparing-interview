@@ -1,0 +1,938 @@
+## Schema Design & Constraints
+
+<details>
+  <summary>What is Schema Design?</summary>
+  <br/>
+
+  **Schema design** is the process of defining the structure of a database, including tables, columns, relationships, and constraints.
+
+  **Key components:**
+  + **Tables** - Store related data
+  + **Columns** - Define data attributes
+  + **Primary Keys** - Uniquely identify rows
+  + **Foreign Keys** - Define relationships between tables
+  + **Constraints** - Enforce data integrity rules
+  + **Indexes** - Improve query performance
+
+  **Design principles:**
+  + Start with requirements (what data to store, what queries to support)
+  + Identify entities (users, orders, products)
+  + Define relationships (one-to-many, many-to-many)
+  + Normalize to 3NF (reduce redundancy)
+  + Add constraints (enforce business rules)
+  + Create indexes (optimize queries)
+
+  **Example schema:**
+
+  ```sql
+  -- E-commerce schema
+  CREATE TABLE customers (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,
+      sku VARCHAR(50) UNIQUE NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      price DECIMAL(10, 2) NOT NULL CHECK (price > 0),
+      stock INT NOT NULL DEFAULT 0 CHECK (stock >= 0)
+  );
+  
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      status VARCHAR(20) DEFAULT 'pending',
+      total DECIMAL(10, 2) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  CREATE TABLE order_items (
+      id SERIAL PRIMARY KEY,
+      order_id INT NOT NULL,
+      product_id INT NOT NULL,
+      quantity INT NOT NULL CHECK (quantity > 0),
+      price DECIMAL(10, 2) NOT NULL,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+  );
+  ```
+
+</details>
+
+<details>
+  <summary>Primary Keys</summary>
+  <br/>
+
+  **Primary keys** uniquely identify each row in a table.
+
+  **Types of primary keys:**
+
+  **1. Surrogate keys (auto-increment IDs):**
+
+  ```sql
+  -- PostgreSQL
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,  -- Auto-increment
+      username VARCHAR(50)
+  );
+  
+  -- MySQL
+  CREATE TABLE users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(50)
+  );
+  
+  -- SQL Server
+  CREATE TABLE users (
+      id INT IDENTITY(1,1) PRIMARY KEY,
+      username VARCHAR(50)
+  );
+  
+  -- Pros:
+  -- - Simple, consistent
+  -- - No business logic dependency
+  -- - Easy to reference in foreign keys
+  -- - Immutable (never changes)
+  
+  -- Cons:
+  -- - No business meaning
+  -- - Extra column
+  ```
+
+  **2. Natural keys (business data):**
+
+  ```sql
+  -- Email as primary key
+  CREATE TABLE users (
+      email VARCHAR(255) PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  -- SSN as primary key
+  CREATE TABLE employees (
+      ssn VARCHAR(11) PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  -- Pros:
+  -- - Has business meaning
+  -- - No extra column needed
+  
+  -- Cons:
+  -- - May change (email, phone)
+  -- - May be long (affects foreign keys)
+  -- - May be composite (multiple columns)
+  -- - Privacy concerns (SSN)
+  ```
+
+  **3. Composite keys (multiple columns):**
+
+  ```sql
+  -- Order items identified by order_id + product_id
+  CREATE TABLE order_items (
+      order_id INT,
+      product_id INT,
+      quantity INT,
+      PRIMARY KEY (order_id, product_id),
+      FOREIGN KEY (order_id) REFERENCES orders(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+  );
+  
+  -- Student enrollments
+  CREATE TABLE enrollments (
+      student_id INT,
+      course_id INT,
+      semester VARCHAR(20),
+      grade VARCHAR(2),
+      PRIMARY KEY (student_id, course_id, semester)
+  );
+  
+  -- Pros:
+  -- - Natural relationship representation
+  -- - No extra column
+  
+  -- Cons:
+  -- - Complex foreign key references
+  -- - Larger indexes
+  -- - More difficult to reference
+  ```
+
+  **4. UUID/GUID keys:**
+
+  ```sql
+  -- PostgreSQL
+  CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+  
+  CREATE TABLE users (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      username VARCHAR(50)
+  );
+  
+  -- Insert generates UUID automatically
+  INSERT INTO users (username) VALUES ('john');
+  -- id: 550e8400-e29b-41d4-a716-446655440000
+  
+  -- Pros:
+  -- - Globally unique (across databases)
+  -- - Can generate client-side
+  -- - Good for distributed systems
+  -- - No collision risk
+  
+  -- Cons:
+  -- - Larger storage (16 bytes vs 4 bytes for INT)
+  -- - Slower indexes
+  -- - Not human-readable
+  -- - Random order (affects B-tree performance)
+  ```
+
+  **Best practices:**
+
+  ```sql
+  -- ✅ DO: Use surrogate keys for most tables
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL
+  );
+  
+  -- ✅ DO: Add UNIQUE constraint on natural keys
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,
+      sku VARCHAR(50) UNIQUE NOT NULL  -- Natural key as unique
+  );
+  
+  -- ✅ DO: Use composite keys for junction tables
+  CREATE TABLE user_roles (
+      user_id INT,
+      role_id INT,
+      PRIMARY KEY (user_id, role_id)
+  );
+  
+  -- ❌ DON'T: Use mutable data as primary key
+  CREATE TABLE users (
+      email VARCHAR(255) PRIMARY KEY  -- Email can change!
+  );
+  
+  -- ✅ BETTER: Use surrogate key
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL
+  );
+  
+  -- ❌ DON'T: Use long strings as primary key
+  CREATE TABLE sessions (
+      token VARCHAR(500) PRIMARY KEY  -- Too long!
+  );
+  
+  -- ✅ BETTER: Use hash or surrogate key
+  CREATE TABLE sessions (
+      id SERIAL PRIMARY KEY,
+      token_hash VARCHAR(64) UNIQUE NOT NULL
+  );
+  ```
+
+</details>
+
+<details>
+  <summary>Foreign Keys</summary>
+  <br/>
+
+  **Foreign keys** define relationships between tables and enforce referential integrity.
+
+  **Basic foreign key:**
+
+  ```sql
+  CREATE TABLE customers (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      total DECIMAL(10, 2),
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  -- Valid insert
+  INSERT INTO customers (id, name) VALUES (1, 'John');
+  INSERT INTO orders (customer_id, total) VALUES (1, 99.99);  -- OK
+  
+  -- Invalid insert (referential integrity violation)
+  INSERT INTO orders (customer_id, total) VALUES (999, 99.99);  -- ERROR
+  -- ERROR: foreign key constraint violated
+  ```
+
+  **ON DELETE actions:**
+
+  ```sql
+  -- CASCADE: Delete child rows when parent is deleted
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+  );
+  
+  DELETE FROM customers WHERE id = 1;
+  -- All orders for customer 1 are also deleted
+  
+  -- RESTRICT: Prevent deletion if child rows exist (default)
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT
+  );
+  
+  DELETE FROM customers WHERE id = 1;
+  -- ERROR: cannot delete customer with existing orders
+  
+  -- SET NULL: Set foreign key to NULL when parent is deleted
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT,  -- Nullable
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+  );
+  
+  DELETE FROM customers WHERE id = 1;
+  -- customer_id in orders is set to NULL
+  
+  -- SET DEFAULT: Set foreign key to default value
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT DEFAULT 0,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET DEFAULT
+  );
+  
+  DELETE FROM customers WHERE id = 1;
+  -- customer_id in orders is set to 0
+  
+  -- NO ACTION: Similar to RESTRICT (check at end of transaction)
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE NO ACTION
+  );
+  ```
+
+  **ON UPDATE actions:**
+
+  ```sql
+  -- CASCADE: Update child rows when parent key changes
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) 
+          ON UPDATE CASCADE
+          ON DELETE CASCADE
+  );
+  
+  UPDATE customers SET id = 100 WHERE id = 1;
+  -- customer_id in orders is updated to 100
+  
+  -- RESTRICT: Prevent update if child rows exist
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON UPDATE RESTRICT
+  );
+  
+  UPDATE customers SET id = 100 WHERE id = 1;
+  -- ERROR: cannot update customer with existing orders
+  ```
+
+  **Composite foreign keys:**
+
+  ```sql
+  -- Parent table with composite key
+  CREATE TABLE courses (
+      department VARCHAR(10),
+      course_number VARCHAR(10),
+      name VARCHAR(100),
+      PRIMARY KEY (department, course_number)
+  );
+  
+  -- Child table references composite key
+  CREATE TABLE enrollments (
+      student_id INT,
+      department VARCHAR(10),
+      course_number VARCHAR(10),
+      grade VARCHAR(2),
+      FOREIGN KEY (department, course_number) 
+          REFERENCES courses(department, course_number)
+  );
+  ```
+
+  **Self-referencing foreign keys:**
+
+  ```sql
+  -- Employee hierarchy
+  CREATE TABLE employees (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100),
+      manager_id INT,
+      FOREIGN KEY (manager_id) REFERENCES employees(id)
+  );
+  
+  INSERT INTO employees (id, name, manager_id) VALUES
+      (1, 'CEO', NULL),           -- No manager
+      (2, 'VP Sales', 1),         -- Reports to CEO
+      (3, 'Sales Rep', 2);        -- Reports to VP Sales
+  ```
+
+  **Multiple foreign keys to same table:**
+
+  ```sql
+  -- Flight with departure and arrival airports
+  CREATE TABLE airports (
+      code VARCHAR(3) PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  CREATE TABLE flights (
+      id SERIAL PRIMARY KEY,
+      departure_airport VARCHAR(3),
+      arrival_airport VARCHAR(3),
+      FOREIGN KEY (departure_airport) REFERENCES airports(code),
+      FOREIGN KEY (arrival_airport) REFERENCES airports(code)
+  );
+  ```
+
+  **Deferred constraints (PostgreSQL):**
+
+  ```sql
+  -- Check constraint at end of transaction
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+          DEFERRABLE INITIALLY DEFERRED
+  );
+  
+  BEGIN;
+  INSERT INTO orders (customer_id) VALUES (1);  -- OK even if customer doesn't exist yet
+  INSERT INTO customers (id, name) VALUES (1, 'John');  -- Create customer
+  COMMIT;  -- Constraint checked here
+  ```
+
+</details>
+
+<details>
+  <summary>Constraints</summary>
+  <br/>
+
+  **Constraints** enforce data integrity rules.
+
+  **NOT NULL constraint:**
+
+  ```sql
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,      -- Cannot be NULL
+      name VARCHAR(100) NOT NULL,
+      phone VARCHAR(20)                 -- Can be NULL
+  );
+  
+  INSERT INTO users (email, name) VALUES ('john@example.com', 'John');  -- OK
+  INSERT INTO users (name) VALUES ('Jane');  -- ERROR: email cannot be NULL
+  ```
+
+  **UNIQUE constraint:**
+
+  ```sql
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,     -- Must be unique
+      username VARCHAR(50) UNIQUE NOT NULL
+  );
+  
+  INSERT INTO users (email, username) VALUES ('john@example.com', 'john');  -- OK
+  INSERT INTO users (email, username) VALUES ('john@example.com', 'john2'); -- ERROR: email not unique
+  
+  -- Composite unique constraint
+  CREATE TABLE user_roles (
+      user_id INT,
+      role_id INT,
+      UNIQUE (user_id, role_id)  -- Combination must be unique
+  );
+  ```
+
+  **CHECK constraint:**
+
+  ```sql
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(200) NOT NULL,
+      price DECIMAL(10, 2) CHECK (price > 0),           -- Price must be positive
+      stock INT CHECK (stock >= 0),                     -- Stock cannot be negative
+      discount DECIMAL(5, 2) CHECK (discount BETWEEN 0 AND 100)  -- 0-100%
+  );
+  
+  INSERT INTO products (name, price, stock) VALUES ('Laptop', 999.99, 10);  -- OK
+  INSERT INTO products (name, price, stock) VALUES ('Mouse', -10, 5);       -- ERROR: price must be > 0
+  INSERT INTO products (name, price, stock) VALUES ('Keyboard', 50, -5);    -- ERROR: stock must be >= 0
+  
+  -- Multi-column CHECK constraint
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      subtotal DECIMAL(10, 2),
+      tax DECIMAL(10, 2),
+      total DECIMAL(10, 2),
+      CHECK (total = subtotal + tax)  -- Ensure total is correct
+  );
+  
+  -- Named CHECK constraint
+  CREATE TABLE employees (
+      id SERIAL PRIMARY KEY,
+      salary DECIMAL(10, 2),
+      CONSTRAINT check_salary_positive CHECK (salary > 0)
+  );
+  ```
+
+  **DEFAULT constraint:**
+
+  ```sql
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(50) NOT NULL,
+      status VARCHAR(20) DEFAULT 'active',              -- Default value
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,   -- Default to now
+      is_verified BOOLEAN DEFAULT FALSE
+  );
+  
+  INSERT INTO users (username) VALUES ('john');
+  -- status = 'active', created_at = now, is_verified = false
+  ```
+
+  **ENUM constraint (PostgreSQL):**
+
+  ```sql
+  -- Create enum type
+  CREATE TYPE order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered', 'cancelled');
+  
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      status order_status DEFAULT 'pending'
+  );
+  
+  INSERT INTO orders (status) VALUES ('shipped');     -- OK
+  INSERT INTO orders (status) VALUES ('invalid');     -- ERROR: invalid enum value
+  
+  -- MySQL enum
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      status ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled') DEFAULT 'pending'
+  );
+  ```
+
+  **Adding constraints to existing tables:**
+
+  ```sql
+  -- Add NOT NULL
+  ALTER TABLE users ALTER COLUMN email SET NOT NULL;
+  
+  -- Add UNIQUE
+  ALTER TABLE users ADD CONSTRAINT unique_email UNIQUE (email);
+  
+  -- Add CHECK
+  ALTER TABLE products ADD CONSTRAINT check_price CHECK (price > 0);
+  
+  -- Add FOREIGN KEY
+  ALTER TABLE orders 
+  ADD CONSTRAINT fk_customer 
+  FOREIGN KEY (customer_id) REFERENCES customers(id);
+  
+  -- Add DEFAULT
+  ALTER TABLE users ALTER COLUMN status SET DEFAULT 'active';
+  ```
+
+  **Dropping constraints:**
+
+  ```sql
+  -- Drop constraint by name
+  ALTER TABLE users DROP CONSTRAINT unique_email;
+  
+  -- Drop NOT NULL
+  ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
+  
+  -- Drop DEFAULT
+  ALTER TABLE users ALTER COLUMN status DROP DEFAULT;
+  
+  -- Drop foreign key
+  ALTER TABLE orders DROP CONSTRAINT fk_customer;
+  ```
+
+  **Disabling constraints (for bulk operations):**
+
+  ```sql
+  -- PostgreSQL: Disable triggers (includes foreign keys)
+  ALTER TABLE orders DISABLE TRIGGER ALL;
+  -- Bulk insert...
+  ALTER TABLE orders ENABLE TRIGGER ALL;
+  
+  -- MySQL: Disable foreign key checks
+  SET FOREIGN_KEY_CHECKS = 0;
+  -- Bulk insert...
+  SET FOREIGN_KEY_CHECKS = 1;
+  ```
+
+</details>
+
+<details>
+  <summary>Entity-Relationship Modeling</summary>
+  <br/>
+
+  **Entity-Relationship (ER) modeling** defines entities and their relationships.
+
+  **One-to-Many (1:N) relationship:**
+
+  ```sql
+  -- One customer has many orders
+  CREATE TABLE customers (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      total DECIMAL(10, 2),
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  -- One customer → Many orders
+  -- One order → One customer
+  ```
+
+  **Many-to-Many (M:N) relationship:**
+
+  ```sql
+  -- Students enroll in many courses
+  -- Courses have many students
+  
+  CREATE TABLE students (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  CREATE TABLE courses (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  -- Junction table (associative entity)
+  CREATE TABLE enrollments (
+      student_id INT,
+      course_id INT,
+      grade VARCHAR(2),
+      enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (student_id, course_id),
+      FOREIGN KEY (student_id) REFERENCES students(id),
+      FOREIGN KEY (course_id) REFERENCES courses(id)
+  );
+  
+  -- Many students → Many courses
+  ```
+
+  **One-to-One (1:1) relationship:**
+
+  ```sql
+  -- One user has one profile
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL
+  );
+  
+  CREATE TABLE profiles (
+      user_id INT PRIMARY KEY,  -- Primary key = foreign key
+      bio TEXT,
+      avatar_url VARCHAR(500),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  
+  -- One user → One profile
+  -- One profile → One user
+  
+  -- Alternative: Use UNIQUE constraint
+  CREATE TABLE profiles (
+      id SERIAL PRIMARY KEY,
+      user_id INT UNIQUE NOT NULL,  -- UNIQUE enforces 1:1
+      bio TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+  ```
+
+  **Self-referencing relationship:**
+
+  ```sql
+  -- Employee hierarchy (manager-subordinate)
+  CREATE TABLE employees (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100),
+      manager_id INT,
+      FOREIGN KEY (manager_id) REFERENCES employees(id)
+  );
+  
+  -- Category hierarchy (parent-child)
+  CREATE TABLE categories (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100),
+      parent_id INT,
+      FOREIGN KEY (parent_id) REFERENCES categories(id)
+  );
+  ```
+
+  **Inheritance relationships:**
+
+  ```sql
+  -- Option 1: Single table (all types in one table)
+  CREATE TABLE vehicles (
+      id SERIAL PRIMARY KEY,
+      type VARCHAR(20),  -- 'car', 'truck', 'motorcycle'
+      make VARCHAR(50),
+      model VARCHAR(50),
+      -- Car-specific
+      num_doors INT,
+      -- Truck-specific
+      cargo_capacity INT,
+      -- Motorcycle-specific
+      engine_cc INT
+  );
+  -- Pros: Simple queries, no joins
+  -- Cons: Many NULL values, no type-specific constraints
+  
+  -- Option 2: Class table (separate table per type)
+  CREATE TABLE vehicles (
+      id SERIAL PRIMARY KEY,
+      make VARCHAR(50),
+      model VARCHAR(50)
+  );
+  
+  CREATE TABLE cars (
+      id INT PRIMARY KEY,
+      num_doors INT,
+      FOREIGN KEY (id) REFERENCES vehicles(id)
+  );
+  
+  CREATE TABLE trucks (
+      id INT PRIMARY KEY,
+      cargo_capacity INT,
+      FOREIGN KEY (id) REFERENCES vehicles(id)
+  );
+  -- Pros: No NULL values, type-specific constraints
+  -- Cons: Requires joins, more complex queries
+  
+  -- Option 3: Concrete table (duplicate common columns)
+  CREATE TABLE cars (
+      id SERIAL PRIMARY KEY,
+      make VARCHAR(50),
+      model VARCHAR(50),
+      num_doors INT
+  );
+  
+  CREATE TABLE trucks (
+      id SERIAL PRIMARY KEY,
+      make VARCHAR(50),
+      model VARCHAR(50),
+      cargo_capacity INT
+  );
+  -- Pros: No joins, simple queries
+  -- Cons: Duplicate columns, difficult to query all vehicles
+  ```
+
+</details>
+
+<details>
+  <summary>Schema Design Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Use consistent naming conventions
+  -- Tables: plural nouns (users, orders, products)
+  -- Columns: snake_case (created_at, user_id)
+  -- Primary keys: id
+  -- Foreign keys: table_name_id (user_id, order_id)
+  
+  CREATE TABLE customers (
+      id SERIAL PRIMARY KEY,
+      first_name VARCHAR(50),
+      last_name VARCHAR(50),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  -- ✅ DO: Use appropriate data types
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(200) NOT NULL,           -- Not TEXT
+      price DECIMAL(10, 2) NOT NULL,        -- Not FLOAT (precision)
+      stock SMALLINT NOT NULL DEFAULT 0,    -- Not INT (saves space)
+      is_active BOOLEAN DEFAULT TRUE,       -- Not CHAR(1)
+      created_at TIMESTAMP NOT NULL         -- Not VARCHAR
+  );
+  
+  -- ✅ DO: Add timestamps for auditing
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- ✅ DO: Use surrogate keys for most tables
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,              -- Surrogate key
+      sku VARCHAR(50) UNIQUE NOT NULL,    -- Natural key as unique
+      name VARCHAR(200)
+  );
+  
+  -- ✅ DO: Add indexes on foreign keys
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+  
+  -- ✅ DO: Use NOT NULL for required fields
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,        -- Required
+      name VARCHAR(100) NOT NULL,         -- Required
+      phone VARCHAR(20)                   -- Optional
+  );
+  
+  -- ✅ DO: Add CHECK constraints for business rules
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,
+      price DECIMAL(10, 2) CHECK (price > 0),
+      stock INT CHECK (stock >= 0),
+      discount DECIMAL(5, 2) CHECK (discount BETWEEN 0 AND 100)
+  );
+  
+  -- ✅ DO: Use CASCADE carefully
+  CREATE TABLE order_items (
+      id SERIAL PRIMARY KEY,
+      order_id INT NOT NULL,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+  );
+  -- Deleting order deletes all order items (usually desired)
+  
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT
+  );
+  -- Cannot delete customer with orders (usually desired)
+  
+  -- ✅ DO: Document schema with comments
+  COMMENT ON TABLE users IS 'Registered users of the application';
+  COMMENT ON COLUMN users.email IS 'User email address (unique, used for login)';
+  
+  -- ✅ DO: Use junction tables for many-to-many
+  CREATE TABLE user_roles (
+      user_id INT,
+      role_id INT,
+      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, role_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (role_id) REFERENCES roles(id)
+  );
+  
+  -- ❌ DON'T: Use reserved keywords as names
+  -- BAD: order, user, select, table
+  CREATE TABLE "order" (id INT);  -- Requires quotes
+  
+  -- GOOD: orders, users
+  CREATE TABLE orders (id INT);
+  
+  -- ❌ DON'T: Store calculated values (unless performance critical)
+  CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      subtotal DECIMAL(10, 2),
+      tax DECIMAL(10, 2),
+      total DECIMAL(10, 2)  -- Calculated: subtotal + tax
+  );
+  
+  -- BETTER: Calculate on the fly
+  SELECT id, subtotal, tax, (subtotal + tax) AS total FROM orders;
+  
+  -- ❌ DON'T: Use generic column names
+  CREATE TABLE products (
+      id INT,
+      name VARCHAR(100),
+      value VARCHAR(100),  -- What value?
+      data TEXT            -- What data?
+  );
+  
+  -- BETTER: Use descriptive names
+  CREATE TABLE products (
+      id INT,
+      name VARCHAR(100),
+      price DECIMAL(10, 2),
+      description TEXT
+  );
+  
+  -- ❌ DON'T: Store multiple values in single column
+  CREATE TABLE users (
+      id INT,
+      name VARCHAR(100),
+      hobbies VARCHAR(500)  -- "reading, gaming, cooking"
+  );
+  
+  -- BETTER: Separate table
+  CREATE TABLE user_hobbies (
+      user_id INT,
+      hobby VARCHAR(100),
+      PRIMARY KEY (user_id, hobby)
+  );
+  
+  -- ✅ DO: Use soft delete for important data
+  CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255),
+      deleted_at TIMESTAMP,  -- NULL = active, NOT NULL = deleted
+      deleted_by INT
+  );
+  
+  -- Query active users
+  SELECT * FROM users WHERE deleted_at IS NULL;
+  
+  -- ✅ DO: Version your schema
+  CREATE TABLE schema_migrations (
+      version VARCHAR(50) PRIMARY KEY,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  -- ✅ DO: Use transactions for schema changes
+  BEGIN;
+  ALTER TABLE users ADD COLUMN phone VARCHAR(20);
+  CREATE INDEX idx_users_phone ON users(phone);
+  COMMIT;
+  ```
+
+  **Summary:**
+  + **Primary keys** uniquely identify rows (prefer surrogate keys)
+  + **Foreign keys** define relationships and enforce referential integrity
+  + **Constraints** enforce data integrity (NOT NULL, UNIQUE, CHECK)
+  + Use **appropriate data types** for each column
+  + Add **timestamps** for auditing (created_at, updated_at)
+  + Use **indexes** on foreign keys and frequently queried columns
+  + Use **CASCADE** carefully (understand implications)
+  + Use **junction tables** for many-to-many relationships
+  + Use **consistent naming conventions**
+  + **Document** schema with comments
+  + Use **soft delete** for important data
+  + **Version** your schema changes
+  + Use **transactions** for schema modifications
+
+</details>

@@ -1,0 +1,758 @@
+## Views
+
+<details>
+  <summary>What are Views?</summary>
+  <br/>
+
+  **Views** are virtual tables based on SQL queries. They don't store data themselves but provide a way to simplify complex queries and control data access.
+
+  **Basic view:**
+
+  ```sql
+  -- Create view
+  CREATE VIEW active_users AS
+  SELECT id, username, email, created_at
+  FROM users
+  WHERE deleted_at IS NULL;
+  
+  -- Query view like a table
+  SELECT * FROM active_users;
+  SELECT * FROM active_users WHERE username LIKE 'john%';
+  ```
+
+  **Benefits of views:**
+  + Simplify complex queries
+  + Encapsulate business logic
+  + Provide data abstraction
+  + Control data access (security)
+  + Maintain backward compatibility
+  + Reuse common queries
+
+  **Types of views:**
+  + **Simple views** - Based on single table
+  + **Complex views** - Based on multiple tables (joins)
+  + **Materialized views** - Store query results physically
+
+</details>
+
+<details>
+  <summary>Creating Views</summary>
+  <br/>
+
+  **Simple view:**
+
+  ```sql
+  -- View of active products
+  CREATE VIEW active_products AS
+  SELECT id, name, price, stock
+  FROM products
+  WHERE is_active = TRUE;
+  
+  -- Use view
+  SELECT * FROM active_products WHERE price > 100;
+  ```
+
+  **View with joins:**
+
+  ```sql
+  -- Customer order summary
+  CREATE VIEW customer_orders AS
+  SELECT 
+      c.id AS customer_id,
+      c.name AS customer_name,
+      c.email,
+      o.id AS order_id,
+      o.total,
+      o.status,
+      o.created_at AS order_date
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id;
+  
+  -- Query view
+  SELECT * FROM customer_orders WHERE customer_id = 1;
+  ```
+
+  **View with aggregations:**
+
+  ```sql
+  -- Customer statistics
+  CREATE VIEW customer_stats AS
+  SELECT 
+      c.id,
+      c.name,
+      c.email,
+      COUNT(o.id) AS order_count,
+      COALESCE(SUM(o.total), 0) AS total_spent,
+      MAX(o.created_at) AS last_order_date
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name, c.email;
+  
+  -- Query view
+  SELECT * FROM customer_stats WHERE order_count > 5;
+  ```
+
+  **View with subqueries:**
+
+  ```sql
+  -- Products with category name
+  CREATE VIEW products_with_category AS
+  SELECT 
+      p.id,
+      p.name,
+      p.price,
+      (SELECT name FROM categories WHERE id = p.category_id) AS category_name
+  FROM products p;
+  ```
+
+  **View with calculations:**
+
+  ```sql
+  -- Order totals with tax
+  CREATE VIEW order_totals AS
+  SELECT 
+      id,
+      customer_id,
+      subtotal,
+      subtotal * 0.1 AS tax,
+      subtotal * 1.1 AS total
+  FROM orders;
+  ```
+
+  **View with UNION:**
+
+  ```sql
+  -- All transactions (orders and refunds)
+  CREATE VIEW all_transactions AS
+  SELECT id, customer_id, amount, 'order' AS type, created_at
+  FROM orders
+  UNION ALL
+  SELECT id, customer_id, amount, 'refund' AS type, created_at
+  FROM refunds;
+  ```
+
+  **Replace existing view:**
+
+  ```sql
+  -- PostgreSQL, MySQL
+  CREATE OR REPLACE VIEW active_users AS
+  SELECT id, username, email, status, created_at
+  FROM users
+  WHERE deleted_at IS NULL;
+  
+  -- SQL Server
+  ALTER VIEW active_users AS
+  SELECT id, username, email, status, created_at
+  FROM users
+  WHERE deleted_at IS NULL;
+  ```
+
+</details>
+
+<details>
+  <summary>Querying Views</summary>
+  <br/>
+
+  **Views behave like tables:**
+
+  ```sql
+  -- Create view
+  CREATE VIEW active_products AS
+  SELECT id, name, price, stock
+  FROM products
+  WHERE is_active = TRUE;
+  
+  -- SELECT
+  SELECT * FROM active_products;
+  SELECT name, price FROM active_products WHERE price > 100;
+  
+  -- WHERE
+  SELECT * FROM active_products WHERE stock > 0;
+  
+  -- ORDER BY
+  SELECT * FROM active_products ORDER BY price DESC;
+  
+  -- LIMIT
+  SELECT * FROM active_products LIMIT 10;
+  
+  -- JOIN with other tables
+  SELECT 
+      ap.name,
+      ap.price,
+      c.name AS category_name
+  FROM active_products ap
+  JOIN categories c ON ap.category_id = c.id;
+  
+  -- JOIN with other views
+  SELECT 
+      cs.customer_name,
+      cs.order_count,
+      ap.name AS product_name
+  FROM customer_stats cs
+  JOIN order_items oi ON cs.customer_id = oi.customer_id
+  JOIN active_products ap ON oi.product_id = ap.id;
+  ```
+
+  **Views in subqueries:**
+
+  ```sql
+  -- Customers with above-average spending
+  SELECT *
+  FROM customer_stats
+  WHERE total_spent > (SELECT AVG(total_spent) FROM customer_stats);
+  ```
+
+  **Views with CTEs:**
+
+  ```sql
+  WITH high_value_customers AS (
+      SELECT * FROM customer_stats WHERE total_spent > 1000
+  )
+  SELECT * FROM high_value_customers WHERE order_count > 10;
+  ```
+
+</details>
+
+<details>
+  <summary>Updatable Views</summary>
+  <br/>
+
+  **Simple views can be updated:**
+
+  ```sql
+  -- Create simple view
+  CREATE VIEW active_users AS
+  SELECT id, username, email, status
+  FROM users
+  WHERE deleted_at IS NULL;
+  
+  -- INSERT through view
+  INSERT INTO active_users (username, email, status)
+  VALUES ('john', 'john@example.com', 'active');
+  -- Inserts into users table
+  
+  -- UPDATE through view
+  UPDATE active_users
+  SET status = 'inactive'
+  WHERE id = 1;
+  -- Updates users table
+  
+  -- DELETE through view
+  DELETE FROM active_users WHERE id = 1;
+  -- Deletes from users table
+  ```
+
+  **Views with CHECK OPTION:**
+
+  ```sql
+  -- Prevent updates that violate view condition
+  CREATE VIEW active_users AS
+  SELECT id, username, email, status
+  FROM users
+  WHERE status = 'active'
+  WITH CHECK OPTION;
+  
+  -- This works
+  UPDATE active_users SET email = 'new@example.com' WHERE id = 1;
+  
+  -- This fails (violates WHERE condition)
+  UPDATE active_users SET status = 'inactive' WHERE id = 1;
+  -- ERROR: new row violates check option
+  ```
+
+  **Non-updatable views:**
+
+  Views with these features cannot be updated:
+  + Aggregations (COUNT, SUM, AVG, etc.)
+  + DISTINCT
+  + GROUP BY
+  + HAVING
+  + UNION
+  + Joins (in some databases)
+  + Subqueries in SELECT
+
+  ```sql
+  -- Non-updatable view (has aggregation)
+  CREATE VIEW customer_stats AS
+  SELECT 
+      customer_id,
+      COUNT(*) AS order_count,
+      SUM(total) AS total_spent
+  FROM orders
+  GROUP BY customer_id;
+  
+  -- Cannot update
+  UPDATE customer_stats SET order_count = 10 WHERE customer_id = 1;
+  -- ERROR: cannot update view with aggregation
+  ```
+
+  **INSTEAD OF triggers (make non-updatable views updatable):**
+
+  ```sql
+  -- PostgreSQL: Create INSTEAD OF trigger
+  CREATE VIEW customer_stats AS
+  SELECT 
+      c.id,
+      c.name,
+      COUNT(o.id) AS order_count
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name;
+  
+  -- Create trigger function
+  CREATE FUNCTION update_customer_stats()
+  RETURNS TRIGGER AS $$
+  BEGIN
+      UPDATE customers
+      SET name = NEW.name
+      WHERE id = NEW.id;
+      RETURN NEW;
+  END;
+  $$ LANGUAGE plpgsql;
+  
+  -- Create INSTEAD OF trigger
+  CREATE TRIGGER update_customer_stats_trigger
+  INSTEAD OF UPDATE ON customer_stats
+  FOR EACH ROW
+  EXECUTE FUNCTION update_customer_stats();
+  
+  -- Now can update view
+  UPDATE customer_stats SET name = 'John Doe' WHERE id = 1;
+  ```
+
+</details>
+
+<details>
+  <summary>Materialized Views</summary>
+  <br/>
+
+  **Materialized views** store query results physically (like a table).
+
+  **Create materialized view:**
+
+  ```sql
+  -- PostgreSQL
+  CREATE MATERIALIZED VIEW customer_order_summary AS
+  SELECT 
+      c.id,
+      c.name,
+      c.email,
+      COUNT(o.id) AS order_count,
+      COALESCE(SUM(o.total), 0) AS total_spent,
+      MAX(o.created_at) AS last_order_date
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name, c.email;
+  
+  -- Query materialized view (fast, no joins/aggregations)
+  SELECT * FROM customer_order_summary WHERE order_count > 5;
+  ```
+
+  **Refresh materialized view:**
+
+  ```sql
+  -- Refresh (update data)
+  REFRESH MATERIALIZED VIEW customer_order_summary;
+  
+  -- Refresh without locking (PostgreSQL)
+  REFRESH MATERIALIZED VIEW CONCURRENTLY customer_order_summary;
+  -- Requires unique index
+  
+  -- Create unique index for concurrent refresh
+  CREATE UNIQUE INDEX idx_customer_summary_id 
+  ON customer_order_summary(id);
+  ```
+
+  **Automatic refresh (using triggers):**
+
+  ```sql
+  -- Create function to refresh materialized view
+  CREATE FUNCTION refresh_customer_summary()
+  RETURNS TRIGGER AS $$
+  BEGIN
+      REFRESH MATERIALIZED VIEW CONCURRENTLY customer_order_summary;
+      RETURN NULL;
+  END;
+  $$ LANGUAGE plpgsql;
+  
+  -- Create trigger on orders table
+  CREATE TRIGGER refresh_customer_summary_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON orders
+  FOR EACH STATEMENT
+  EXECUTE FUNCTION refresh_customer_summary();
+  ```
+
+  **Scheduled refresh (using cron or scheduler):**
+
+  ```sql
+  -- PostgreSQL: Use pg_cron extension
+  CREATE EXTENSION pg_cron;
+  
+  -- Schedule refresh every hour
+  SELECT cron.schedule(
+      'refresh-customer-summary',
+      '0 * * * *',  -- Every hour
+      'REFRESH MATERIALIZED VIEW CONCURRENTLY customer_order_summary'
+  );
+  ```
+
+  **Materialized view vs regular view:**
+
+  | Aspect | Regular View | Materialized View |
+  |--------|-------------|-------------------|
+  | Storage | No data stored | Data stored physically |
+  | Query speed | Slower (executes query) | Faster (reads stored data) |
+  | Data freshness | Always current | Stale until refreshed |
+  | Disk space | None | Uses disk space |
+  | Indexes | Cannot create | Can create indexes |
+  | Use case | Simple queries, current data | Complex queries, reporting |
+
+  **When to use materialized views:**
+  + Complex queries with joins/aggregations
+  + Reporting and analytics
+  + Data doesn't change frequently
+  + Query performance is critical
+  + Can tolerate stale data
+
+</details>
+
+<details>
+  <summary>View Security & Access Control</summary>
+  <br/>
+
+  **Views for data security:**
+
+  ```sql
+  -- Hide sensitive columns
+  CREATE VIEW public_users AS
+  SELECT id, username, email, created_at
+  FROM users;
+  -- Excludes: password_hash, ssn, credit_card
+  
+  -- Grant access to view only
+  GRANT SELECT ON public_users TO app_user;
+  REVOKE ALL ON users FROM app_user;
+  
+  -- Now app_user can only see public columns
+  ```
+
+  **Row-level security with views:**
+
+  ```sql
+  -- Show only user's own orders
+  CREATE VIEW my_orders AS
+  SELECT id, total, status, created_at
+  FROM orders
+  WHERE customer_id = current_user_id();  -- Function returns current user
+  
+  -- User can only see their own orders
+  SELECT * FROM my_orders;
+  ```
+
+  **Department-specific views:**
+
+  ```sql
+  -- Sales department view
+  CREATE VIEW sales_orders AS
+  SELECT id, customer_id, total, created_at
+  FROM orders
+  WHERE department = 'sales';
+  
+  -- Finance department view
+  CREATE VIEW finance_orders AS
+  SELECT id, customer_id, total, payment_method, created_at
+  FROM orders;
+  
+  -- Grant appropriate access
+  GRANT SELECT ON sales_orders TO sales_team;
+  GRANT SELECT ON finance_orders TO finance_team;
+  ```
+
+  **Masked data views:**
+
+  ```sql
+  -- Mask sensitive data
+  CREATE VIEW masked_users AS
+  SELECT 
+      id,
+      username,
+      CONCAT(SUBSTRING(email, 1, 3), '***@***', SUBSTRING(email FROM '@(.*)')) AS email,
+      '***-**-' || RIGHT(ssn, 4) AS ssn_last4
+  FROM users;
+  
+  -- Shows: john → joh***@***.com, 123-45-6789 → ***-**-6789
+  ```
+
+</details>
+
+<details>
+  <summary>View Performance Considerations</summary>
+  <br/>
+
+  **Views don't improve performance:**
+
+  ```sql
+  -- View is just a stored query
+  CREATE VIEW expensive_query AS
+  SELECT 
+      c.name,
+      COUNT(o.id) AS order_count,
+      SUM(o.total) AS total_spent
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name;
+  
+  -- This is still slow (executes full query)
+  SELECT * FROM expensive_query WHERE name = 'John';
+  
+  -- Equivalent to:
+  SELECT 
+      c.name,
+      COUNT(o.id) AS order_count,
+      SUM(o.total) AS total_spent
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  WHERE c.name = 'John'
+  GROUP BY c.id, c.name;
+  ```
+
+  **Use materialized views for performance:**
+
+  ```sql
+  -- Materialized view stores results
+  CREATE MATERIALIZED VIEW customer_summary AS
+  SELECT 
+      c.id,
+      c.name,
+      COUNT(o.id) AS order_count,
+      SUM(o.total) AS total_spent
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name;
+  
+  -- Create index on materialized view
+  CREATE INDEX idx_customer_summary_name ON customer_summary(name);
+  
+  -- This is fast (reads from stored data)
+  SELECT * FROM customer_summary WHERE name = 'John';
+  ```
+
+  **View optimization tips:**
+
+  ```sql
+  -- ✅ DO: Add indexes on base tables
+  CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+  CREATE INDEX idx_orders_created_at ON orders(created_at);
+  
+  -- ✅ DO: Filter early in view definition
+  CREATE VIEW recent_orders AS
+  SELECT id, customer_id, total, created_at
+  FROM orders
+  WHERE created_at > CURRENT_DATE - INTERVAL '30 days';
+  
+  -- ✅ DO: Use materialized views for complex queries
+  CREATE MATERIALIZED VIEW daily_sales AS
+  SELECT 
+      DATE(created_at) AS sale_date,
+      COUNT(*) AS order_count,
+      SUM(total) AS revenue
+  FROM orders
+  GROUP BY DATE(created_at);
+  
+  -- ❌ DON'T: Nest views too deeply
+  CREATE VIEW view1 AS SELECT * FROM table1;
+  CREATE VIEW view2 AS SELECT * FROM view1;
+  CREATE VIEW view3 AS SELECT * FROM view2;  -- Too many layers!
+  
+  -- ✅ DO: Use EXPLAIN to analyze view queries
+  EXPLAIN SELECT * FROM customer_orders WHERE customer_id = 1;
+  ```
+
+</details>
+
+<details>
+  <summary>Managing Views</summary>
+  <br/>
+
+  **List all views:**
+
+  ```sql
+  -- PostgreSQL
+  SELECT table_name, view_definition
+  FROM information_schema.views
+  WHERE table_schema = 'public';
+  
+  -- MySQL
+  SHOW FULL TABLES WHERE table_type = 'VIEW';
+  
+  -- SQL Server
+  SELECT name, definition
+  FROM sys.views v
+  JOIN sys.sql_modules m ON v.object_id = m.object_id;
+  ```
+
+  **View definition:**
+
+  ```sql
+  -- PostgreSQL
+  SELECT pg_get_viewdef('customer_orders', true);
+  
+  -- MySQL
+  SHOW CREATE VIEW customer_orders;
+  
+  -- SQL Server
+  EXEC sp_helptext 'customer_orders';
+  ```
+
+  **Drop view:**
+
+  ```sql
+  -- Drop view
+  DROP VIEW customer_orders;
+  
+  -- Drop if exists
+  DROP VIEW IF EXISTS customer_orders;
+  
+  -- Drop materialized view
+  DROP MATERIALIZED VIEW customer_order_summary;
+  
+  -- Drop cascade (drop dependent views)
+  DROP VIEW customer_orders CASCADE;
+  ```
+
+  **Rename view:**
+
+  ```sql
+  -- PostgreSQL
+  ALTER VIEW customer_orders RENAME TO customer_order_list;
+  
+  -- MySQL
+  RENAME TABLE customer_orders TO customer_order_list;
+  ```
+
+  **View dependencies:**
+
+  ```sql
+  -- PostgreSQL: Find views that depend on a table
+  SELECT DISTINCT dependent_view.relname AS view_name
+  FROM pg_depend
+  JOIN pg_rewrite ON pg_depend.objid = pg_rewrite.oid
+  JOIN pg_class AS dependent_view ON pg_rewrite.ev_class = dependent_view.oid
+  JOIN pg_class AS source_table ON pg_depend.refobjid = source_table.oid
+  WHERE source_table.relname = 'orders'
+  AND dependent_view.relkind = 'v';
+  ```
+
+</details>
+
+<details>
+  <summary>View Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Use views to simplify complex queries
+  CREATE VIEW customer_order_summary AS
+  SELECT 
+      c.id,
+      c.name,
+      COUNT(o.id) AS order_count,
+      SUM(o.total) AS total_spent
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name;
+  
+  -- ✅ DO: Use views for security (hide sensitive columns)
+  CREATE VIEW public_users AS
+  SELECT id, username, email, created_at
+  FROM users;
+  -- Excludes password_hash, ssn
+  
+  -- ✅ DO: Use descriptive view names
+  CREATE VIEW active_premium_customers AS
+  SELECT * FROM customers
+  WHERE status = 'active' AND tier = 'premium';
+  
+  -- ✅ DO: Document views with comments
+  COMMENT ON VIEW customer_order_summary IS 
+  'Customer statistics including order count and total spending';
+  
+  -- ✅ DO: Use materialized views for reporting
+  CREATE MATERIALIZED VIEW monthly_sales_report AS
+  SELECT 
+      DATE_TRUNC('month', created_at) AS month,
+      COUNT(*) AS order_count,
+      SUM(total) AS revenue
+  FROM orders
+  GROUP BY DATE_TRUNC('month', created_at);
+  
+  -- ✅ DO: Create indexes on materialized views
+  CREATE INDEX idx_monthly_sales_month 
+  ON monthly_sales_report(month);
+  
+  -- ✅ DO: Refresh materialized views regularly
+  REFRESH MATERIALIZED VIEW CONCURRENTLY monthly_sales_report;
+  
+  -- ✅ DO: Use WITH CHECK OPTION for updatable views
+  CREATE VIEW active_users AS
+  SELECT id, username, email, status
+  FROM users
+  WHERE status = 'active'
+  WITH CHECK OPTION;
+  
+  -- ❌ DON'T: Use views for simple column selection
+  CREATE VIEW user_emails AS
+  SELECT email FROM users;  -- Unnecessary
+  
+  -- ❌ DON'T: Nest views too deeply
+  CREATE VIEW view1 AS SELECT * FROM table1;
+  CREATE VIEW view2 AS SELECT * FROM view1;
+  CREATE VIEW view3 AS SELECT * FROM view2;  -- Hard to maintain
+  
+  -- ❌ DON'T: Use SELECT * in views
+  CREATE VIEW all_users AS
+  SELECT * FROM users;  -- Breaks if table structure changes
+  
+  -- ✅ BETTER: Specify columns
+  CREATE VIEW all_users AS
+  SELECT id, username, email, created_at FROM users;
+  
+  -- ❌ DON'T: Expect views to improve performance
+  -- Views don't cache results (use materialized views instead)
+  
+  -- ✅ DO: Use views for backward compatibility
+  -- After renaming column from 'name' to 'full_name'
+  CREATE VIEW users_legacy AS
+  SELECT id, full_name AS name, email
+  FROM users;
+  -- Old code can still use 'name' column
+  
+  -- ✅ DO: Use views to enforce business rules
+  CREATE VIEW valid_orders AS
+  SELECT * FROM orders
+  WHERE total > 0 AND status IN ('pending', 'processing', 'completed');
+  
+  -- ✅ DO: Version control view definitions
+  -- Store CREATE VIEW statements in migration files
+  
+  -- ✅ DO: Test view performance
+  EXPLAIN ANALYZE SELECT * FROM customer_order_summary;
+  ```
+
+  **Summary:**
+  + **Views** are virtual tables based on queries
+  + **Regular views** don't store data (execute query each time)
+  + **Materialized views** store data physically (faster queries)
+  + Use views to **simplify complex queries**
+  + Use views for **security** (hide sensitive data)
+  + Use views for **data abstraction**
+  + Use **materialized views** for reporting and analytics
+  + **Refresh** materialized views regularly
+  + Create **indexes** on materialized views
+  + Use **WITH CHECK OPTION** for updatable views
+  + **Document** views with comments
+  + Avoid **nesting views** too deeply
+  + Specify **columns explicitly** (not SELECT *)
+  + Use **EXPLAIN** to analyze view performance
+  + **Version control** view definitions
+
+</details>

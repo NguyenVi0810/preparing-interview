@@ -1,0 +1,812 @@
+## Normalization
+
+<details>
+  <summary>What is Normalization?</summary>
+  <br/>
+
+  **Normalization** is the process of organizing database tables to reduce redundancy and improve data integrity.
+
+  **Goals of normalization:**
+  + Eliminate redundant data
+  + Ensure data dependencies make sense
+  + Reduce data anomalies (insert, update, delete)
+  + Improve data integrity
+  + Optimize storage
+
+  **Normal forms:**
+  + **1NF (First Normal Form)** - Atomic values, no repeating groups
+  + **2NF (Second Normal Form)** - 1NF + no partial dependencies
+  + **3NF (Third Normal Form)** - 2NF + no transitive dependencies
+  + **BCNF (Boyce-Codd Normal Form)** - Stricter version of 3NF
+  + **4NF, 5NF** - Advanced forms (rarely used in practice)
+
+  **Trade-offs:**
+  + **Pros**: Less redundancy, better integrity, easier updates
+  + **Cons**: More joins, potentially slower queries, complex schema
+
+</details>
+
+<details>
+  <summary>First Normal Form (1NF)</summary>
+  <br/>
+
+  **1NF Rules:**
+  + Each column contains atomic (indivisible) values
+  + Each column contains values of single type
+  + Each column has unique name
+  + Order of rows doesn't matter
+
+  **Violation example (NOT in 1NF):**
+
+  ```sql
+  -- BAD: Multiple values in single column
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_name VARCHAR(100),
+      products VARCHAR(500)  -- "Laptop, Mouse, Keyboard"
+  );
+  
+  INSERT INTO orders VALUES 
+      (1, 'John', 'Laptop, Mouse, Keyboard'),
+      (2, 'Jane', 'Phone, Charger');
+  
+  -- Problems:
+  -- - Cannot easily query for specific product
+  -- - Cannot enforce product constraints
+  -- - Difficult to update individual products
+  ```
+
+  **1NF Solution:**
+
+  ```sql
+  -- GOOD: Separate table for products
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_name VARCHAR(100)
+  );
+  
+  CREATE TABLE order_items (
+      id INT PRIMARY KEY,
+      order_id INT,
+      product_name VARCHAR(100),
+      FOREIGN KEY (order_id) REFERENCES orders(id)
+  );
+  
+  INSERT INTO orders VALUES 
+      (1, 'John'),
+      (2, 'Jane');
+  
+  INSERT INTO order_items VALUES
+      (1, 1, 'Laptop'),
+      (2, 1, 'Mouse'),
+      (3, 1, 'Keyboard'),
+      (4, 2, 'Phone'),
+      (5, 2, 'Charger');
+  
+  -- Now we can:
+  -- - Query for specific products
+  -- - Add/remove products easily
+  -- - Enforce product constraints
+  ```
+
+  **Another violation (repeating groups):**
+
+  ```sql
+  -- BAD: Repeating columns
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_name VARCHAR(100),
+      product1 VARCHAR(100),
+      product2 VARCHAR(100),
+      product3 VARCHAR(100)
+  );
+  
+  -- Problems:
+  -- - Limited to 3 products
+  -- - Wasted space if fewer products
+  -- - Difficult to query all products
+  ```
+
+  **1NF Solution:**
+
+  ```sql
+  -- GOOD: Use separate rows
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_name VARCHAR(100)
+  );
+  
+  CREATE TABLE order_items (
+      order_id INT,
+      product_name VARCHAR(100),
+      PRIMARY KEY (order_id, product_name),
+      FOREIGN KEY (order_id) REFERENCES orders(id)
+  );
+  ```
+
+</details>
+
+<details>
+  <summary>Second Normal Form (2NF)</summary>
+  <br/>
+
+  **2NF Rules:**
+  + Must be in 1NF
+  + No partial dependencies (non-key columns must depend on entire primary key)
+
+  **Partial dependency:** Non-key column depends on part of composite primary key.
+
+  **Violation example (NOT in 2NF):**
+
+  ```sql
+  -- BAD: Partial dependency
+  CREATE TABLE order_items (
+      order_id INT,
+      product_id INT,
+      product_name VARCHAR(100),      -- Depends only on product_id
+      product_price DECIMAL(10, 2),   -- Depends only on product_id
+      quantity INT,                    -- Depends on both order_id and product_id
+      PRIMARY KEY (order_id, product_id)
+  );
+  
+  INSERT INTO order_items VALUES
+      (1, 101, 'Laptop', 999.99, 1),
+      (1, 102, 'Mouse', 29.99, 2),
+      (2, 101, 'Laptop', 999.99, 1);  -- Duplicate product info!
+  
+  -- Problems:
+  -- - Product name/price duplicated for each order
+  -- - If product price changes, must update multiple rows
+  -- - Inconsistency risk (different prices for same product)
+  ```
+
+  **2NF Solution:**
+
+  ```sql
+  -- GOOD: Separate products table
+  CREATE TABLE products (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      price DECIMAL(10, 2)
+  );
+  
+  CREATE TABLE order_items (
+      order_id INT,
+      product_id INT,
+      quantity INT,
+      PRIMARY KEY (order_id, product_id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+  );
+  
+  INSERT INTO products VALUES
+      (101, 'Laptop', 999.99),
+      (102, 'Mouse', 29.99);
+  
+  INSERT INTO order_items VALUES
+      (1, 101, 1),
+      (1, 102, 2),
+      (2, 101, 1);
+  
+  -- Benefits:
+  -- - No duplicate product info
+  -- - Update price in one place
+  -- - Consistent product data
+  ```
+
+  **Another example:**
+
+  ```sql
+  -- BAD: Student courses with partial dependency
+  CREATE TABLE student_courses (
+      student_id INT,
+      course_id INT,
+      student_name VARCHAR(100),    -- Depends only on student_id
+      student_email VARCHAR(100),   -- Depends only on student_id
+      course_name VARCHAR(100),     -- Depends only on course_id
+      grade VARCHAR(2),             -- Depends on both
+      PRIMARY KEY (student_id, course_id)
+  );
+  
+  -- GOOD: Separate tables
+  CREATE TABLE students (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      email VARCHAR(100)
+  );
+  
+  CREATE TABLE courses (
+      id INT PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  CREATE TABLE enrollments (
+      student_id INT,
+      course_id INT,
+      grade VARCHAR(2),
+      PRIMARY KEY (student_id, course_id),
+      FOREIGN KEY (student_id) REFERENCES students(id),
+      FOREIGN KEY (course_id) REFERENCES courses(id)
+  );
+  ```
+
+</details>
+
+<details>
+  <summary>Third Normal Form (3NF)</summary>
+  <br/>
+
+  **3NF Rules:**
+  + Must be in 2NF
+  + No transitive dependencies (non-key columns must not depend on other non-key columns)
+
+  **Transitive dependency:** A → B → C (A determines B, B determines C)
+
+  **Violation example (NOT in 3NF):**
+
+  ```sql
+  -- BAD: Transitive dependency
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      department_id INT,
+      department_name VARCHAR(100),    -- Depends on department_id (transitive)
+      department_location VARCHAR(100) -- Depends on department_id (transitive)
+  );
+  
+  INSERT INTO employees VALUES
+      (1, 'John', 10, 'Sales', 'New York'),
+      (2, 'Jane', 10, 'Sales', 'New York'),  -- Duplicate department info
+      (3, 'Bob', 20, 'IT', 'San Francisco');
+  
+  -- Problems:
+  -- - Department info duplicated for each employee
+  -- - If department location changes, must update multiple rows
+  -- - Inconsistency risk (different locations for same department)
+  ```
+
+  **3NF Solution:**
+
+  ```sql
+  -- GOOD: Separate departments table
+  CREATE TABLE departments (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      location VARCHAR(100)
+  );
+  
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      department_id INT,
+      FOREIGN KEY (department_id) REFERENCES departments(id)
+  );
+  
+  INSERT INTO departments VALUES
+      (10, 'Sales', 'New York'),
+      (20, 'IT', 'San Francisco');
+  
+  INSERT INTO employees VALUES
+      (1, 'John', 10),
+      (2, 'Jane', 10),
+      (3, 'Bob', 20);
+  
+  -- Benefits:
+  -- - No duplicate department info
+  -- - Update department in one place
+  -- - Consistent department data
+  ```
+
+  **Another example:**
+
+  ```sql
+  -- BAD: Customer orders with transitive dependency
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      customer_name VARCHAR(100),
+      customer_email VARCHAR(100),
+      customer_city VARCHAR(100),
+      customer_zip VARCHAR(10),
+      city_state VARCHAR(50)  -- Depends on customer_city (transitive)
+  );
+  
+  -- GOOD: Separate tables
+  CREATE TABLE cities (
+      name VARCHAR(100) PRIMARY KEY,
+      state VARCHAR(50)
+  );
+  
+  CREATE TABLE customers (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      email VARCHAR(100),
+      city VARCHAR(100),
+      zip VARCHAR(10),
+      FOREIGN KEY (city) REFERENCES cities(name)
+  );
+  
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  ```
+
+</details>
+
+<details>
+  <summary>Boyce-Codd Normal Form (BCNF)</summary>
+  <br/>
+
+  **BCNF Rules:**
+  + Must be in 3NF
+  + Every determinant must be a candidate key
+
+  **BCNF is stricter than 3NF** - handles edge cases where 3NF allows anomalies.
+
+  **Violation example (NOT in BCNF):**
+
+  ```sql
+  -- BAD: Professor teaches course in specific room
+  CREATE TABLE teaching (
+      professor VARCHAR(100),
+      course VARCHAR(100),
+      room VARCHAR(50),
+      PRIMARY KEY (professor, course)
+  );
+  
+  -- Constraint: Each professor uses only one room
+  -- But room is not part of primary key
+  
+  INSERT INTO teaching VALUES
+      ('Dr. Smith', 'Math 101', 'Room A'),
+      ('Dr. Smith', 'Math 201', 'Room A'),  -- Same room
+      ('Dr. Jones', 'CS 101', 'Room B');
+  
+  -- Problem: Can insert ('Dr. Smith', 'Physics 101', 'Room C')
+  -- Violates constraint that Dr. Smith uses Room A
+  ```
+
+  **BCNF Solution:**
+
+  ```sql
+  -- GOOD: Separate professor-room relationship
+  CREATE TABLE professor_rooms (
+      professor VARCHAR(100) PRIMARY KEY,
+      room VARCHAR(50)
+  );
+  
+  CREATE TABLE teaching (
+      professor VARCHAR(100),
+      course VARCHAR(100),
+      PRIMARY KEY (professor, course),
+      FOREIGN KEY (professor) REFERENCES professor_rooms(professor)
+  );
+  
+  INSERT INTO professor_rooms VALUES
+      ('Dr. Smith', 'Room A'),
+      ('Dr. Jones', 'Room B');
+  
+  INSERT INTO teaching VALUES
+      ('Dr. Smith', 'Math 101'),
+      ('Dr. Smith', 'Math 201'),
+      ('Dr. Jones', 'CS 101');
+  
+  -- Now constraint is enforced by foreign key
+  ```
+
+  **Note:** Most databases in 3NF are also in BCNF. BCNF violations are rare in practice.
+
+</details>
+
+<details>
+  <summary>Denormalization</summary>
+  <br/>
+
+  **Denormalization** intentionally introduces redundancy to improve query performance.
+
+  **When to denormalize:**
+  + Read-heavy workloads (many queries, few updates)
+  + Complex joins are too slow
+  + Reporting and analytics
+  + Caching frequently accessed data
+  + Reducing database load
+
+  **Denormalization techniques:**
+
+  **1. Add redundant columns:**
+
+  ```sql
+  -- Normalized (3NF)
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  CREATE TABLE customers (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      email VARCHAR(100)
+  );
+  
+  -- Query requires JOIN
+  SELECT o.id, c.name, c.email
+  FROM orders o
+  JOIN customers c ON o.customer_id = c.id;
+  
+  -- Denormalized (add customer info to orders)
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      customer_name VARCHAR(100),    -- Redundant
+      customer_email VARCHAR(100),   -- Redundant
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  -- Query without JOIN (faster)
+  SELECT id, customer_name, customer_email
+  FROM orders;
+  
+  -- Trade-off: Must update orders when customer info changes
+  ```
+
+  **2. Precompute aggregates:**
+
+  ```sql
+  -- Normalized
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      total DECIMAL(10, 2)
+  );
+  
+  -- Query requires aggregation
+  SELECT customer_id, COUNT(*), SUM(total)
+  FROM orders
+  GROUP BY customer_id;
+  
+  -- Denormalized (add summary table)
+  CREATE TABLE customer_stats (
+      customer_id INT PRIMARY KEY,
+      order_count INT,
+      total_spent DECIMAL(10, 2),
+      last_updated TIMESTAMP
+  );
+  
+  -- Update stats when order is created
+  INSERT INTO orders (customer_id, total) VALUES (1, 99.99);
+  
+  UPDATE customer_stats
+  SET order_count = order_count + 1,
+      total_spent = total_spent + 99.99,
+      last_updated = NOW()
+  WHERE customer_id = 1;
+  
+  -- Query is now simple lookup (faster)
+  SELECT order_count, total_spent
+  FROM customer_stats
+  WHERE customer_id = 1;
+  ```
+
+  **3. Materialized views:**
+
+  ```sql
+  -- Create materialized view (precomputed query result)
+  CREATE MATERIALIZED VIEW customer_order_summary AS
+  SELECT 
+      c.id,
+      c.name,
+      COUNT(o.id) AS order_count,
+      SUM(o.total) AS total_spent
+  FROM customers c
+  LEFT JOIN orders o ON c.id = o.customer_id
+  GROUP BY c.id, c.name;
+  
+  -- Query materialized view (fast)
+  SELECT * FROM customer_order_summary WHERE id = 1;
+  
+  -- Refresh periodically
+  REFRESH MATERIALIZED VIEW customer_order_summary;
+  ```
+
+  **4. Duplicate data across tables:**
+
+  ```sql
+  -- Normalized
+  CREATE TABLE products (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      category_id INT
+  );
+  
+  CREATE TABLE categories (
+      id INT PRIMARY KEY,
+      name VARCHAR(100)
+  );
+  
+  -- Denormalized (add category name to products)
+  CREATE TABLE products (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      category_id INT,
+      category_name VARCHAR(100)  -- Redundant
+  );
+  
+  -- Faster queries, but must update products when category name changes
+  ```
+
+  **Denormalization trade-offs:**
+
+  | Aspect | Normalized | Denormalized |
+  |--------|-----------|--------------|
+  | Storage | Less space | More space |
+  | Writes | Faster | Slower (update multiple places) |
+  | Reads | Slower (joins) | Faster (no joins) |
+  | Consistency | Easier | Harder (must sync) |
+  | Maintenance | Simpler | More complex |
+
+  **Best practices:**
+  + Start with normalized design
+  + Denormalize only when performance issues arise
+  + Measure performance before and after
+  + Document denormalization decisions
+  + Use triggers or application logic to maintain consistency
+  + Consider caching instead of denormalization
+
+</details>
+
+<details>
+  <summary>Data Anomalies</summary>
+  <br/>
+
+  **Anomalies** are problems that occur in poorly normalized databases.
+
+  **Insert Anomaly:**
+
+  ```sql
+  -- BAD: Cannot insert department without employee
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      department_id INT,
+      department_name VARCHAR(100),
+      department_location VARCHAR(100)
+  );
+  
+  -- Cannot insert new department until we have an employee
+  -- INSERT INTO employees (department_id, department_name, department_location)
+  -- VALUES (30, 'Marketing', 'Chicago');  -- ERROR: name cannot be NULL
+  
+  -- GOOD: Separate departments table
+  CREATE TABLE departments (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      location VARCHAR(100)
+  );
+  
+  -- Can insert department without employees
+  INSERT INTO departments VALUES (30, 'Marketing', 'Chicago');
+  ```
+
+  **Update Anomaly:**
+
+  ```sql
+  -- BAD: Must update multiple rows
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      department_id INT,
+      department_name VARCHAR(100),
+      department_location VARCHAR(100)
+  );
+  
+  INSERT INTO employees VALUES
+      (1, 'John', 10, 'Sales', 'New York'),
+      (2, 'Jane', 10, 'Sales', 'New York'),
+      (3, 'Bob', 10, 'Sales', 'New York');
+  
+  -- To change department location, must update all employees
+  UPDATE employees 
+  SET department_location = 'Boston' 
+  WHERE department_id = 10;  -- Updates 3 rows
+  
+  -- Risk: Might miss some rows, causing inconsistency
+  
+  -- GOOD: Update one row
+  CREATE TABLE departments (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      location VARCHAR(100)
+  );
+  
+  UPDATE departments 
+  SET location = 'Boston' 
+  WHERE id = 10;  -- Updates 1 row
+  ```
+
+  **Delete Anomaly:**
+
+  ```sql
+  -- BAD: Deleting last employee deletes department info
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      department_id INT,
+      department_name VARCHAR(100),
+      department_location VARCHAR(100)
+  );
+  
+  INSERT INTO employees VALUES
+      (1, 'John', 10, 'Sales', 'New York');
+  
+  -- Delete last employee in Sales department
+  DELETE FROM employees WHERE id = 1;
+  -- Department info is lost!
+  
+  -- GOOD: Department info preserved
+  CREATE TABLE departments (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      location VARCHAR(100)
+  );
+  
+  CREATE TABLE employees (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      department_id INT,
+      FOREIGN KEY (department_id) REFERENCES departments(id)
+  );
+  
+  DELETE FROM employees WHERE id = 1;
+  -- Department still exists in departments table
+  ```
+
+</details>
+
+<details>
+  <summary>Normalization Best Practices</summary>
+  <br/>
+
+  ```sql
+  -- ✅ DO: Start with normalized design (3NF)
+  CREATE TABLE customers (
+      id INT PRIMARY KEY,
+      name VARCHAR(100),
+      email VARCHAR(100)
+  );
+  
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      total DECIMAL(10, 2),
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  -- ✅ DO: Use foreign keys to enforce relationships
+  ALTER TABLE orders
+  ADD CONSTRAINT fk_customer
+  FOREIGN KEY (customer_id) REFERENCES customers(id);
+  
+  -- ✅ DO: Avoid redundant data
+  -- BAD: Store customer name in orders
+  -- GOOD: Store customer_id and JOIN when needed
+  
+  -- ✅ DO: Use surrogate keys (auto-increment IDs)
+  CREATE TABLE products (
+      id SERIAL PRIMARY KEY,  -- Surrogate key
+      sku VARCHAR(50) UNIQUE, -- Natural key
+      name VARCHAR(100)
+  );
+  
+  -- ✅ DO: Document denormalization decisions
+  -- Add comment explaining why data is denormalized
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      customer_id INT,
+      customer_name VARCHAR(100),  -- Denormalized for performance
+      -- Reason: Avoid JOIN in 90% of queries
+      -- Maintained by: trigger on customers table
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+  
+  -- ✅ DO: Use triggers to maintain denormalized data
+  CREATE TRIGGER update_order_customer_name
+  AFTER UPDATE ON customers
+  FOR EACH ROW
+  BEGIN
+      UPDATE orders
+      SET customer_name = NEW.name
+      WHERE customer_id = NEW.id;
+  END;
+  
+  -- ✅ DO: Consider read vs write ratio
+  -- High reads, low writes → Consider denormalization
+  -- High writes, low reads → Keep normalized
+  
+  -- ✅ DO: Use indexes on foreign keys
+  CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+  
+  -- ✅ DO: Measure performance before denormalizing
+  EXPLAIN ANALYZE
+  SELECT o.id, c.name
+  FROM orders o
+  JOIN customers c ON o.customer_id = c.id;
+  
+  -- ❌ DON'T: Denormalize prematurely
+  -- Start normalized, denormalize only when needed
+  
+  -- ❌ DON'T: Store calculated values (unless performance critical)
+  -- BAD: Store total in orders table
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      subtotal DECIMAL(10, 2),
+      tax DECIMAL(10, 2),
+      total DECIMAL(10, 2)  -- Calculated: subtotal + tax
+  );
+  
+  -- GOOD: Calculate on the fly
+  CREATE TABLE orders (
+      id INT PRIMARY KEY,
+      subtotal DECIMAL(10, 2),
+      tax DECIMAL(10, 2)
+  );
+  
+  SELECT id, subtotal, tax, (subtotal + tax) AS total
+  FROM orders;
+  
+  -- ❌ DON'T: Use composite natural keys as primary keys
+  -- BAD: Composite natural key
+  CREATE TABLE order_items (
+      order_id INT,
+      product_sku VARCHAR(50),
+      quantity INT,
+      PRIMARY KEY (order_id, product_sku)
+  );
+  
+  -- GOOD: Surrogate key
+  CREATE TABLE order_items (
+      id SERIAL PRIMARY KEY,
+      order_id INT,
+      product_id INT,
+      quantity INT,
+      UNIQUE (order_id, product_id)
+  );
+  
+  -- ✅ DO: Use appropriate data types
+  CREATE TABLE users (
+      id INT PRIMARY KEY,
+      email VARCHAR(255),      -- Not TEXT
+      age SMALLINT,            -- Not INT (saves space)
+      balance DECIMAL(10, 2),  -- Not FLOAT (precision)
+      created_at TIMESTAMP     -- Not VARCHAR
+  );
+  
+  -- ✅ DO: Add constraints to enforce data integrity
+  CREATE TABLE products (
+      id INT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      price DECIMAL(10, 2) CHECK (price > 0),
+      stock INT CHECK (stock >= 0),
+      category_id INT NOT NULL,
+      FOREIGN KEY (category_id) REFERENCES categories(id)
+  );
+  ```
+
+  **Summary:**
+  + **1NF** - Atomic values, no repeating groups
+  + **2NF** - 1NF + no partial dependencies
+  + **3NF** - 2NF + no transitive dependencies
+  + **BCNF** - 3NF + every determinant is a candidate key
+  + **Normalization** reduces redundancy and improves integrity
+  + **Denormalization** improves performance but increases complexity
+  + Start with **normalized design** (3NF)
+  + **Denormalize** only when performance issues arise
+  + Use **foreign keys** to enforce relationships
+  + Use **triggers** to maintain denormalized data
+  + **Measure performance** before and after denormalization
+  + **Document** denormalization decisions
+  + Avoid **data anomalies** (insert, update, delete)
+  + Use **appropriate data types** and **constraints**
+
+</details>
