@@ -1,0 +1,1064 @@
+## Controllers
+
+<details>
+  <summary>What are Controllers?</summary>
+  <br/>
+
+  Controllers handle HTTP requests and return responses in Spring MVC applications.
+
+  **Responsibilities:**
+  + Handle incoming HTTP requests
+  + Process request data
+  + Call service layer
+  + Return HTTP responses
+  + Map URLs to methods
+
+  **Types of controllers:**
+  + **@Controller** - Returns views (HTML pages)
+  + **@RestController** - Returns data (JSON/XML)
+
+  **Basic example:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      @PostMapping
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Controller vs @RestController</summary>
+  <br/>
+
+  **@Controller** returns views, **@RestController** returns data.
+
+  **@Controller (Traditional MVC):**
+
+  ```java
+  @Controller
+  @RequestMapping("/users")
+  public class UserController {
+      
+      @GetMapping
+      public String listUsers(Model model) {
+          List<User> users = userService.findAll();
+          model.addAttribute("users", users);
+          return "users/list";  // Returns view name (users/list.html)
+      }
+      
+      @GetMapping("/{id}")
+      public String viewUser(@PathVariable Long id, Model model) {
+          User user = userService.findById(id);
+          model.addAttribute("user", user);
+          return "users/view";  // Returns view name
+      }
+  }
+  ```
+
+  **@RestController (REST API):**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getAllUsers() {
+          return userService.findAll();
+          // Returns JSON: [{"id":1,"name":"John"},...]
+      }
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+          // Returns JSON: {"id":1,"name":"John"}
+      }
+  }
+  ```
+
+  **@RestController = @Controller + @ResponseBody:**
+
+  ```java
+  // These are equivalent:
+  
+  // Option 1: @RestController
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      @GetMapping
+      public List<User> getUsers() {
+          return userService.findAll();
+      }
+  }
+  
+  // Option 2: @Controller + @ResponseBody
+  @Controller
+  @RequestMapping("/api/users")
+  public class UserController {
+      @GetMapping
+      @ResponseBody  // Needed on each method
+      public List<User> getUsers() {
+          return userService.findAll();
+      }
+  }
+  ```
+
+  **When to use each:**
+  + **@Controller** - Server-side rendering (Thymeleaf, JSP)
+  + **@RestController** - REST APIs (JSON/XML responses)
+
+</details>
+
+<details>
+  <summary>@RequestMapping</summary>
+  <br/>
+
+  **@RequestMapping** maps HTTP requests to handler methods.
+
+  **Class-level mapping:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")  // Base path for all methods
+  public class UserController {
+      
+      @GetMapping  // Maps to GET /api/users
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @GetMapping("/{id}")  // Maps to GET /api/users/{id}
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **Method-level mapping:**
+
+  ```java
+  @RestController
+  public class UserController {
+      
+      @RequestMapping(value = "/api/users", method = RequestMethod.GET)
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @RequestMapping(value = "/api/users/{id}", method = RequestMethod.GET)
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **Multiple paths:**
+
+  ```java
+  @RestController
+  public class UserController {
+      
+      // Maps to both /api/users and /api/members
+      @GetMapping({"/api/users", "/api/members"})
+      public List<User> getUsers() {
+          return userService.findAll();
+      }
+  }
+  ```
+
+  **Path patterns:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api")
+  public class UserController {
+      
+      // Exact match: /api/users
+      @GetMapping("/users")
+      public List<User> getUsers() {
+          return userService.findAll();
+      }
+      
+      // Path variable: /api/users/123
+      @GetMapping("/users/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      // Multiple variables: /api/users/123/orders/456
+      @GetMapping("/users/{userId}/orders/{orderId}")
+      public Order getOrder(@PathVariable Long userId, @PathVariable Long orderId) {
+          return orderService.findByUserAndId(userId, orderId);
+      }
+      
+      // Wildcard: /api/users/any/path
+      @GetMapping("/users/*")
+      public String wildcard() {
+          return "Matches /api/users/anything";
+      }
+      
+      // Multiple wildcards: /api/users/any/nested/path
+      @GetMapping("/users/**")
+      public String multiWildcard() {
+          return "Matches /api/users/any/nested/path";
+      }
+      
+      // Regex: /api/users/123 (only numbers)
+      @GetMapping("/users/{id:[0-9]+}")
+      public User getUserWithRegex(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>HTTP Method Annotations</summary>
+  <br/>
+
+  **Shortcut annotations for HTTP methods:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET - Retrieve resources
+      @GetMapping
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      // POST - Create new resource
+      @PostMapping
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+      
+      // PUT - Update entire resource
+      @PutMapping("/{id}")
+      public User updateUser(@PathVariable Long id, @RequestBody User user) {
+          return userService.update(id, user);
+      }
+      
+      // PATCH - Partial update
+      @PatchMapping("/{id}")
+      public User patchUser(@PathVariable Long id, @RequestBody Map<String, Object> updates) {
+          return userService.patch(id, updates);
+      }
+      
+      // DELETE - Delete resource
+      @DeleteMapping("/{id}")
+      public void deleteUser(@PathVariable Long id) {
+          userService.delete(id);
+      }
+  }
+  ```
+
+  **Equivalent @RequestMapping:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @RequestMapping(method = RequestMethod.GET)
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @RequestMapping(method = RequestMethod.POST)
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+      
+      @RequestMapping(value = "/{id}", method = RequestMethod.PUT)
+      public User updateUser(@PathVariable Long id, @RequestBody User user) {
+          return userService.update(id, user);
+      }
+      
+      @RequestMapping(value = "/{id}", method = RequestMethod.DELETE)
+      public void deleteUser(@PathVariable Long id) {
+          userService.delete(id);
+      }
+  }
+  ```
+
+  **HTTP method semantics:**
+
+  | Method | Purpose | Idempotent | Safe | Request Body | Response Body |
+  |--------|---------|------------|------|--------------|---------------|
+  | GET | Retrieve | ✅ Yes | ✅ Yes | ❌ No | ✅ Yes |
+  | POST | Create | ❌ No | ❌ No | ✅ Yes | ✅ Yes |
+  | PUT | Update (full) | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes |
+  | PATCH | Update (partial) | ❌ No | ❌ No | ✅ Yes | ✅ Yes |
+  | DELETE | Delete | ✅ Yes | ❌ No | ❌ No | ❌ Optional |
+
+</details>
+
+<details>
+  <summary>Request Parameters</summary>
+  <br/>
+
+  **@RequestParam** extracts query parameters.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users?name=john
+      @GetMapping
+      public List<User> searchUsers(@RequestParam String name) {
+          return userService.findByName(name);
+      }
+      
+      // Multiple parameters: GET /api/users?name=john&age=25
+      @GetMapping("/search")
+      public List<User> searchUsers(
+          @RequestParam String name,
+          @RequestParam Integer age
+      ) {
+          return userService.findByNameAndAge(name, age);
+      }
+  }
+  ```
+
+  **Optional parameters:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // Optional parameter with default value
+      @GetMapping
+      public List<User> getUsers(
+          @RequestParam(required = false, defaultValue = "0") int page,
+          @RequestParam(required = false, defaultValue = "20") int size
+      ) {
+          return userService.findAll(page, size);
+      }
+      
+      // Using Optional
+      @GetMapping("/search")
+      public List<User> searchUsers(@RequestParam Optional<String> name) {
+          return name.map(userService::findByName)
+                     .orElse(userService.findAll());
+      }
+  }
+  ```
+
+  **Parameter name mapping:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users?user_name=john
+      @GetMapping
+      public List<User> searchUsers(
+          @RequestParam("user_name") String username
+      ) {
+          return userService.findByUsername(username);
+      }
+  }
+  ```
+
+  **Map all parameters:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users?name=john&age=25&city=NYC
+      @GetMapping
+      public List<User> searchUsers(@RequestParam Map<String, String> params) {
+          String name = params.get("name");
+          String age = params.get("age");
+          String city = params.get("city");
+          return userService.search(params);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Path Variables</summary>
+  <br/>
+
+  **@PathVariable** extracts values from URL path.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users/123
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      // Multiple path variables: GET /api/users/123/orders/456
+      @GetMapping("/{userId}/orders/{orderId}")
+      public Order getOrder(
+          @PathVariable Long userId,
+          @PathVariable Long orderId
+      ) {
+          return orderService.findByUserAndId(userId, orderId);
+      }
+  }
+  ```
+
+  **Variable name mapping:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users/123
+      @GetMapping("/{user_id}")
+      public User getUser(@PathVariable("user_id") Long userId) {
+          return userService.findById(userId);
+      }
+  }
+  ```
+
+  **Optional path variables:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // Matches both /api/users and /api/users/123
+      @GetMapping({"", "/{id}"})
+      public ResponseEntity<?> getUsers(@PathVariable(required = false) Long id) {
+          if (id == null) {
+              return ResponseEntity.ok(userService.findAll());
+          }
+          return ResponseEntity.ok(userService.findById(id));
+      }
+  }
+  ```
+
+  **Path variable with regex:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // Only accepts numeric IDs: GET /api/users/123
+      @GetMapping("/{id:[0-9]+}")
+      public User getUserById(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      // Only accepts alphanumeric usernames: GET /api/users/john123
+      @GetMapping("/{username:[a-zA-Z0-9]+}")
+      public User getUserByUsername(@PathVariable String username) {
+          return userService.findByUsername(username);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Request Body</summary>
+  <br/>
+
+  **@RequestBody** binds HTTP request body to object.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // POST /api/users
+      // Body: {"username":"john","email":"john@example.com"}
+      @PostMapping
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+      
+      // PUT /api/users/123
+      // Body: {"username":"john_updated","email":"john@example.com"}
+      @PutMapping("/{id}")
+      public User updateUser(
+          @PathVariable Long id,
+          @RequestBody User user
+      ) {
+          return userService.update(id, user);
+      }
+  }
+  ```
+
+  **DTO (Data Transfer Object):**
+
+  ```java
+  public class CreateUserRequest {
+      private String username;
+      private String email;
+      private String password;
+      
+      // Getters and setters
+  }
+  
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @PostMapping
+      public User createUser(@RequestBody CreateUserRequest request) {
+          User user = new User();
+          user.setUsername(request.getUsername());
+          user.setEmail(request.getEmail());
+          user.setPassword(passwordEncoder.encode(request.getPassword()));
+          return userService.create(user);
+      }
+  }
+  ```
+
+  **Validation:**
+
+  ```java
+  public class CreateUserRequest {
+      @NotBlank(message = "Username is required")
+      @Size(min = 3, max = 50)
+      private String username;
+      
+      @NotBlank(message = "Email is required")
+      @Email(message = "Invalid email format")
+      private String email;
+      
+      @NotBlank(message = "Password is required")
+      @Size(min = 8, message = "Password must be at least 8 characters")
+      private String password;
+      
+      // Getters and setters
+  }
+  
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @PostMapping
+      public User createUser(@Valid @RequestBody CreateUserRequest request) {
+          return userService.create(request);
+      }
+  }
+  ```
+
+  **Partial update with Map:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // PATCH /api/users/123
+      // Body: {"email":"newemail@example.com"}
+      @PatchMapping("/{id}")
+      public User patchUser(
+          @PathVariable Long id,
+          @RequestBody Map<String, Object> updates
+      ) {
+          return userService.patch(id, updates);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Response Status</summary>
+  <br/>
+
+  **@ResponseStatus** sets HTTP response status.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // Returns 201 Created
+      @PostMapping
+      @ResponseStatus(HttpStatus.CREATED)
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+      
+      // Returns 204 No Content
+      @DeleteMapping("/{id}")
+      @ResponseStatus(HttpStatus.NO_CONTENT)
+      public void deleteUser(@PathVariable Long id) {
+          userService.delete(id);
+      }
+  }
+  ```
+
+  **Using ResponseEntity:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public ResponseEntity<User> getUser(@PathVariable Long id) {
+          User user = userService.findById(id);
+          
+          if (user == null) {
+              return ResponseEntity.notFound().build();  // 404
+          }
+          
+          return ResponseEntity.ok(user);  // 200
+      }
+      
+      @PostMapping
+      public ResponseEntity<User> createUser(@RequestBody User user) {
+          User created = userService.create(user);
+          
+          URI location = ServletUriComponentsBuilder
+              .fromCurrentRequest()
+              .path("/{id}")
+              .buildAndExpand(created.getId())
+              .toUri();
+          
+          return ResponseEntity.created(location).body(created);  // 201
+      }
+      
+      @PutMapping("/{id}")
+      public ResponseEntity<User> updateUser(
+          @PathVariable Long id,
+          @RequestBody User user
+      ) {
+          if (!userService.exists(id)) {
+              return ResponseEntity.notFound().build();  // 404
+          }
+          
+          User updated = userService.update(id, user);
+          return ResponseEntity.ok(updated);  // 200
+      }
+      
+      @DeleteMapping("/{id}")
+      public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+          if (!userService.exists(id)) {
+              return ResponseEntity.notFound().build();  // 404
+          }
+          
+          userService.delete(id);
+          return ResponseEntity.noContent().build();  // 204
+      }
+  }
+  ```
+
+  **Common HTTP status codes:**
+
+  | Code | Status | Use Case |
+  |------|--------|----------|
+  | 200 | OK | Successful GET, PUT, PATCH |
+  | 201 | Created | Successful POST |
+  | 204 | No Content | Successful DELETE |
+  | 400 | Bad Request | Invalid request data |
+  | 401 | Unauthorized | Authentication required |
+  | 403 | Forbidden | No permission |
+  | 404 | Not Found | Resource not found |
+  | 409 | Conflict | Duplicate resource |
+  | 500 | Internal Server Error | Server error |
+
+</details>
+
+<details>
+  <summary>Headers</summary>
+  <br/>
+
+  **@RequestHeader** extracts HTTP headers.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getUsers(
+          @RequestHeader("Authorization") String authToken
+      ) {
+          // Use auth token
+          return userService.findAll();
+      }
+      
+      // Multiple headers
+      @GetMapping("/info")
+      public String getInfo(
+          @RequestHeader("User-Agent") String userAgent,
+          @RequestHeader("Accept-Language") String language
+      ) {
+          return "User-Agent: " + userAgent + ", Language: " + language;
+      }
+  }
+  ```
+
+  **Optional headers:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getUsers(
+          @RequestHeader(value = "X-Custom-Header", required = false) String customHeader
+      ) {
+          return userService.findAll();
+      }
+      
+      // With default value
+      @GetMapping("/search")
+      public List<User> searchUsers(
+          @RequestHeader(value = "X-Page-Size", defaultValue = "20") int pageSize
+      ) {
+          return userService.findAll(pageSize);
+      }
+  }
+  ```
+
+  **All headers:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/headers")
+      public Map<String, String> getHeaders(@RequestHeader Map<String, String> headers) {
+          return headers;
+      }
+      
+      // Using HttpHeaders
+      @GetMapping("/headers-object")
+      public HttpHeaders getHeaders(@RequestHeader HttpHeaders headers) {
+          return headers;
+      }
+  }
+  ```
+
+  **Set response headers:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public ResponseEntity<User> getUser(@PathVariable Long id) {
+          User user = userService.findById(id);
+          
+          HttpHeaders headers = new HttpHeaders();
+          headers.add("X-Custom-Header", "CustomValue");
+          headers.add("X-User-Id", id.toString());
+          
+          return ResponseEntity.ok()
+              .headers(headers)
+              .body(user);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Complete CRUD Example</summary>
+  <br/>
+
+  **Full REST controller with all operations:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  @RequiredArgsConstructor
+  public class UserController {
+      
+      private final UserService userService;
+      
+      // GET /api/users - Get all users
+      @GetMapping
+      public ResponseEntity<List<User>> getAllUsers(
+          @RequestParam(defaultValue = "0") int page,
+          @RequestParam(defaultValue = "20") int size,
+          @RequestParam(defaultValue = "id") String sortBy
+      ) {
+          List<User> users = userService.findAll(page, size, sortBy);
+          return ResponseEntity.ok(users);
+      }
+      
+      // GET /api/users/{id} - Get user by ID
+      @GetMapping("/{id}")
+      public ResponseEntity<User> getUser(@PathVariable Long id) {
+          return userService.findById(id)
+              .map(ResponseEntity::ok)
+              .orElse(ResponseEntity.notFound().build());
+      }
+      
+      // GET /api/users/search - Search users
+      @GetMapping("/search")
+      public ResponseEntity<List<User>> searchUsers(
+          @RequestParam(required = false) String username,
+          @RequestParam(required = false) String email
+      ) {
+          List<User> users = userService.search(username, email);
+          return ResponseEntity.ok(users);
+      }
+      
+      // POST /api/users - Create new user
+      @PostMapping
+      public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
+          User created = userService.create(request);
+          
+          URI location = ServletUriComponentsBuilder
+              .fromCurrentRequest()
+              .path("/{id}")
+              .buildAndExpand(created.getId())
+              .toUri();
+          
+          return ResponseEntity.created(location).body(created);
+      }
+      
+      // PUT /api/users/{id} - Update user (full)
+      @PutMapping("/{id}")
+      public ResponseEntity<User> updateUser(
+          @PathVariable Long id,
+          @Valid @RequestBody UpdateUserRequest request
+      ) {
+          return userService.update(id, request)
+              .map(ResponseEntity::ok)
+              .orElse(ResponseEntity.notFound().build());
+      }
+      
+      // PATCH /api/users/{id} - Update user (partial)
+      @PatchMapping("/{id}")
+      public ResponseEntity<User> patchUser(
+          @PathVariable Long id,
+          @RequestBody Map<String, Object> updates
+      ) {
+          return userService.patch(id, updates)
+              .map(ResponseEntity::ok)
+              .orElse(ResponseEntity.notFound().build());
+      }
+      
+      // DELETE /api/users/{id} - Delete user
+      @DeleteMapping("/{id}")
+      public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+          if (!userService.exists(id)) {
+              return ResponseEntity.notFound().build();
+          }
+          
+          userService.delete(id);
+          return ResponseEntity.noContent().build();
+      }
+      
+      // GET /api/users/{id}/orders - Get user's orders
+      @GetMapping("/{id}/orders")
+      public ResponseEntity<List<Order>> getUserOrders(@PathVariable Long id) {
+          if (!userService.exists(id)) {
+              return ResponseEntity.notFound().build();
+          }
+          
+          List<Order> orders = orderService.findByUserId(id);
+          return ResponseEntity.ok(orders);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @RestController for REST APIs
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+  }
+  
+  // ✅ DO: Use specific HTTP method annotations
+  @GetMapping("/{id}")
+  @PostMapping
+  @PutMapping("/{id}")
+  @DeleteMapping("/{id}")
+  
+  // ❌ DON'T: Use generic @RequestMapping
+  @RequestMapping(value = "/{id}", method = RequestMethod.GET)  // Verbose
+  
+  // ✅ DO: Use path variables for resource IDs
+  @GetMapping("/users/{id}")
+  public User getUser(@PathVariable Long id) {
+  }
+  
+  // ✅ DO: Use query parameters for filtering/pagination
+  @GetMapping("/users")
+  public List<User> getUsers(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+  }
+  
+  // ✅ DO: Use DTOs for request/response
+  @PostMapping("/users")
+  public User createUser(@RequestBody CreateUserRequest request) {
+  }
+  
+  // ❌ DON'T: Expose entities directly
+  @PostMapping("/users")
+  public User createUser(@RequestBody User user) {  // Exposes all fields
+  }
+  
+  // ✅ DO: Validate input
+  @PostMapping("/users")
+  public User createUser(@Valid @RequestBody CreateUserRequest request) {
+  }
+  
+  // ✅ DO: Use ResponseEntity for flexible responses
+  @GetMapping("/{id}")
+  public ResponseEntity<User> getUser(@PathVariable Long id) {
+      return userService.findById(id)
+          .map(ResponseEntity::ok)
+          .orElse(ResponseEntity.notFound().build());
+  }
+  
+  // ✅ DO: Return appropriate HTTP status codes
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public User createUser(@RequestBody User user) {
+  }
+  
+  @DeleteMapping("/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteUser(@PathVariable Long id) {
+  }
+  
+  // ✅ DO: Use meaningful endpoint names
+  @GetMapping("/users/active")  // Clear
+  @GetMapping("/users/search")  // Clear
+  
+  // ❌ DON'T: Use unclear names
+  @GetMapping("/users/get")  // Redundant
+  @GetMapping("/users/data")  // Vague
+  
+  // ✅ DO: Follow REST conventions
+  GET    /api/users       - List all users
+  GET    /api/users/{id}  - Get specific user
+  POST   /api/users       - Create user
+  PUT    /api/users/{id}  - Update user (full)
+  PATCH  /api/users/{id}  - Update user (partial)
+  DELETE /api/users/{id}  - Delete user
+  
+  // ✅ DO: Use nested resources appropriately
+  GET /api/users/{userId}/orders  // User's orders
+  GET /api/users/{userId}/orders/{orderId}  // Specific order
+  
+  // ❌ DON'T: Nest too deeply
+  GET /api/users/{userId}/orders/{orderId}/items/{itemId}/details  // Too deep
+  
+  // ✅ DO: Handle errors gracefully
+  @GetMapping("/{id}")
+  public ResponseEntity<User> getUser(@PathVariable Long id) {
+      try {
+          User user = userService.findById(id);
+          return ResponseEntity.ok(user);
+      } catch (UserNotFoundException e) {
+          return ResponseEntity.notFound().build();
+      }
+  }
+  
+  // ✅ DO: Use constructor injection
+  @RestController
+  @RequiredArgsConstructor
+  public class UserController {
+      private final UserService userService;
+  }
+  
+  // ❌ DON'T: Use field injection
+  @RestController
+  public class UserController {
+      @Autowired
+      private UserService userService;  // Harder to test
+  }
+  
+  // ✅ DO: Keep controllers thin
+  @PostMapping
+  public User createUser(@RequestBody CreateUserRequest request) {
+      return userService.create(request);  // Delegate to service
+  }
+  
+  // ❌ DON'T: Put business logic in controllers
+  @PostMapping
+  public User createUser(@RequestBody CreateUserRequest request) {
+      // Validation logic
+      // Business logic
+      // Database operations
+      // All in controller - BAD!
+  }
+  ```
+
+  **Summary:**
+  + Use **@RestController** for REST APIs (returns JSON/XML)
+  + Use **@Controller** for server-side rendering (returns views)
+  + Use **specific HTTP method annotations** (@GetMapping, @PostMapping, etc.)
+  + Use **@PathVariable** for resource IDs in URL path
+  + Use **@RequestParam** for filtering, pagination, sorting
+  + Use **@RequestBody** for request payload
+  + Use **@Valid** for input validation
+  + Use **ResponseEntity** for flexible responses
+  + Return **appropriate HTTP status codes**
+  + Use **DTOs** instead of exposing entities
+  + Follow **REST conventions** for endpoint naming
+  + Keep **controllers thin** - delegate to service layer
+  + Use **constructor injection** for dependencies
+  + Handle **errors gracefully**
+  + Don't **nest resources too deeply**
+
+</details>
+

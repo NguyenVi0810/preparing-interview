@@ -1,0 +1,710 @@
+## Async Request Processing
+
+<details>
+  <summary>Why Async Processing?</summary>
+  <br/>
+
+  **Async processing** allows handling long-running requests without blocking server threads.
+
+  **Synchronous (blocking):**
+  + Request thread waits for operation to complete
+  + Thread is blocked and cannot handle other requests
+  + Limited scalability (limited thread pool)
+
+  **Asynchronous (non-blocking):**
+  + Request thread is released immediately
+  + Operation runs in background thread
+  + Thread can handle other requests
+  + Better scalability and resource utilization
+
+  **Use cases:**
+  + Long-running database queries
+  + External API calls
+  + File processing
+  + Report generation
+  + Email sending
+
+  **Benefits:**
+  + Better thread utilization
+  + Higher throughput
+  + Improved scalability
+  + Non-blocking I/O
+
+</details>
+
+<details>
+  <summary>Callable</summary>
+  <br/>
+
+  **Callable** returns result asynchronously from background thread.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @GetMapping("/{id}")
+      public Callable<User> getUser(@PathVariable Long id) {
+          return () -> {
+              // Runs in separate thread
+              Thread.sleep(2000);  // Simulate long operation
+              return userService.findById(id);
+          };
+      }
+  }
+  ```
+
+  **How it works:**
+  1. Request thread returns Callable immediately
+  2. Spring executes Callable in background thread
+  3. Request thread is released to handle other requests
+  4. When Callable completes, response is sent to client
+
+  **With exception handling:**
+
+  ```java
+  @GetMapping("/{id}")
+  public Callable<User> getUser(@PathVariable Long id) {
+      return () -> {
+          try {
+              Thread.sleep(2000);
+              return userService.findById(id);
+          } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              throw new RuntimeException("Request interrupted", e);
+          }
+      };
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>DeferredResult</summary>
+  <br/>
+
+  **DeferredResult** provides more control over async processing.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @GetMapping("/{id}")
+      public DeferredResult<User> getUser(@PathVariable Long id) {
+          DeferredResult<User> deferredResult = new DeferredResult<>();
+          
+          // Process in background thread
+          CompletableFuture.supplyAsync(() -> userService.findById(id))
+              .thenAccept(deferredResult::setResult)
+              .exceptionally(ex -> {
+                  deferredResult.setErrorResult(ex);
+                  return null;
+              });
+          
+          return deferredResult;
+      }
+  }
+  ```
+
+  **With timeout:**
+
+  ```java
+  @GetMapping("/{id}")
+  public DeferredResult<User> getUser(@PathVariable Long id) {
+      DeferredResult<User> deferredResult = new DeferredResult<>(5000L);  // 5 second timeout
+      
+      // Set timeout handler
+      deferredResult.onTimeout(() -> 
+          deferredResult.setErrorResult(new TimeoutException("Request timeout"))
+      );
+      
+      // Set completion handler
+      deferredResult.onCompletion(() -> 
+          System.out.println("Request completed")
+      );
+      
+      // Process asynchronously
+      CompletableFuture.supplyAsync(() -> userService.findById(id))
+          .thenAccept(deferredResult::setResult)
+          .exceptionally(ex -> {
+              deferredResult.setErrorResult(ex);
+              return null;
+          });
+      
+      return deferredResult;
+  }
+  ```
+
+  **Event-driven example:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/notifications")
+  public class NotificationController {
+      
+      private final Map<String, DeferredResult<String>> pendingRequests = new ConcurrentHashMap<>();
+      
+      @GetMapping("/subscribe/{userId}")
+      public DeferredResult<String> subscribe(@PathVariable String userId) {
+          DeferredResult<String> deferredResult = new DeferredResult<>(30000L);
+          
+          // Store for later completion
+          pendingRequests.put(userId, deferredResult);
+          
+          // Remove on completion
+          deferredResult.onCompletion(() -> pendingRequests.remove(userId));
+          deferredResult.onTimeout(() -> pendingRequests.remove(userId));
+          
+          return deferredResult;
+      }
+      
+      @PostMapping("/send/{userId}")
+      public ResponseEntity<String> sendNotification(
+          @PathVariable String userId,
+          @RequestBody String message
+      ) {
+          DeferredResult<String> deferredResult = pendingRequests.get(userId);
+          
+          if (deferredResult != null) {
+              deferredResult.setResult(message);
+              return ResponseEntity.ok("Notification sent");
+          }
+          
+          return ResponseEntity.notFound().build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Async Annotation</summary>
+  <br/>
+
+  **@Async** executes method asynchronously in background thread.
+
+  **Enable async processing:**
+
+  ```java
+  @Configuration
+  @EnableAsync
+  public class AsyncConfig {
+  }
+  ```
+
+  **Service with @Async:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Async
+      public CompletableFuture<User> findByIdAsync(Long id) {
+          // Runs in separate thread
+          User user = userRepository.findById(id).orElseThrow();
+          return CompletableFuture.completedFuture(user);
+      }
+      
+      @Async
+      public void sendWelcomeEmail(User user) {
+          // Runs asynchronously, no return value
+          emailService.send(user.getEmail(), "Welcome!");
+      }
+  }
+  ```
+
+  **Controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @GetMapping("/{id}")
+      public CompletableFuture<User> getUser(@PathVariable Long id) {
+          return userService.findByIdAsync(id);
+      }
+      
+      @PostMapping
+      public ResponseEntity<User> createUser(@RequestBody User user) {
+          User created = userService.create(user);
+          
+          // Send email asynchronously (fire and forget)
+          userService.sendWelcomeEmail(created);
+          
+          return ResponseEntity.status(HttpStatus.CREATED).body(created);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>CompletableFuture</summary>
+  <br/>
+
+  **CompletableFuture** provides powerful async composition.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @GetMapping("/{id}")
+      public CompletableFuture<User> getUser(@PathVariable Long id) {
+          return CompletableFuture.supplyAsync(() -> userService.findById(id));
+      }
+  }
+  ```
+
+  **Chaining operations:**
+
+  ```java
+  @GetMapping("/{id}/profile")
+  public CompletableFuture<UserProfile> getUserProfile(@PathVariable Long id) {
+      return CompletableFuture.supplyAsync(() -> userService.findById(id))
+          .thenApply(user -> profileService.getProfile(user))
+          .thenApply(profile -> profileService.enrichProfile(profile));
+  }
+  ```
+
+  **Combining multiple async operations:**
+
+  ```java
+  @GetMapping("/{id}/dashboard")
+  public CompletableFuture<Dashboard> getDashboard(@PathVariable Long id) {
+      CompletableFuture<User> userFuture = 
+          CompletableFuture.supplyAsync(() -> userService.findById(id));
+      
+      CompletableFuture<List<Order>> ordersFuture = 
+          CompletableFuture.supplyAsync(() -> orderService.findByUserId(id));
+      
+      CompletableFuture<List<Notification>> notificationsFuture = 
+          CompletableFuture.supplyAsync(() -> notificationService.findByUserId(id));
+      
+      return CompletableFuture.allOf(userFuture, ordersFuture, notificationsFuture)
+          .thenApply(v -> {
+              User user = userFuture.join();
+              List<Order> orders = ordersFuture.join();
+              List<Notification> notifications = notificationsFuture.join();
+              return new Dashboard(user, orders, notifications);
+          });
+  }
+  ```
+
+  **Exception handling:**
+
+  ```java
+  @GetMapping("/{id}")
+  public CompletableFuture<User> getUser(@PathVariable Long id) {
+      return CompletableFuture.supplyAsync(() -> userService.findById(id))
+          .exceptionally(ex -> {
+              log.error("Error fetching user: ", ex);
+              throw new RuntimeException("Failed to fetch user", ex);
+          });
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Async Executor</summary>
+  <br/>
+
+  **Configure custom thread pool for async operations.**
+
+  **Configuration:**
+
+  ```java
+  @Configuration
+  @EnableAsync
+  public class AsyncConfig implements AsyncConfigurer {
+      
+      @Override
+      public Executor getAsyncExecutor() {
+          ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(5);
+          executor.setMaxPoolSize(10);
+          executor.setQueueCapacity(100);
+          executor.setThreadNamePrefix("async-");
+          executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+          executor.initialize();
+          return executor;
+      }
+      
+      @Override
+      public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+          return (ex, method, params) -> 
+              log.error("Async method {} threw exception: ", method.getName(), ex);
+      }
+  }
+  ```
+
+  **Multiple executors:**
+
+  ```java
+  @Configuration
+  @EnableAsync
+  public class AsyncConfig {
+      
+      @Bean(name = "taskExecutor")
+      public Executor taskExecutor() {
+          ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(5);
+          executor.setMaxPoolSize(10);
+          executor.setQueueCapacity(100);
+          executor.setThreadNamePrefix("task-");
+          executor.initialize();
+          return executor;
+      }
+      
+      @Bean(name = "emailExecutor")
+      public Executor emailExecutor() {
+          ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(2);
+          executor.setMaxPoolSize(5);
+          executor.setQueueCapacity(50);
+          executor.setThreadNamePrefix("email-");
+          executor.initialize();
+          return executor;
+      }
+  }
+  ```
+
+  **Use specific executor:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Async("taskExecutor")
+      public CompletableFuture<User> findByIdAsync(Long id) {
+          return CompletableFuture.completedFuture(userRepository.findById(id).orElseThrow());
+      }
+      
+      @Async("emailExecutor")
+      public void sendEmail(String to, String subject, String body) {
+          emailService.send(to, subject, body);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>WebAsyncTask</summary>
+  <br/>
+
+  **WebAsyncTask** provides timeout and error handling for Callable.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public WebAsyncTask<User> getUser(@PathVariable Long id) {
+          Callable<User> callable = () -> {
+              Thread.sleep(2000);
+              return userService.findById(id);
+          };
+          
+          return new WebAsyncTask<>(5000L, callable);  // 5 second timeout
+      }
+  }
+  ```
+
+  **With timeout and error handlers:**
+
+  ```java
+  @GetMapping("/{id}")
+  public WebAsyncTask<User> getUser(@PathVariable Long id) {
+      Callable<User> callable = () -> {
+          Thread.sleep(2000);
+          return userService.findById(id);
+      };
+      
+      WebAsyncTask<User> asyncTask = new WebAsyncTask<>(5000L, callable);
+      
+      // Timeout handler
+      asyncTask.onTimeout(() -> {
+          log.warn("Request timeout for user: {}", id);
+          return null;
+      });
+      
+      // Completion handler
+      asyncTask.onCompletion(() -> 
+          log.info("Request completed for user: {}", id)
+      );
+      
+      // Error handler
+      asyncTask.onError(() -> {
+          log.error("Request error for user: {}", id);
+          return null;
+      });
+      
+      return asyncTask;
+  }
+  ```
+
+  **With custom executor:**
+
+  ```java
+  @GetMapping("/{id}")
+  public WebAsyncTask<User> getUser(@PathVariable Long id) {
+      Callable<User> callable = () -> userService.findById(id);
+      
+      return new WebAsyncTask<>(5000L, "taskExecutor", callable);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Server-Sent Events (SSE)</summary>
+  <br/>
+
+  **SSE** allows server to push updates to client.
+
+  **Basic SSE:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/events")
+  public class EventController {
+      
+      @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+      public Flux<String> streamEvents() {
+          return Flux.interval(Duration.ofSeconds(1))
+              .map(sequence -> "Event " + sequence + " at " + LocalDateTime.now());
+      }
+  }
+  ```
+
+  **SSE with SseEmitter:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/notifications")
+  public class NotificationController {
+      
+      @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+      public SseEmitter streamNotifications() {
+          SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
+          
+          // Send events asynchronously
+          CompletableFuture.runAsync(() -> {
+              try {
+                  for (int i = 0; i < 10; i++) {
+                      emitter.send(SseEmitter.event()
+                          .name("notification")
+                          .data("Notification " + i)
+                          .id(String.valueOf(i)));
+                      
+                      Thread.sleep(1000);
+                  }
+                  emitter.complete();
+              } catch (Exception e) {
+                  emitter.completeWithError(e);
+              }
+          });
+          
+          return emitter;
+      }
+  }
+  ```
+
+  **Real-time updates:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/orders")
+  public class OrderController {
+      
+      private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
+      
+      @GetMapping(value = "/status/{orderId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+      public SseEmitter streamOrderStatus(@PathVariable String orderId) {
+          SseEmitter emitter = new SseEmitter(300000L);  // 5 minute timeout
+          
+          emitters.put(orderId, emitter);
+          
+          emitter.onCompletion(() -> emitters.remove(orderId));
+          emitter.onTimeout(() -> emitters.remove(orderId));
+          emitter.onError(e -> emitters.remove(orderId));
+          
+          return emitter;
+      }
+      
+      @PostMapping("/{orderId}/status")
+      public ResponseEntity<String> updateOrderStatus(
+          @PathVariable String orderId,
+          @RequestBody String status
+      ) {
+          SseEmitter emitter = emitters.get(orderId);
+          
+          if (emitter != null) {
+              try {
+                  emitter.send(SseEmitter.event()
+                      .name("status-update")
+                      .data(status));
+              } catch (IOException e) {
+                  emitters.remove(orderId);
+              }
+          }
+          
+          return ResponseEntity.ok("Status updated");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Callable for simple async operations
+  @GetMapping("/{id}")
+  public Callable<User> getUser(@PathVariable Long id) {
+      return () -> userService.findById(id);
+  }
+  
+  // ✅ DO: Use DeferredResult for event-driven scenarios
+  @GetMapping("/subscribe")
+  public DeferredResult<String> subscribe() {
+      DeferredResult<String> result = new DeferredResult<>(30000L);
+      // Store and complete later
+      return result;
+  }
+  
+  // ✅ DO: Use CompletableFuture for complex async composition
+  @GetMapping("/{id}/dashboard")
+  public CompletableFuture<Dashboard> getDashboard(@PathVariable Long id) {
+      return CompletableFuture.allOf(userFuture, ordersFuture)
+          .thenApply(v -> new Dashboard(...));
+  }
+  
+  // ✅ DO: Configure custom thread pool
+  @Bean(name = "taskExecutor")
+  public Executor taskExecutor() {
+      ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+      executor.setCorePoolSize(5);
+      executor.setMaxPoolSize(10);
+      executor.initialize();
+      return executor;
+  }
+  
+  // ✅ DO: Set timeouts for async operations
+  DeferredResult<User> result = new DeferredResult<>(5000L);
+  WebAsyncTask<User> task = new WebAsyncTask<>(5000L, callable);
+  
+  // ✅ DO: Handle timeouts
+  deferredResult.onTimeout(() -> 
+      deferredResult.setErrorResult(new TimeoutException())
+  );
+  
+  // ✅ DO: Handle errors
+  CompletableFuture.supplyAsync(() -> userService.findById(id))
+      .exceptionally(ex -> {
+          log.error("Error: ", ex);
+          throw new RuntimeException(ex);
+      });
+  
+  // ✅ DO: Use @Async for fire-and-forget operations
+  @Async
+  public void sendEmail(String to, String subject) {
+      emailService.send(to, subject);
+  }
+  
+  // ✅ DO: Enable async processing
+  @Configuration
+  @EnableAsync
+  public class AsyncConfig {
+  }
+  
+  // ✅ DO: Use appropriate executor for different tasks
+  @Async("emailExecutor")
+  public void sendEmail() { }
+  
+  @Async("taskExecutor")
+  public CompletableFuture<User> findUser() { }
+  
+  // ✅ DO: Clean up resources
+  deferredResult.onCompletion(() -> cleanup());
+  emitter.onCompletion(() -> emitters.remove(id));
+  
+  // ✅ DO: Use SSE for real-time updates
+  @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+  public SseEmitter streamEvents() {
+  }
+  
+  // ❌ DON'T: Block in async methods
+  @Async
+  public CompletableFuture<User> findUser() {
+      Thread.sleep(5000);  // BAD: Blocks thread
+      return CompletableFuture.completedFuture(user);
+  }
+  
+  // ✅ DO: Use non-blocking operations
+  @Async
+  public CompletableFuture<User> findUser() {
+      return CompletableFuture.supplyAsync(() -> userService.findById(id));
+  }
+  
+  // ❌ DON'T: Use @Async on private methods
+  @Async
+  private void sendEmail() { }  // Won't work (proxy limitation)
+  
+  // ✅ DO: Use @Async on public methods
+  @Async
+  public void sendEmail() { }
+  
+  // ✅ DO: Configure rejection policy
+  executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+  
+  // ✅ DO: Monitor thread pool
+  executor.setThreadNamePrefix("async-");
+  log.info("Active threads: {}", executor.getActiveCount());
+  ```
+
+  **Summary:**
+  + **Async processing** improves scalability by releasing request threads
+  + Use **Callable** for simple async operations
+  + Use **DeferredResult** for event-driven scenarios with more control
+  + Use **CompletableFuture** for complex async composition
+  + Use **@Async** for fire-and-forget operations
+  + Use **WebAsyncTask** for timeout and error handling
+  + Use **SSE** for real-time server-to-client updates
+  + Configure **custom thread pool** for better control
+  + Set **timeouts** for async operations
+  + Handle **errors and timeouts** properly
+  + Clean up **resources** on completion
+  + Use **non-blocking** operations in async methods
+  + **@Async** only works on public methods (proxy limitation)
+  + Monitor **thread pool** metrics
+  + Use appropriate **executor** for different task types
+
+</details>

@@ -80,21 +80,37 @@ This study plan covers essential topics for senior Java backend developer interv
 - [ ] **Actuator**: Health checks, metrics, monitoring endpoints
 - [ ] **Spring Boot DevTools**: Hot reload, live reload
 
-### Spring Data JPA
-- [ ] **Repository Pattern**: CrudRepository, JpaRepository
-- [ ] **Query Methods**: Derived queries, @Query annotation, native queries
-- [ ] **Entity Relationships**: @OneToMany, @ManyToOne, @ManyToMany, fetch types
-- [ ] **Transactions**: @Transactional, propagation, isolation levels
-- [ ] **N+1 Problem**: Detection and solutions (fetch joins, entity graphs)
-- [ ] **Pagination and Sorting**: Pageable interface
+### Spring Data JPA / Hibernate
+- [ ] **Entity Basics**: @Entity, @Table, @Id, @GeneratedValue, @Column
+- [ ] **Entity Lifecycle**: Transient, Persistent, Detached, Removed states
+- [ ] **Repository Pattern**: CrudRepository, JpaRepository, custom repositories
+- [ ] **Entity Relationships**: @OneToMany, @ManyToOne, @ManyToMany, @OneToOne
+- [ ] **Fetch Types**: Lazy vs Eager loading, proxy objects, LazyInitializationException
+- [ ] **Cascade Types**: ALL, PERSIST, MERGE, REMOVE, REFRESH, DETACH
+- [ ] **Query Methods**: Derived queries, @Query annotation, named queries
+- [ ] **HQL vs JPQL vs Native SQL**: Differences, use cases, when to use each
+- [ ] **Criteria API**: Type-safe queries, dynamic query building
+- [ ] **Transactions**: @Transactional, propagation, isolation levels, rollback rules
+- [ ] **Locking**: Optimistic locking (@Version), Pessimistic locking (LockModeType)
+- [ ] **N+1 Problem**: Detection and solutions (fetch joins, entity graphs, batch fetching)
+- [ ] **Common Issues**: LazyInitializationException, MultipleBagFetchException, @OneToOne lazy fetch problem
+- [ ] **Caching**: First-level cache (Session), Second-level cache (Ehcache, Redis)
+- [ ] **Auditing**: @CreatedDate, @LastModifiedDate, @CreatedBy, @LastModifiedBy, @EntityListeners
+- [ ] **Soft Delete**: Logical deletion with @Where, @SQLDelete, @Filter
+- [ ] **Pagination and Sorting**: Pageable interface, Slice vs Page
+- [ ] **Batch Processing**: Batch inserts/updates, performance optimization
+- [ ] **Session vs EntityManager**: Hibernate Session vs JPA EntityManager
 
 ### Spring MVC / REST
 - [ ] **Controllers**: @RestController, @RequestMapping, HTTP methods
 - [ ] **Request/Response Handling**: @RequestBody, @ResponseBody, @PathVariable, @RequestParam
+- [ ] **Interceptors**: HandlerInterceptor, pre/post processing, use cases
+- [ ] **Filters vs Interceptors**: Differences, when to use each
 - [ ] **Exception Handling**: @ExceptionHandler, @ControllerAdvice, ResponseEntityExceptionHandler
 - [ ] **Validation**: @Valid, custom validators, Bean Validation
 - [ ] **Content Negotiation**: JSON, XML
-- [ ] **CORS Configuration**
+- [ ] **CORS Configuration**: @CrossOrigin, global CORS config
+- [ ] **Async Request Processing**: @Async, DeferredResult, Callable, CompletableFuture
 
 ### Spring Security
 - [ ] **Authentication vs Authorization**
@@ -149,6 +165,8 @@ This study plan covers essential topics for senior Java backend developer interv
   - Asynchronous: Message queues, event-driven
 - [ ] **API Gateway**: Routing, authentication, rate limiting
 - [ ] **Service Discovery**: Eureka, Consul, Kubernetes service discovery
+- [ ] **Configuration Management**: Spring Cloud Config, externalized configuration, config refresh
+- [ ] **Distributed Logging**: Correlation IDs, MDC (Mapped Diagnostic Context), centralized logging (ELK, Splunk)
 
 ### Resilience Patterns
 - [ ] **Circuit Breaker**: Resilience4j, Hystrix (deprecated but know concepts)

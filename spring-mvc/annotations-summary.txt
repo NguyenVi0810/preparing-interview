@@ -1,0 +1,246 @@
+# Spring MVC - Annotations Summary
+
+<details>
+  <summary><b>Controller Annotations</b></summary>
+  <br/>
+
+  **Controller Types:**
+  + <code>@Controller</code> - Marks class as MVC controller (returns views)
+  + <code>@RestController</code> - Marks class as REST controller (returns data, combines @Controller + @ResponseBody)
+
+  **Request Mapping:**
+  + <code>@RequestMapping</code> - Maps HTTP requests to handler methods (class or method level)
+  + <code>@GetMapping</code> - Shortcut for @RequestMapping(method = RequestMethod.GET)
+  + <code>@PostMapping</code> - Shortcut for @RequestMapping(method = RequestMethod.POST)
+  + <code>@PutMapping</code> - Shortcut for @RequestMapping(method = RequestMethod.PUT)
+  + <code>@PatchMapping</code> - Shortcut for @RequestMapping(method = RequestMethod.PATCH)
+  + <code>@DeleteMapping</code> - Shortcut for @RequestMapping(method = RequestMethod.DELETE)
+
+  **Request Parameters:**
+  + <code>@RequestBody</code> - Binds HTTP request body to method parameter
+  + <code>@ResponseBody</code> - Serializes return value to HTTP response body
+  + <code>@PathVariable</code> - Extracts values from URI path
+  + <code>@RequestParam</code> - Extracts query parameters from URL
+  + <code>@RequestHeader</code> - Extracts HTTP header values
+  + <code>@CookieValue</code> - Extracts cookie values
+  + <code>@ModelAttribute</code> - Binds request parameters to object
+
+  **Response Configuration:**
+  + <code>@ResponseStatus</code> - Sets HTTP response status code
+  + <code>ResponseEntity</code> - Provides full control over HTTP response (status, headers, body)
+
+  **Read section:** `controllers-section.txt`, `request-response-handling-section.txt`
+
+</details>
+
+<details>
+  <summary><b>Exception Handling Annotations</b></summary>
+  <br/>
+
+  **Exception Handlers:**
+  + <code>@ExceptionHandler</code> - Handles exceptions at controller level
+  + <code>@ControllerAdvice</code> - Global exception handling across all controllers
+  + <code>@RestControllerAdvice</code> - Combines @ControllerAdvice + @ResponseBody for REST APIs
+  + <code>ResponseEntityExceptionHandler</code> - Base class for handling Spring MVC exceptions
+
+  **Common Exceptions:**
+  + **MethodArgumentNotValidException** - Thrown when @Valid validation fails
+  + **HttpMessageNotReadableException** - Invalid JSON/XML in request body
+  + **HttpRequestMethodNotSupportedException** - Wrong HTTP method
+  + **MissingServletRequestParameterException** - Missing required parameter
+  + **TypeMismatchException** - Type conversion fails
+  + **HttpMediaTypeNotSupportedException** - Unsupported Content-Type
+
+  **Read section:** `exception-handling-section.txt`
+
+</details>
+
+<details>
+  <summary><b>Validation Annotations</b></summary>
+  <br/>
+
+  **Validation Trigger:**
+  + <code>@Valid</code> - Triggers validation on method parameter
+  + <code>@Validated</code> - Triggers validation with validation groups
+
+  **Null/Empty Checks:**
+  + <code>@NotNull</code> - Value cannot be null
+  + <code>@NotEmpty</code> - String/Collection cannot be null or empty
+  + <code>@NotBlank</code> - String cannot be null, empty, or whitespace only
+
+  **Size Constraints:**
+  + <code>@Size</code> - String/Collection size constraints (min, max)
+  + <code>@Min</code> - Numeric minimum value
+  + <code>@Max</code> - Numeric maximum value
+  + <code>@DecimalMin</code> - Decimal minimum value
+  + <code>@DecimalMax</code> - Decimal maximum value
+  + <code>@Positive</code> - Must be positive (> 0)
+  + <code>@PositiveOrZero</code> - Must be positive or zero (>= 0)
+  + <code>@Negative</code> - Must be negative (< 0)
+  + <code>@NegativeOrZero</code> - Must be negative or zero (<= 0)
+
+  **Pattern Matching:**
+  + <code>@Pattern</code> - String must match regex pattern
+  + <code>@Email</code> - Valid email format
+
+  **Date/Time Validation:**
+  + <code>@Past</code> - Date must be in the past
+  + <code>@PastOrPresent</code> - Date must be in the past or present
+  + <code>@Future</code> - Date must be in the future
+  + <code>@FutureOrPresent</code> - Date must be in the future or present
+
+  **Boolean Validation:**
+  + <code>@AssertTrue</code> - Must be true
+  + <code>@AssertFalse</code> - Must be false
+
+  **Custom Validation:**
+  + <code>@Constraint</code> - Marks custom validation annotation
+  + <code>ConstraintValidator</code> - Interface for custom validator implementation
+
+  **Read section:** `validation-section.txt`
+
+</details>
+
+<details>
+  <summary><b>Interceptor Annotations</b></summary>
+  <br/>
+
+  **Interceptor Interface:**
+  + <code>HandlerInterceptor</code> - Interface for creating interceptors
+  + **preHandle()** - Called before controller execution (return true to continue, false to stop)
+  + **postHandle()** - Called after controller, before view rendering
+  + **afterCompletion()** - Called after view rendering (cleanup)
+
+  **Configuration:**
+  + <code>WebMvcConfigurer.addInterceptors()</code> - Register interceptors
+  + <code>InterceptorRegistry</code> - Registry for adding interceptors
+  + **addPathPatterns()** - Specify paths to intercept
+  + **excludePathPatterns()** - Specify paths to exclude
+  + **order()** - Set execution order
+
+  **Use Cases:**
+  + Authentication and authorization
+  + Logging and auditing
+  + Performance monitoring
+  + Rate limiting
+  + Request/response modification
+
+  **Read section:** `interceptors-section.txt`
+
+</details>
+
+<details>
+  <summary><b>Filter Annotations</b></summary>
+  <br/>
+
+  **Filter Interface:**
+  + <code>Filter</code> - Java Servlet filter interface
+  + **doFilter()** - Filter method (must call chain.doFilter())
+  + **init()** - Initialization method
+  + **destroy()** - Cleanup method
+
+  **Registration:**
+  + <code>@Component</code> - Register filter as Spring bean
+  + <code>@Order</code> - Set filter execution order
+  + <code>@WebFilter</code> - Servlet 3.0 filter annotation (requires @ServletComponentScan)
+  + <code>FilterRegistrationBean</code> - Programmatic filter registration
+
+  **Filters vs Interceptors:**
+  + **Filters** - Servlet container level, all requests (including static resources)
+  + **Interceptors** - Spring MVC level, only controller requests
+
+  **Read section:** `filters-vs-interceptors-section.txt`
+
+</details>
+
+<details>
+  <summary><b>Content Negotiation Annotations</b></summary>
+  <br/>
+
+  **Content Type Configuration:**
+  + <code>@produces</code> - Restricts which formats method can return
+  + <code>@Consumes</code> - Restricts which formats method can accept
+  + <code>MediaType</code> - Constants for media types (APPLICATION_JSON, APPLICATION_XML, etc.)
+
+  **Configuration:**
+  + <code>WebMvcConfigurer.configureContentNegotiation()</code> - Configure content negotiation
+  + <code>ContentNegotiationConfigurer</code> - Configurer for content negotiation
+  + **favorParameter()** - Enable query parameter strategy
+  + **favorPathExtension()** - Enable path extension strategy (deprecated)
+  + **ignoreAcceptHeader()** - Ignore Accept header
+  + **defaultContentType()** - Set default content type
+  + **mediaType()** - Register media types
+
+  **Message Converters:**
+  + <code>HttpMessageConverter</code> - Interface for converting HTTP messages
+  + <code>MappingJackson2HttpMessageConverter</code> - JSON converter (default)
+  + <code>Jaxb2RootElementHttpMessageConverter</code> - XML converter
+
+  **Read section:** `content-negotiation-section.txt`
+
+</details>
+
+<details>
+  <summary><b>CORS Annotations</b></summary>
+  <br/>
+
+  **CORS Configuration:**
+  + <code>@CrossOrigin</code> - Enable CORS on controller or method level
+  + **origins** - Allowed origins (domains)
+  + **methods** - Allowed HTTP methods
+  + **allowedHeaders** - Headers client can send
+  + **exposedHeaders** - Headers client can read from response
+  + **allowCredentials** - Allow cookies/authentication
+  + **maxAge** - Cache preflight response (seconds)
+
+  **Global Configuration:**
+  + <code>WebMvcConfigurer.addCorsMappings()</code> - Configure CORS globally
+  + <code>CorsRegistry</code> - Registry for CORS mappings
+  + <code>CorsConfiguration</code> - CORS configuration class
+  + <code>CorsConfigurationSource</code> - Source for CORS configuration
+
+  **Filter:**
+  + <code>CorsFilter</code> - Custom CORS filter for fine-grained control
+
+  **Headers:**
+  + **Access-Control-Allow-Origin** - Which origins can access
+  + **Access-Control-Allow-Methods** - Which HTTP methods allowed
+  + **Access-Control-Allow-Headers** - Which headers allowed
+  + **Access-Control-Max-Age** - How long to cache preflight response
+
+  **Read section:** `cors-configuration-section.txt`
+
+</details>
+
+<details>
+  <summary><b>Async Processing Annotations</b></summary>
+  <br/>
+
+  **Async Configuration:**
+  + <code>@EnableAsync</code> - Enable async processing
+  + <code>@Async</code> - Execute method asynchronously
+  + <code>AsyncConfigurer</code> - Interface for configuring async processing
+  + <code>ThreadPoolTaskExecutor</code> - Thread pool for async operations
+
+  **Return Types:**
+  + <code>Callable&lt;T&gt;</code> - Returns result asynchronously from background thread
+  + <code>DeferredResult&lt;T&gt;</code> - Provides more control over async processing
+  + <code>CompletableFuture&lt;T&gt;</code> - Powerful async composition
+  + <code>WebAsyncTask&lt;T&gt;</code> - Callable with timeout and error handling
+  + <code>SseEmitter</code> - Server-Sent Events for real-time updates
+  + <code>Flux&lt;T&gt;</code> - Reactive stream (requires Spring WebFlux)
+
+  **Configuration Methods:**
+  + **getAsyncExecutor()** - Configure custom thread pool
+  + **getAsyncUncaughtExceptionHandler()** - Handle uncaught exceptions
+  + **setCorePoolSize()** - Set core pool size
+  + **setMaxPoolSize()** - Set maximum pool size
+  + **setQueueCapacity()** - Set queue capacity
+  + **setThreadNamePrefix()** - Set thread name prefix
+
+  **Read section:** `async-request-processing-section.txt`
+
+</details>
+
+---
+

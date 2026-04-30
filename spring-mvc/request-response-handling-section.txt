@@ -1,0 +1,680 @@
+## Request/Response Handling
+
+<details>
+  <summary>@RequestBody</summary>
+  <br/>
+
+  **@RequestBody** binds HTTP request body to Java object.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // POST /api/users
+      // Body: {"username":"john","email":"john@example.com"}
+      @PostMapping
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+  }
+  ```
+
+  **With validation:**
+
+  ```java
+  public class CreateUserRequest {
+      @NotBlank(message = "Username is required")
+      @Size(min = 3, max = 50)
+      private String username;
+      
+      @NotBlank
+      @Email
+      private String email;
+      
+      // Getters and setters
+  }
+  
+  @PostMapping
+  public User createUser(@Valid @RequestBody CreateUserRequest request) {
+      return userService.create(request);
+  }
+  ```
+
+  **How it works:**
+  + Uses **HttpMessageConverter** to deserialize JSON/XML to Java object
+  + Default converter: **MappingJackson2HttpMessageConverter** (for JSON)
+  + Reads entire request body
+  + Can only be used once per request
+
+</details>
+
+<details>
+  <summary>@ResponseBody</summary>
+  <br/>
+
+  **@ResponseBody** serializes Java object to HTTP response body.
+
+  **Basic usage:**
+
+  ```java
+  @Controller
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      @ResponseBody  // Converts User to JSON
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **@RestController = @Controller + @ResponseBody:**
+
+  ```java
+  // These are equivalent:
+  
+  // Option 1: @RestController (preferred)
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  
+  // Option 2: @Controller + @ResponseBody
+  @Controller
+  @RequestMapping("/api/users")
+  public class UserController {
+      @GetMapping("/{id}")
+      @ResponseBody
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **How it works:**
+  + Uses **HttpMessageConverter** to serialize object to JSON/XML
+  + Bypasses view resolution
+  + Sets Content-Type header automatically
+
+</details>
+
+<details>
+  <summary>@PathVariable</summary>
+  <br/>
+
+  **@PathVariable** extracts values from URI path.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users/123
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      // GET /api/users/123/orders/456
+      @GetMapping("/{userId}/orders/{orderId}")
+      public Order getOrder(
+          @PathVariable Long userId,
+          @PathVariable Long orderId
+      ) {
+          return orderService.findByUserAndId(userId, orderId);
+      }
+  }
+  ```
+
+  **Variable name mapping:**
+
+  ```java
+  // When path variable name differs from parameter name
+  @GetMapping("/{user_id}")
+  public User getUser(@PathVariable("user_id") Long userId) {
+      return userService.findById(userId);
+  }
+  ```
+
+  **Optional path variables:**
+
+  ```java
+  // Matches both /api/users and /api/users/123
+  @GetMapping({"", "/{id}"})
+  public ResponseEntity<?> getUsers(@PathVariable(required = false) Long id) {
+      if (id == null) {
+          return ResponseEntity.ok(userService.findAll());
+      }
+      return ResponseEntity.ok(userService.findById(id));
+  }
+  ```
+
+  **With regex validation:**
+
+  ```java
+  // Only numeric IDs: /api/users/123
+  @GetMapping("/{id:[0-9]+}")
+  public User getUserById(@PathVariable Long id) {
+      return userService.findById(id);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@RequestParam</summary>
+  <br/>
+
+  **@RequestParam** extracts query parameters from URL.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users?name=john
+      @GetMapping
+      public List<User> searchUsers(@RequestParam String name) {
+          return userService.findByName(name);
+      }
+      
+      // GET /api/users?name=john&age=25
+      @GetMapping("/search")
+      public List<User> searchUsers(
+          @RequestParam String name,
+          @RequestParam Integer age
+      ) {
+          return userService.findByNameAndAge(name, age);
+      }
+  }
+  ```
+
+  **Optional parameters:**
+
+  ```java
+  // With default value
+  @GetMapping
+  public List<User> getUsers(
+      @RequestParam(required = false, defaultValue = "0") int page,
+      @RequestParam(required = false, defaultValue = "20") int size
+  ) {
+      return userService.findAll(page, size);
+  }
+  
+  // Using Optional
+  @GetMapping("/search")
+  public List<User> searchUsers(@RequestParam Optional<String> name) {
+      return name.map(userService::findByName)
+                 .orElse(userService.findAll());
+  }
+  ```
+
+  **Parameter name mapping:**
+
+  ```java
+  // GET /api/users?user_name=john
+  @GetMapping
+  public List<User> searchUsers(
+      @RequestParam("user_name") String username
+  ) {
+      return userService.findByUsername(username);
+  }
+  ```
+
+  **Map all parameters:**
+
+  ```java
+  // GET /api/users?name=john&age=25&city=NYC
+  @GetMapping
+  public List<User> searchUsers(@RequestParam Map<String, String> params) {
+      return userService.search(params);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@RequestHeader</summary>
+  <br/>
+
+  **@RequestHeader** extracts HTTP headers.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getUsers(
+          @RequestHeader("Authorization") String authToken
+      ) {
+          // Use auth token
+          return userService.findAll();
+      }
+      
+      @GetMapping("/info")
+      public String getInfo(
+          @RequestHeader("User-Agent") String userAgent,
+          @RequestHeader("Accept-Language") String language
+      ) {
+          return "User-Agent: " + userAgent + ", Language: " + language;
+      }
+  }
+  ```
+
+  **Optional headers:**
+
+  ```java
+  @GetMapping
+  public List<User> getUsers(
+      @RequestHeader(value = "X-Custom-Header", required = false) String customHeader,
+      @RequestHeader(value = "X-Page-Size", defaultValue = "20") int pageSize
+  ) {
+      return userService.findAll(pageSize);
+  }
+  ```
+
+  **All headers:**
+
+  ```java
+  @GetMapping("/headers")
+  public Map<String, String> getHeaders(@RequestHeader Map<String, String> headers) {
+      return headers;
+  }
+  
+  // Using HttpHeaders
+  @GetMapping("/headers-object")
+  public HttpHeaders getHeaders(@RequestHeader HttpHeaders headers) {
+      return headers;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@CookieValue</summary>
+  <br/>
+
+  **@CookieValue** extracts cookie values.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getUsers(
+          @CookieValue("sessionId") String sessionId
+      ) {
+          // Use session ID
+          return userService.findAll();
+      }
+  }
+  ```
+
+  **Optional cookie:**
+
+  ```java
+  @GetMapping
+  public List<User> getUsers(
+      @CookieValue(value = "sessionId", required = false) String sessionId,
+      @CookieValue(value = "theme", defaultValue = "light") String theme
+  ) {
+      return userService.findAll();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@ModelAttribute</summary>
+  <br/>
+
+  **@ModelAttribute** binds request parameters to object.
+
+  **Basic usage:**
+
+  ```java
+  public class UserSearchCriteria {
+      private String username;
+      private String email;
+      private Integer minAge;
+      private Integer maxAge;
+      
+      // Getters and setters
+  }
+  
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      // GET /api/users/search?username=john&email=john@example.com&minAge=18&maxAge=65
+      @GetMapping("/search")
+      public List<User> searchUsers(@ModelAttribute UserSearchCriteria criteria) {
+          return userService.search(criteria);
+      }
+  }
+  ```
+
+  **Form submission:**
+
+  ```java
+  @Controller
+  @RequestMapping("/users")
+  public class UserController {
+      
+      @GetMapping("/new")
+      public String showForm(Model model) {
+          model.addAttribute("user", new User());
+          return "users/form";
+      }
+      
+      @PostMapping
+      public String createUser(@ModelAttribute User user) {
+          userService.create(user);
+          return "redirect:/users";
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>ResponseEntity</summary>
+  <br/>
+
+  **ResponseEntity** provides full control over HTTP response.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public ResponseEntity<User> getUser(@PathVariable Long id) {
+          User user = userService.findById(id);
+          
+          if (user == null) {
+              return ResponseEntity.notFound().build();  // 404
+          }
+          
+          return ResponseEntity.ok(user);  // 200
+      }
+  }
+  ```
+
+  **With status codes:**
+
+  ```java
+  @PostMapping
+  public ResponseEntity<User> createUser(@RequestBody User user) {
+      User created = userService.create(user);
+      
+      URI location = ServletUriComponentsBuilder
+          .fromCurrentRequest()
+          .path("/{id}")
+          .buildAndExpand(created.getId())
+          .toUri();
+      
+      return ResponseEntity.created(location).body(created);  // 201
+  }
+  
+  @DeleteMapping("/{id}")
+  public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+      if (!userService.exists(id)) {
+          return ResponseEntity.notFound().build();  // 404
+      }
+      
+      userService.delete(id);
+      return ResponseEntity.noContent().build();  // 204
+  }
+  ```
+
+  **With headers:**
+
+  ```java
+  @GetMapping("/{id}")
+  public ResponseEntity<User> getUser(@PathVariable Long id) {
+      User user = userService.findById(id);
+      
+      HttpHeaders headers = new HttpHeaders();
+      headers.add("X-Custom-Header", "CustomValue");
+      headers.add("X-User-Id", id.toString());
+      
+      return ResponseEntity.ok()
+          .headers(headers)
+          .body(user);
+  }
+  ```
+
+  **Common methods:**
+
+  ```java
+  // 200 OK
+  ResponseEntity.ok(body)
+  ResponseEntity.ok().build()
+  
+  // 201 Created
+  ResponseEntity.created(location).body(body)
+  
+  // 204 No Content
+  ResponseEntity.noContent().build()
+  
+  // 400 Bad Request
+  ResponseEntity.badRequest().body(error)
+  
+  // 404 Not Found
+  ResponseEntity.notFound().build()
+  
+  // 500 Internal Server Error
+  ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error)
+  
+  // Custom status
+  ResponseEntity.status(HttpStatus.ACCEPTED).body(body)
+  ```
+
+</details>
+
+<details>
+  <summary>HttpServletRequest and HttpServletResponse</summary>
+  <br/>
+
+  **Direct access to servlet request and response.**
+
+  **HttpServletRequest:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping
+      public List<User> getUsers(HttpServletRequest request) {
+          // Get request info
+          String method = request.getMethod();
+          String uri = request.getRequestURI();
+          String remoteAddr = request.getRemoteAddr();
+          
+          // Get headers
+          String userAgent = request.getHeader("User-Agent");
+          
+          // Get parameters
+          String name = request.getParameter("name");
+          
+          // Get attributes
+          Object attr = request.getAttribute("someAttribute");
+          
+          return userService.findAll();
+      }
+  }
+  ```
+
+  **HttpServletResponse:**
+
+  ```java
+  @GetMapping("/download")
+  public void downloadFile(HttpServletResponse response) throws IOException {
+      // Set headers
+      response.setContentType("application/pdf");
+      response.setHeader("Content-Disposition", "attachment; filename=file.pdf");
+      
+      // Write to response
+      byte[] data = fileService.getFileData();
+      response.getOutputStream().write(data);
+      response.getOutputStream().flush();
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @RequestBody for JSON/XML payloads
+  @PostMapping
+  public User createUser(@RequestBody User user) {
+  }
+  
+  // ✅ DO: Use @PathVariable for resource identifiers
+  @GetMapping("/{id}")
+  public User getUser(@PathVariable Long id) {
+  }
+  
+  // ✅ DO: Use @RequestParam for filtering/pagination
+  @GetMapping
+  public List<User> getUsers(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+  }
+  
+  // ✅ DO: Validate input with @Valid
+  @PostMapping
+  public User createUser(@Valid @RequestBody CreateUserRequest request) {
+  }
+  
+  // ✅ DO: Use DTOs instead of entities
+  @PostMapping
+  public User createUser(@RequestBody CreateUserRequest request) {
+      // Map DTO to entity
+  }
+  
+  // ❌ DON'T: Expose entities directly
+  @PostMapping
+  public User createUser(@RequestBody User user) {  // Exposes all fields
+  }
+  
+  // ✅ DO: Use ResponseEntity for flexible responses
+  @GetMapping("/{id}")
+  public ResponseEntity<User> getUser(@PathVariable Long id) {
+      return userService.findById(id)
+          .map(ResponseEntity::ok)
+          .orElse(ResponseEntity.notFound().build());
+  }
+  
+  // ✅ DO: Provide default values for optional parameters
+  @GetMapping
+  public List<User> getUsers(
+      @RequestParam(defaultValue = "0") int page
+  ) {
+  }
+  
+  // ✅ DO: Use meaningful parameter names
+  @GetMapping("/search")
+  public List<User> searchUsers(
+      @RequestParam String username,
+      @RequestParam String email
+  ) {
+  }
+  
+  // ❌ DON'T: Use unclear names
+  @GetMapping("/search")
+  public List<User> searchUsers(
+      @RequestParam String s1,
+      @RequestParam String s2
+  ) {
+  }
+  
+  // ✅ DO: Use Optional for truly optional parameters
+  @GetMapping("/search")
+  public List<User> searchUsers(@RequestParam Optional<String> name) {
+      return name.map(userService::findByName)
+                 .orElse(userService.findAll());
+  }
+  
+  // ✅ DO: Return appropriate status codes
+  @PostMapping
+  public ResponseEntity<User> createUser(@RequestBody User user) {
+      User created = userService.create(user);
+      return ResponseEntity.status(HttpStatus.CREATED).body(created);
+  }
+  
+  // ✅ DO: Set Location header for created resources
+  @PostMapping
+  public ResponseEntity<User> createUser(@RequestBody User user) {
+      User created = userService.create(user);
+      URI location = ServletUriComponentsBuilder
+          .fromCurrentRequest()
+          .path("/{id}")
+          .buildAndExpand(created.getId())
+          .toUri();
+      return ResponseEntity.created(location).body(created);
+  }
+  
+  // ✅ DO: Use @RequestHeader for authentication tokens
+  @GetMapping
+  public List<User> getUsers(
+      @RequestHeader("Authorization") String token
+  ) {
+  }
+  
+  // ✅ DO: Handle missing parameters gracefully
+  @GetMapping
+  public List<User> getUsers(
+      @RequestParam(required = false) String name
+  ) {
+      if (name == null) {
+          return userService.findAll();
+      }
+      return userService.findByName(name);
+  }
+  ```
+
+  **Summary:**
+  + Use **@RequestBody** for JSON/XML request payloads
+  + Use **@ResponseBody** to serialize response (or @RestController)
+  + Use **@PathVariable** for resource identifiers in URL path
+  + Use **@RequestParam** for query parameters (filtering, pagination)
+  + Use **@RequestHeader** for HTTP headers (authentication, etc.)
+  + Use **@CookieValue** for cookie values
+  + Use **@ModelAttribute** for form data binding
+  + Use **ResponseEntity** for full control over HTTP response
+  + Use **@Valid** for input validation
+  + Use **DTOs** instead of exposing entities
+  + Provide **default values** for optional parameters
+  + Return **appropriate HTTP status codes**
+  + Set **Location header** for created resources
+  + Use **Optional** for truly optional parameters
+  + Handle **missing parameters** gracefully
+
+</details>

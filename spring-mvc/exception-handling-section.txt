@@ -1,0 +1,633 @@
+## Exception Handling
+
+<details>
+  <summary>@ExceptionHandler</summary>
+  <br/>
+
+  **@ExceptionHandler** handles exceptions thrown by controller methods.
+
+  **Basic usage:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+          // Throws UserNotFoundException if not found
+      }
+      
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<String> handleUserNotFound(UserNotFoundException ex) {
+          return ResponseEntity
+              .status(HttpStatus.NOT_FOUND)
+              .body(ex.getMessage());
+      }
+  }
+  ```
+
+  **Multiple exceptions:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @ExceptionHandler({UserNotFoundException.class, OrderNotFoundException.class})
+      public ResponseEntity<String> handleNotFound(RuntimeException ex) {
+          return ResponseEntity
+              .status(HttpStatus.NOT_FOUND)
+              .body(ex.getMessage());
+      }
+      
+      @ExceptionHandler(IllegalArgumentException.class)
+      public ResponseEntity<String> handleBadRequest(IllegalArgumentException ex) {
+          return ResponseEntity
+              .status(HttpStatus.BAD_REQUEST)
+              .body(ex.getMessage());
+      }
+  }
+  ```
+
+  **Scope:**
+  + Handles exceptions only within the same controller
+  + Not shared across controllers
+  + Use @ControllerAdvice for global handling
+
+</details>
+
+<details>
+  <summary>@ControllerAdvice</summary>
+  <br/>
+
+  **@ControllerAdvice** provides global exception handling across all controllers.
+
+  **Basic usage:**
+
+  ```java
+  @RestControllerAdvice
+  public class GlobalExceptionHandler {
+      
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+          ErrorResponse error = new ErrorResponse(
+              HttpStatus.NOT_FOUND.value(),
+              ex.getMessage(),
+              LocalDateTime.now()
+          );
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+      }
+      
+      @ExceptionHandler(IllegalArgumentException.class)
+      public ResponseEntity<ErrorResponse> handleBadRequest(IllegalArgumentException ex) {
+          ErrorResponse error = new ErrorResponse(
+              HttpStatus.BAD_REQUEST.value(),
+              ex.getMessage(),
+              LocalDateTime.now()
+          );
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+      }
+      
+      @ExceptionHandler(Exception.class)
+      public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+          ErrorResponse error = new ErrorResponse(
+              HttpStatus.INTERNAL_SERVER_ERROR.value(),
+              "An unexpected error occurred",
+              LocalDateTime.now()
+          );
+          return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+      }
+  }
+  ```
+
+  **Error response DTO:**
+
+  ```java
+  public class ErrorResponse {
+      private int status;
+      private String message;
+      private LocalDateTime timestamp;
+      
+      // Constructor, getters, setters
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@RestControllerAdvice</summary>
+  <br/>
+
+  **@RestControllerAdvice = @ControllerAdvice + @ResponseBody**
+
+  **Comparison:**
+
+  ```java
+  // Option 1: @RestControllerAdvice (preferred for REST APIs)
+  @RestControllerAdvice
+  public class GlobalExceptionHandler {
+      
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+      }
+  }
+  
+  // Option 2: @ControllerAdvice + @ResponseBody
+  @ControllerAdvice
+  public class GlobalExceptionHandler {
+      
+      @ExceptionHandler(UserNotFoundException.class)
+      @ResponseBody
+      public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+      }
+  }
+  ```
+
+  **When to use:**
+  + **@RestControllerAdvice** - REST APIs (returns JSON/XML)
+  + **@ControllerAdvice** - Traditional MVC (returns views)
+
+</details>
+
+<details>
+  <summary>ResponseEntityExceptionHandler</summary>
+  <br/>
+
+  **ResponseEntityExceptionHandler** provides default handling for Spring MVC exceptions.
+
+  **Basic usage:**
+
+  ```java
+  @RestControllerAdvice
+  public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+      
+      // Handle custom exceptions
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+          ErrorResponse error = new ErrorResponse(
+              HttpStatus.NOT_FOUND.value(),
+              ex.getMessage(),
+              LocalDateTime.now()
+          );
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+      }
+      
+      // Override Spring MVC exception handling
+      @Override
+      protected ResponseEntity<Object> handleMethodArgumentNotValid(
+          MethodArgumentNotValidException ex,
+          HttpHeaders headers,
+          HttpStatusCode status,
+          WebRequest request
+      ) {
+          Map<String, String> errors = new HashMap<>();
+          ex.getBindingResult().getFieldErrors().forEach(error -> 
+              errors.put(error.getField(), error.getDefaultMessage())
+          );
+          
+          ErrorResponse errorResponse = new ErrorResponse(
+              HttpStatus.BAD_REQUEST.value(),
+              "Validation failed",
+              LocalDateTime.now(),
+              errors
+          );
+          
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+      }
+  }
+  ```
+
+  **Built-in exceptions handled:**
+  + **MethodArgumentNotValidException** - @Valid validation fails
+  + **HttpMessageNotReadableException** - Invalid JSON
+  + **HttpRequestMethodNotSupportedException** - Wrong HTTP method
+  + **MissingServletRequestParameterException** - Missing required parameter
+  + **TypeMismatchException** - Type conversion fails
+  + **HttpMediaTypeNotSupportedException** - Unsupported Content-Type
+
+</details>
+
+<details>
+  <summary>Validation Exception Handling</summary>
+  <br/>
+
+  **Handle validation errors from @Valid.**
+
+  **Entity with validation:**
+
+  ```java
+  public class CreateUserRequest {
+      @NotBlank(message = "Username is required")
+      @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
+      private String username;
+      
+      @NotBlank(message = "Email is required")
+      @Email(message = "Invalid email format")
+      private String email;
+      
+      @NotBlank(message = "Password is required")
+      @Size(min = 8, message = "Password must be at least 8 characters")
+      private String password;
+      
+      // Getters and setters
+  }
+  ```
+
+  **Controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @PostMapping
+      public User createUser(@Valid @RequestBody CreateUserRequest request) {
+          return userService.create(request);
+      }
+  }
+  ```
+
+  **Exception handler:**
+
+  ```java
+  @RestControllerAdvice
+  public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+      
+      @Override
+      protected ResponseEntity<Object> handleMethodArgumentNotValid(
+          MethodArgumentNotValidException ex,
+          HttpHeaders headers,
+          HttpStatusCode status,
+          WebRequest request
+      ) {
+          Map<String, String> errors = new HashMap<>();
+          
+          ex.getBindingResult().getFieldErrors().forEach(error -> 
+              errors.put(error.getField(), error.getDefaultMessage())
+          );
+          
+          ValidationErrorResponse response = new ValidationErrorResponse(
+              HttpStatus.BAD_REQUEST.value(),
+              "Validation failed",
+              LocalDateTime.now(),
+              errors
+          );
+          
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+      }
+  }
+  ```
+
+  **Error response:**
+
+  ```java
+  public class ValidationErrorResponse {
+      private int status;
+      private String message;
+      private LocalDateTime timestamp;
+      private Map<String, String> errors;
+      
+      // Constructor, getters, setters
+  }
+  ```
+
+  **Example response:**
+
+  ```json
+  {
+    "status": 400,
+    "message": "Validation failed",
+    "timestamp": "2024-01-15T10:30:00",
+    "errors": {
+      "username": "Username is required",
+      "email": "Invalid email format",
+      "password": "Password must be at least 8 characters"
+    }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Exceptions</summary>
+  <br/>
+
+  **Create custom exceptions for business logic.**
+
+  **Custom exception:**
+
+  ```java
+  public class UserNotFoundException extends RuntimeException {
+      public UserNotFoundException(Long id) {
+          super("User not found with id: " + id);
+      }
+      
+      public UserNotFoundException(String message) {
+          super(message);
+      }
+  }
+  
+  public class DuplicateUserException extends RuntimeException {
+      public DuplicateUserException(String username) {
+          super("User already exists with username: " + username);
+      }
+  }
+  
+  public class InvalidPasswordException extends RuntimeException {
+      public InvalidPasswordException(String message) {
+          super(message);
+      }
+  }
+  ```
+
+  **Service layer:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      public User findById(Long id) {
+          return userRepository.findById(id)
+              .orElseThrow(() -> new UserNotFoundException(id));
+      }
+      
+      public User create(CreateUserRequest request) {
+          if (userRepository.existsByUsername(request.getUsername())) {
+              throw new DuplicateUserException(request.getUsername());
+          }
+          
+          // Create user
+      }
+  }
+  ```
+
+  **Exception handler:**
+
+  ```java
+  @RestControllerAdvice
+  public class GlobalExceptionHandler {
+      
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+          ErrorResponse error = new ErrorResponse(
+              HttpStatus.NOT_FOUND.value(),
+              ex.getMessage(),
+              LocalDateTime.now()
+          );
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+      }
+      
+      @ExceptionHandler(DuplicateUserException.class)
+      public ResponseEntity<ErrorResponse> handleDuplicateUser(DuplicateUserException ex) {
+          ErrorResponse error = new ErrorResponse(
+              HttpStatus.CONFLICT.value(),
+              ex.getMessage(),
+              LocalDateTime.now()
+          );
+          return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Complete Exception Handling Example</summary>
+  <br/>
+
+  **Global exception handler:**
+
+  ```java
+  @RestControllerAdvice
+  @Slf4j
+  public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+      
+      // Custom business exceptions
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<ErrorResponse> handleUserNotFound(
+          UserNotFoundException ex,
+          WebRequest request
+      ) {
+          log.error("User not found: {}", ex.getMessage());
+          
+          ErrorResponse error = ErrorResponse.builder()
+              .status(HttpStatus.NOT_FOUND.value())
+              .message(ex.getMessage())
+              .timestamp(LocalDateTime.now())
+              .path(request.getDescription(false))
+              .build();
+          
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+      }
+      
+      @ExceptionHandler(DuplicateUserException.class)
+      public ResponseEntity<ErrorResponse> handleDuplicateUser(
+          DuplicateUserException ex,
+          WebRequest request
+      ) {
+          log.error("Duplicate user: {}", ex.getMessage());
+          
+          ErrorResponse error = ErrorResponse.builder()
+              .status(HttpStatus.CONFLICT.value())
+              .message(ex.getMessage())
+              .timestamp(LocalDateTime.now())
+              .path(request.getDescription(false))
+              .build();
+          
+          return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+      }
+      
+      // Validation errors
+      @Override
+      protected ResponseEntity<Object> handleMethodArgumentNotValid(
+          MethodArgumentNotValidException ex,
+          HttpHeaders headers,
+          HttpStatusCode status,
+          WebRequest request
+      ) {
+          Map<String, String> errors = new HashMap<>();
+          ex.getBindingResult().getFieldErrors().forEach(error -> 
+              errors.put(error.getField(), error.getDefaultMessage())
+          );
+          
+          ValidationErrorResponse response = ValidationErrorResponse.builder()
+              .status(HttpStatus.BAD_REQUEST.value())
+              .message("Validation failed")
+              .timestamp(LocalDateTime.now())
+              .path(request.getDescription(false))
+              .errors(errors)
+              .build();
+          
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+      }
+      
+      // Generic exception
+      @ExceptionHandler(Exception.class)
+      public ResponseEntity<ErrorResponse> handleGenericException(
+          Exception ex,
+          WebRequest request
+      ) {
+          log.error("Unexpected error: ", ex);
+          
+          ErrorResponse error = ErrorResponse.builder()
+              .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+              .message("An unexpected error occurred")
+              .timestamp(LocalDateTime.now())
+              .path(request.getDescription(false))
+              .build();
+          
+          return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+      }
+  }
+  ```
+
+  **Error response classes:**
+
+  ```java
+  @Data
+  @Builder
+  public class ErrorResponse {
+      private int status;
+      private String message;
+      private LocalDateTime timestamp;
+      private String path;
+  }
+  
+  @Data
+  @Builder
+  public class ValidationErrorResponse {
+      private int status;
+      private String message;
+      private LocalDateTime timestamp;
+      private String path;
+      private Map<String, String> errors;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @RestControllerAdvice for global exception handling
+  @RestControllerAdvice
+  public class GlobalExceptionHandler {
+  }
+  
+  // ✅ DO: Create custom exceptions for business logic
+  public class UserNotFoundException extends RuntimeException {
+      public UserNotFoundException(Long id) {
+          super("User not found with id: " + id);
+      }
+  }
+  
+  // ✅ DO: Return appropriate HTTP status codes
+  @ExceptionHandler(UserNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+  }
+  
+  // ✅ DO: Include timestamp and path in error response
+  ErrorResponse error = ErrorResponse.builder()
+      .status(HttpStatus.NOT_FOUND.value())
+      .message(ex.getMessage())
+      .timestamp(LocalDateTime.now())
+      .path(request.getDescription(false))
+      .build();
+  
+  // ✅ DO: Log exceptions
+  @ExceptionHandler(Exception.class)
+  public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+      log.error("Unexpected error: ", ex);
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+  }
+  
+  // ✅ DO: Handle validation errors properly
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(
+      MethodArgumentNotValidException ex,
+      HttpHeaders headers,
+      HttpStatusCode status,
+      WebRequest request
+  ) {
+      Map<String, String> errors = new HashMap<>();
+      ex.getBindingResult().getFieldErrors().forEach(error -> 
+          errors.put(error.getField(), error.getDefaultMessage())
+      );
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+  }
+  
+  // ✅ DO: Extend ResponseEntityExceptionHandler for Spring exceptions
+  @RestControllerAdvice
+  public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+  }
+  
+  // ❌ DON'T: Expose sensitive information in error messages
+  @ExceptionHandler(Exception.class)
+  public ResponseEntity<ErrorResponse> handleException(Exception ex) {
+      // BAD: Exposes stack trace
+      return ResponseEntity.status(500).body(ex.getStackTrace());
+  }
+  
+  // ✅ DO: Use generic message for unexpected errors
+  @ExceptionHandler(Exception.class)
+  public ResponseEntity<ErrorResponse> handleException(Exception ex) {
+      log.error("Error: ", ex);  // Log details
+      return ResponseEntity.status(500).body("An unexpected error occurred");
+  }
+  
+  // ✅ DO: Use specific exception handlers before generic ones
+  @ExceptionHandler(UserNotFoundException.class)  // Specific
+  public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+  }
+  
+  @ExceptionHandler(Exception.class)  // Generic (fallback)
+  public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+  }
+  
+  // ✅ DO: Return consistent error response format
+  public class ErrorResponse {
+      private int status;
+      private String message;
+      private LocalDateTime timestamp;
+      private String path;
+  }
+  
+  // ✅ DO: Use @ExceptionHandler for controller-specific exceptions
+  @RestController
+  public class UserController {
+      
+      @ExceptionHandler(UserNotFoundException.class)
+      public ResponseEntity<String> handleUserNotFound(UserNotFoundException ex) {
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage());
+      }
+  }
+  
+  // ✅ DO: Handle multiple exceptions in one handler
+  @ExceptionHandler({UserNotFoundException.class, OrderNotFoundException.class})
+  public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex) {
+      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+  }
+  ```
+
+  **Summary:**
+  + Use **@RestControllerAdvice** for global exception handling
+  + Use **@ExceptionHandler** for controller-specific exceptions
+  + Extend **ResponseEntityExceptionHandler** for Spring MVC exceptions
+  + Create **custom exceptions** for business logic
+  + Return **appropriate HTTP status codes**
+  + Include **timestamp and path** in error responses
+  + **Log exceptions** for debugging
+  + Handle **validation errors** properly
+  + Use **generic messages** for unexpected errors (don't expose stack traces)
+  + Return **consistent error response format**
+  + Use **specific handlers** before generic ones
+  + Don't **expose sensitive information** in error messages
+
+</details>

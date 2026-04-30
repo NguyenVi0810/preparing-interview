@@ -1,0 +1,705 @@
+## Validation
+
+<details>
+  <summary>Bean Validation Basics</summary>
+  <br/>
+
+  **Bean Validation** (JSR 380) provides declarative validation using annotations.
+
+  **Add dependency:**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+  </dependency>
+  ```
+
+  **Basic validation annotations:**
+
+  ```java
+  public class CreateUserRequest {
+      
+      @NotNull(message = "Username cannot be null")
+      @NotBlank(message = "Username cannot be blank")
+      @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
+      private String username;
+      
+      @NotBlank(message = "Email is required")
+      @Email(message = "Invalid email format")
+      private String email;
+      
+      @NotBlank(message = "Password is required")
+      @Size(min = 8, max = 100, message = "Password must be between 8 and 100 characters")
+      @Pattern(regexp = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z]).*$", 
+               message = "Password must contain at least one digit, one lowercase and one uppercase letter")
+      private String password;
+      
+      @Min(value = 18, message = "Age must be at least 18")
+      @Max(value = 120, message = "Age must be less than 120")
+      private Integer age;
+      
+      @Past(message = "Birth date must be in the past")
+      private LocalDate birthDate;
+      
+      // Getters and setters
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@Valid Annotation</summary>
+  <br/>
+
+  **@Valid** triggers validation on method parameters.
+
+  **Controller with validation:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @PostMapping
+      public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
+          User user = userService.create(request);
+          return ResponseEntity.status(HttpStatus.CREATED).body(user);
+      }
+      
+      @PutMapping("/{id}")
+      public ResponseEntity<User> updateUser(
+          @PathVariable Long id,
+          @Valid @RequestBody UpdateUserRequest request
+      ) {
+          User user = userService.update(id, request);
+          return ResponseEntity.ok(user);
+      }
+  }
+  ```
+
+  **What happens:**
+  + Spring validates the request object before method execution
+  + If validation fails, throws **MethodArgumentNotValidException**
+  + Exception contains all validation errors
+  + Method is not executed if validation fails
+
+</details>
+
+<details>
+  <summary>Common Validation Annotations</summary>
+  <br/>
+
+  **Null/Empty checks:**
+
+  ```java
+  @NotNull        // Value cannot be null
+  @NotEmpty       // String/Collection cannot be null or empty
+  @NotBlank       // String cannot be null, empty, or whitespace only
+  
+  public class UserRequest {
+      @NotNull
+      private String username;  // Cannot be null
+      
+      @NotEmpty
+      private String email;  // Cannot be null or ""
+      
+      @NotBlank
+      private String password;  // Cannot be null, "", or "   "
+  }
+  ```
+
+  **Size constraints:**
+
+  ```java
+  @Size(min = 3, max = 50)     // String/Collection size
+  @Min(18)                      // Numeric minimum
+  @Max(120)                     // Numeric maximum
+  @DecimalMin("0.0")           // Decimal minimum
+  @DecimalMax("100.0")         // Decimal maximum
+  
+  public class UserRequest {
+      @Size(min = 3, max = 50)
+      private String username;
+      
+      @Min(18)
+      @Max(120)
+      private Integer age;
+      
+      @DecimalMin("0.0")
+      @DecimalMax("100.0")
+      private BigDecimal discount;
+  }
+  ```
+
+  **Pattern matching:**
+
+  ```java
+  @Pattern(regexp = "^[A-Za-z0-9]+$")  // Alphanumeric only
+  @Email                                // Valid email format
+  
+  public class UserRequest {
+      @Pattern(regexp = "^[A-Za-z0-9]+$", message = "Username must be alphanumeric")
+      private String username;
+      
+      @Email(message = "Invalid email format")
+      private String email;
+      
+      @Pattern(regexp = "^\\+?[1-9]\\d{1,14}$", message = "Invalid phone number")
+      private String phoneNumber;
+  }
+  ```
+
+  **Date/Time validation:**
+
+  ```java
+  @Past           // Date must be in the past
+  @PastOrPresent  // Date must be in the past or present
+  @Future         // Date must be in the future
+  @FutureOrPresent // Date must be in the future or present
+  
+  public class UserRequest {
+      @Past
+      private LocalDate birthDate;
+      
+      @FutureOrPresent
+      private LocalDate appointmentDate;
+  }
+  ```
+
+  **Boolean validation:**
+
+  ```java
+  @AssertTrue   // Must be true
+  @AssertFalse  // Must be false
+  
+  public class UserRequest {
+      @AssertTrue(message = "You must accept terms and conditions")
+      private Boolean acceptedTerms;
+  }
+  ```
+
+  **Numeric validation:**
+
+  ```java
+  @Positive       // Must be positive (> 0)
+  @PositiveOrZero // Must be positive or zero (>= 0)
+  @Negative       // Must be negative (< 0)
+  @NegativeOrZero // Must be negative or zero (<= 0)
+  
+  public class OrderRequest {
+      @Positive
+      private BigDecimal price;
+      
+      @PositiveOrZero
+      private Integer quantity;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Nested Object Validation</summary>
+  <br/>
+
+  **@Valid** on nested objects triggers cascading validation.
+
+  **Nested objects:**
+
+  ```java
+  public class CreateOrderRequest {
+      
+      @NotNull
+      @Valid  // Validates Address object
+      private Address shippingAddress;
+      
+      @NotNull
+      @Valid  // Validates each OrderItem in the list
+      @Size(min = 1, message = "Order must have at least one item")
+      private List<OrderItem> items;
+      
+      // Getters and setters
+  }
+  
+  public class Address {
+      @NotBlank
+      @Size(max = 100)
+      private String street;
+      
+      @NotBlank
+      @Size(max = 50)
+      private String city;
+      
+      @NotBlank
+      @Pattern(regexp = "^\\d{5}$", message = "Invalid zip code")
+      private String zipCode;
+      
+      // Getters and setters
+  }
+  
+  public class OrderItem {
+      @NotNull
+      private Long productId;
+      
+      @Positive
+      private Integer quantity;
+      
+      @Positive
+      private BigDecimal price;
+      
+      // Getters and setters
+  }
+  ```
+
+  **Controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/orders")
+  public class OrderController {
+      
+      @PostMapping
+      public ResponseEntity<Order> createOrder(@Valid @RequestBody CreateOrderRequest request) {
+          // All nested objects are validated
+          Order order = orderService.create(request);
+          return ResponseEntity.status(HttpStatus.CREATED).body(order);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Validators</summary>
+  <br/>
+
+  **Create custom validation annotation.**
+
+  **Step 1: Create annotation:**
+
+  ```java
+  @Target({ElementType.FIELD, ElementType.PARAMETER})
+  @Retention(RetentionPolicy.RUNTIME)
+  @Constraint(validatedBy = UniqueUsernameValidator.class)
+  @Documented
+  public @interface UniqueUsername {
+      
+      String message() default "Username already exists";
+      
+      Class<?>[] groups() default {};
+      
+      Class<? extends Payload>[] payload() default {};
+  }
+  ```
+
+  **Step 2: Create validator:**
+
+  ```java
+  @Component
+  public class UniqueUsernameValidator implements ConstraintValidator<UniqueUsername, String> {
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      @Override
+      public void initialize(UniqueUsername constraintAnnotation) {
+          // Initialization logic if needed
+      }
+      
+      @Override
+      public boolean isValid(String username, ConstraintValidatorContext context) {
+          if (username == null) {
+              return true;  // Let @NotNull handle null values
+          }
+          
+          return !userRepository.existsByUsername(username);
+      }
+  }
+  ```
+
+  **Step 3: Use annotation:**
+
+  ```java
+  public class CreateUserRequest {
+      
+      @NotBlank
+      @Size(min = 3, max = 50)
+      @UniqueUsername  // Custom validator
+      private String username;
+      
+      @NotBlank
+      @Email
+      private String email;
+      
+      // Getters and setters
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Class-Level Validation</summary>
+  <br/>
+
+  **Validate multiple fields together.**
+
+  **Create annotation:**
+
+  ```java
+  @Target(ElementType.TYPE)
+  @Retention(RetentionPolicy.RUNTIME)
+  @Constraint(validatedBy = PasswordMatchesValidator.class)
+  @Documented
+  public @interface PasswordMatches {
+      
+      String message() default "Passwords do not match";
+      
+      Class<?>[] groups() default {};
+      
+      Class<? extends Payload>[] payload() default {};
+  }
+  ```
+
+  **Create validator:**
+
+  ```java
+  public class PasswordMatchesValidator implements ConstraintValidator<PasswordMatches, Object> {
+      
+      @Override
+      public boolean isValid(Object obj, ConstraintValidatorContext context) {
+          if (obj instanceof CreateUserRequest) {
+              CreateUserRequest request = (CreateUserRequest) obj;
+              return request.getPassword() != null && 
+                     request.getPassword().equals(request.getConfirmPassword());
+          }
+          return false;
+      }
+  }
+  ```
+
+  **Use annotation:**
+
+  ```java
+  @PasswordMatches  // Class-level validation
+  public class CreateUserRequest {
+      
+      @NotBlank
+      @Size(min = 8)
+      private String password;
+      
+      @NotBlank
+      private String confirmPassword;
+      
+      // Getters and setters
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Validation Groups</summary>
+  <br/>
+
+  **Use different validation rules for different scenarios.**
+
+  **Define groups:**
+
+  ```java
+  public interface CreateValidation {}
+  public interface UpdateValidation {}
+  ```
+
+  **Apply groups:**
+
+  ```java
+  public class UserRequest {
+      
+      @Null(groups = CreateValidation.class, message = "ID must be null for creation")
+      @NotNull(groups = UpdateValidation.class, message = "ID is required for update")
+      private Long id;
+      
+      @NotBlank(groups = {CreateValidation.class, UpdateValidation.class})
+      @Size(min = 3, max = 50)
+      private String username;
+      
+      @NotBlank(groups = CreateValidation.class, message = "Password is required")
+      @Size(min = 8)
+      private String password;
+      
+      // Getters and setters
+  }
+  ```
+
+  **Controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @PostMapping
+      public ResponseEntity<User> createUser(
+          @Validated(CreateValidation.class) @RequestBody UserRequest request
+      ) {
+          User user = userService.create(request);
+          return ResponseEntity.status(HttpStatus.CREATED).body(user);
+      }
+      
+      @PutMapping("/{id}")
+      public ResponseEntity<User> updateUser(
+          @PathVariable Long id,
+          @Validated(UpdateValidation.class) @RequestBody UserRequest request
+      ) {
+          User user = userService.update(id, request);
+          return ResponseEntity.ok(user);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Programmatic Validation</summary>
+  <br/>
+
+  **Validate objects programmatically using Validator.**
+
+  **Service with validation:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private Validator validator;
+      
+      @Autowired
+      private UserRepository userRepository;
+      
+      public User create(CreateUserRequest request) {
+          // Programmatic validation
+          Set<ConstraintViolation<CreateUserRequest>> violations = validator.validate(request);
+          
+          if (!violations.isEmpty()) {
+              StringBuilder sb = new StringBuilder();
+              for (ConstraintViolation<CreateUserRequest> violation : violations) {
+                  sb.append(violation.getMessage()).append("\n");
+              }
+              throw new ValidationException(sb.toString());
+          }
+          
+          // Create user
+          User user = new User();
+          user.setUsername(request.getUsername());
+          user.setEmail(request.getEmail());
+          return userRepository.save(user);
+      }
+  }
+  ```
+
+  **Validate specific property:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private Validator validator;
+      
+      public void updateUsername(Long userId, String newUsername) {
+          // Validate only username property
+          Set<ConstraintViolation<User>> violations = 
+              validator.validateValue(User.class, "username", newUsername);
+          
+          if (!violations.isEmpty()) {
+              throw new ValidationException("Invalid username");
+          }
+          
+          // Update username
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Handling Validation Errors</summary>
+  <br/>
+
+  **Handle validation errors in exception handler.**
+
+  **Exception handler:**
+
+  ```java
+  @RestControllerAdvice
+  public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+      
+      @Override
+      protected ResponseEntity<Object> handleMethodArgumentNotValid(
+          MethodArgumentNotValidException ex,
+          HttpHeaders headers,
+          HttpStatusCode status,
+          WebRequest request
+      ) {
+          Map<String, String> errors = new HashMap<>();
+          
+          // Field errors
+          ex.getBindingResult().getFieldErrors().forEach(error -> 
+              errors.put(error.getField(), error.getDefaultMessage())
+          );
+          
+          // Global errors (class-level validation)
+          ex.getBindingResult().getGlobalErrors().forEach(error -> 
+              errors.put(error.getObjectName(), error.getDefaultMessage())
+          );
+          
+          ValidationErrorResponse response = ValidationErrorResponse.builder()
+              .status(HttpStatus.BAD_REQUEST.value())
+              .message("Validation failed")
+              .timestamp(LocalDateTime.now())
+              .errors(errors)
+              .build();
+          
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+      }
+  }
+  ```
+
+  **Error response:**
+
+  ```java
+  @Data
+  @Builder
+  public class ValidationErrorResponse {
+      private int status;
+      private String message;
+      private LocalDateTime timestamp;
+      private Map<String, String> errors;
+  }
+  ```
+
+  **Example response:**
+
+  ```json
+  {
+    "status": 400,
+    "message": "Validation failed",
+    "timestamp": "2024-01-15T10:30:00",
+    "errors": {
+      "username": "Username must be between 3 and 50 characters",
+      "email": "Invalid email format",
+      "password": "Password must be at least 8 characters"
+    }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @Valid to trigger validation
+  @PostMapping
+  public User createUser(@Valid @RequestBody CreateUserRequest request) {
+  }
+  
+  // ✅ DO: Use DTOs for validation
+  public class CreateUserRequest {
+      @NotBlank
+      @Size(min = 3, max = 50)
+      private String username;
+  }
+  
+  // ❌ DON'T: Validate entities directly
+  @PostMapping
+  public User createUser(@Valid @RequestBody User user) {  // Exposes entity
+  }
+  
+  // ✅ DO: Provide meaningful error messages
+  @NotBlank(message = "Username is required")
+  @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
+  private String username;
+  
+  // ❌ DON'T: Use default messages
+  @NotBlank
+  @Size(min = 3, max = 50)
+  private String username;
+  
+  // ✅ DO: Use @NotBlank for strings (checks null, empty, and whitespace)
+  @NotBlank
+  private String username;
+  
+  // ❌ DON'T: Use @NotNull for strings
+  @NotNull  // Allows empty strings
+  private String username;
+  
+  // ✅ DO: Use @Valid for nested objects
+  @Valid
+  private Address address;
+  
+  // ✅ DO: Create custom validators for complex validation
+  @UniqueUsername
+  private String username;
+  
+  // ✅ DO: Use validation groups for different scenarios
+  @Validated(CreateValidation.class)
+  @RequestBody UserRequest request
+  
+  // ✅ DO: Use class-level validation for multi-field validation
+  @PasswordMatches
+  public class CreateUserRequest {
+      private String password;
+      private String confirmPassword;
+  }
+  
+  // ✅ DO: Handle validation errors globally
+  @RestControllerAdvice
+  public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+      @Override
+      protected ResponseEntity<Object> handleMethodArgumentNotValid(...) {
+      }
+  }
+  
+  // ✅ DO: Return structured error response
+  {
+    "status": 400,
+    "message": "Validation failed",
+    "errors": {
+      "username": "Username is required",
+      "email": "Invalid email format"
+    }
+  }
+  
+  // ✅ DO: Validate at controller layer
+  @PostMapping
+  public User createUser(@Valid @RequestBody CreateUserRequest request) {
+  }
+  
+  // ✅ DO: Use programmatic validation when needed
+  Set<ConstraintViolation<User>> violations = validator.validate(user);
+  
+  // ✅ DO: Combine multiple validation annotations
+  @NotBlank
+  @Size(min = 3, max = 50)
+  @Pattern(regexp = "^[A-Za-z0-9]+$")
+  private String username;
+  ```
+
+  **Summary:**
+  + Use **@Valid** to trigger validation on request objects
+  + Use **DTOs** for validation (not entities)
+  + Provide **meaningful error messages**
+  + Use **@NotBlank** for strings (not @NotNull)
+  + Use **@Valid** for nested object validation
+  + Create **custom validators** for complex validation logic
+  + Use **validation groups** for different scenarios
+  + Use **class-level validation** for multi-field validation
+  + Handle validation errors **globally** with @RestControllerAdvice
+  + Return **structured error responses**
+  + Validate at **controller layer**
+  + Use **programmatic validation** when needed
+  + **Combine multiple annotations** for comprehensive validation
+
+</details>

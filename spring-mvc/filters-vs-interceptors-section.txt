@@ -1,0 +1,777 @@
+## Filters vs Interceptors
+
+<details>
+  <summary>What are Filters?</summary>
+  <br/>
+
+  **Filters** are part of Java Servlet specification, work at servlet container level.
+
+  **Key characteristics:**
+  + Part of Java EE (javax.servlet.Filter)
+  + Work at servlet container level (before Spring MVC)
+  + Can modify request/response
+  + Applied to all requests (including static resources)
+  + No access to Spring context by default
+
+  **Basic filter:**
+
+  ```java
+  @Component
+  public class LoggingFilter implements Filter {
+      
+      @Override
+      public void init(FilterConfig filterConfig) throws ServletException {
+          // Initialization logic
+      }
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          
+          System.out.println("Request: " + httpRequest.getRequestURI());
+          
+          // Continue filter chain
+          chain.doFilter(request, response);
+          
+          System.out.println("Response completed");
+      }
+      
+      @Override
+      public void destroy() {
+          // Cleanup logic
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>What are Interceptors?</summary>
+  <br/>
+
+  **Interceptors** are Spring MVC components, work at Spring MVC level.
+
+  **Key characteristics:**
+  + Part of Spring MVC (HandlerInterceptor)
+  + Work at Spring MVC level (after DispatcherServlet)
+  + Have access to Handler (controller method)
+  + Can access Spring beans
+  + Applied only to controller requests
+
+  **Basic interceptor:**
+
+  ```java
+  @Component
+  public class LoggingInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          System.out.println("Before controller: " + request.getRequestURI());
+          return true;
+      }
+      
+      @Override
+      public void postHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          ModelAndView modelAndView
+      ) throws Exception {
+          System.out.println("After controller, before view");
+      }
+      
+      @Override
+      public void afterCompletion(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Exception ex
+      ) throws Exception {
+          System.out.println("After view rendering");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Key Differences</summary>
+  <br/>
+
+  **Comparison table:**
+
+  | Feature | Filter | Interceptor |
+  |---------|--------|-------------|
+  | **Specification** | Java EE (Servlet) | Spring MVC |
+  | **Level** | Servlet container | Spring MVC |
+  | **Execution** | Before DispatcherServlet | After DispatcherServlet |
+  | **Scope** | All requests (including static) | Only controller requests |
+  | **Access to Handler** | ❌ No | ✅ Yes |
+  | **Access to ModelAndView** | ❌ No | ✅ Yes |
+  | **Spring Beans** | ⚠️ Limited | ✅ Full access |
+  | **Exception Handling** | try-catch | @ExceptionHandler |
+  | **Methods** | doFilter() | preHandle(), postHandle(), afterCompletion() |
+  | **Order Control** | @Order or FilterRegistrationBean | InterceptorRegistry.order() |
+
+  **Execution order:**
+
+  ```
+  Request
+    ↓
+  Filter 1
+    ↓
+  Filter 2
+    ↓
+  DispatcherServlet
+    ↓
+  Interceptor 1 (preHandle)
+    ↓
+  Interceptor 2 (preHandle)
+    ↓
+  Controller
+    ↓
+  Interceptor 2 (postHandle)
+    ↓
+  Interceptor 1 (postHandle)
+    ↓
+  View Rendering
+    ↓
+  Interceptor 1 (afterCompletion)
+    ↓
+  Interceptor 2 (afterCompletion)
+    ↓
+  Filter 2
+    ↓
+  Filter 1
+    ↓
+  Response
+  ```
+
+</details>
+
+<details>
+  <summary>Filter Example</summary>
+  <br/>
+
+  **Request/Response logging filter:**
+
+  ```java
+  @Component
+  @Order(1)
+  @Slf4j
+  public class RequestResponseLoggingFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          
+          // Log request
+          log.info("Request: {} {}", httpRequest.getMethod(), httpRequest.getRequestURI());
+          log.info("Remote Address: {}", httpRequest.getRemoteAddr());
+          
+          // Wrap response to capture status
+          ContentCachingResponseWrapper responseWrapper = 
+              new ContentCachingResponseWrapper(httpResponse);
+          
+          long startTime = System.currentTimeMillis();
+          
+          // Continue filter chain
+          chain.doFilter(request, responseWrapper);
+          
+          long duration = System.currentTimeMillis() - startTime;
+          
+          // Log response
+          log.info("Response: {} - {} ms", responseWrapper.getStatus(), duration);
+          
+          // Copy response body
+          responseWrapper.copyBodyToResponse();
+      }
+  }
+  ```
+
+  **CORS filter:**
+
+  ```java
+  @Component
+  @Order(Ordered.HIGHEST_PRECEDENCE)
+  public class CorsFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          
+          // Set CORS headers
+          httpResponse.setHeader("Access-Control-Allow-Origin", "*");
+          httpResponse.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+          httpResponse.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+          httpResponse.setHeader("Access-Control-Max-Age", "3600");
+          
+          // Handle preflight request
+          if ("OPTIONS".equalsIgnoreCase(httpRequest.getMethod())) {
+              httpResponse.setStatus(HttpServletResponse.SC_OK);
+              return;
+          }
+          
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Interceptor Example</summary>
+  <br/>
+
+  **Authentication interceptor:**
+
+  ```java
+  @Component
+  @Slf4j
+  public class AuthenticationInterceptor implements HandlerInterceptor {
+      
+      @Autowired
+      private JwtTokenProvider tokenProvider;
+      
+      @Autowired
+      private UserService userService;
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          // Check if handler is a controller method
+          if (!(handler instanceof HandlerMethod)) {
+              return true;
+          }
+          
+          HandlerMethod handlerMethod = (HandlerMethod) handler;
+          
+          // Check if method requires authentication
+          if (!handlerMethod.hasMethodAnnotation(RequiresAuth.class)) {
+              return true;
+          }
+          
+          // Get token from header
+          String token = request.getHeader("Authorization");
+          
+          if (token == null || !token.startsWith("Bearer ")) {
+              response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+              return false;
+          }
+          
+          // Validate token
+          String jwt = token.substring(7);
+          if (!tokenProvider.validateToken(jwt)) {
+              response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+              return false;
+          }
+          
+          // Load user and store in request
+          String username = tokenProvider.getUsernameFromToken(jwt);
+          User user = userService.findByUsername(username);
+          request.setAttribute("currentUser", user);
+          
+          return true;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>When to Use Filters</summary>
+  <br/>
+
+  **Use Filters for:**
+
+  **1. Request/Response modification:**
+
+  ```java
+  @Component
+  public class CompressionFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          
+          // Wrap response for compression
+          GZIPResponseWrapper wrappedResponse = new GZIPResponseWrapper(httpResponse);
+          
+          chain.doFilter(request, wrappedResponse);
+          
+          wrappedResponse.finish();
+      }
+  }
+  ```
+
+  **2. Character encoding:**
+
+  ```java
+  @Component
+  public class CharacterEncodingFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          request.setCharacterEncoding("UTF-8");
+          response.setCharacterEncoding("UTF-8");
+          
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+  **3. CORS handling:**
+
+  ```java
+  @Component
+  public class CorsFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          
+          httpResponse.setHeader("Access-Control-Allow-Origin", "*");
+          httpResponse.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
+          
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+  **4. Request logging (all requests including static):**
+
+  ```java
+  @Component
+  public class RequestLoggingFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          
+          log.info("Request: {} {}", httpRequest.getMethod(), httpRequest.getRequestURI());
+          
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+  **5. Security (authentication/authorization at servlet level):**
+
+  ```java
+  @Component
+  public class SecurityFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          
+          // Check IP whitelist
+          String remoteAddr = httpRequest.getRemoteAddr();
+          if (!isWhitelisted(remoteAddr)) {
+              httpResponse.setStatus(HttpServletResponse.SC_FORBIDDEN);
+              return;
+          }
+          
+          chain.doFilter(request, response);
+      }
+      
+      private boolean isWhitelisted(String ip) {
+          // Check whitelist
+          return true;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>When to Use Interceptors</summary>
+  <br/>
+
+  **Use Interceptors for:**
+
+  **1. Authentication/Authorization (controller-specific):**
+
+  ```java
+  @Component
+  public class AuthInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          if (handler instanceof HandlerMethod) {
+              HandlerMethod method = (HandlerMethod) handler;
+              
+              // Check method annotation
+              if (method.hasMethodAnnotation(RequiresRole.class)) {
+                  RequiresRole annotation = method.getMethodAnnotation(RequiresRole.class);
+                  String requiredRole = annotation.value();
+                  
+                  // Check user role
+                  if (!hasRole(request, requiredRole)) {
+                      response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                      return false;
+                  }
+              }
+          }
+          
+          return true;
+      }
+      
+      private boolean hasRole(HttpServletRequest request, String role) {
+          // Check user role
+          return true;
+      }
+  }
+  ```
+
+  **2. Performance monitoring:**
+
+  ```java
+  @Component
+  public class PerformanceInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          request.setAttribute("startTime", System.currentTimeMillis());
+          return true;
+      }
+      
+      @Override
+      public void afterCompletion(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Exception ex
+      ) throws Exception {
+          long startTime = (Long) request.getAttribute("startTime");
+          long duration = System.currentTimeMillis() - startTime;
+          
+          if (handler instanceof HandlerMethod) {
+              HandlerMethod method = (HandlerMethod) handler;
+              log.info("Controller: {}.{} - {} ms",
+                  method.getBeanType().getSimpleName(),
+                  method.getMethod().getName(),
+                  duration);
+          }
+      }
+  }
+  ```
+
+  **3. Accessing ModelAndView:**
+
+  ```java
+  @Component
+  public class ModelInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public void postHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          ModelAndView modelAndView
+      ) throws Exception {
+          if (modelAndView != null) {
+              // Add common attributes to model
+              modelAndView.addObject("currentYear", LocalDate.now().getYear());
+              modelAndView.addObject("appVersion", "1.0.0");
+          }
+      }
+  }
+  ```
+
+  **4. Handler-specific logic:**
+
+  ```java
+  @Component
+  public class AuditInterceptor implements HandlerInterceptor {
+      
+      @Autowired
+      private AuditService auditService;
+      
+      @Override
+      public void afterCompletion(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Exception ex
+      ) throws Exception {
+          if (handler instanceof HandlerMethod) {
+              HandlerMethod method = (HandlerMethod) handler;
+              
+              // Check if method should be audited
+              if (method.hasMethodAnnotation(Audited.class)) {
+                  User user = (User) request.getAttribute("currentUser");
+                  
+                  auditService.log(
+                      user.getId(),
+                      method.getMethod().getName(),
+                      request.getRequestURI(),
+                      response.getStatus()
+                  );
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Filter Registration</summary>
+  <br/>
+
+  **Method 1: @Component annotation:**
+
+  ```java
+  @Component
+  @Order(1)
+  public class MyFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          // Filter logic
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+  **Method 2: FilterRegistrationBean:**
+
+  ```java
+  @Configuration
+  public class FilterConfig {
+      
+      @Bean
+      public FilterRegistrationBean<MyFilter> myFilter() {
+          FilterRegistrationBean<MyFilter> registration = new FilterRegistrationBean<>();
+          registration.setFilter(new MyFilter());
+          registration.addUrlPatterns("/api/*");
+          registration.setOrder(1);
+          registration.setName("myFilter");
+          return registration;
+      }
+  }
+  ```
+
+  **Method 3: @WebFilter (with @ServletComponentScan):**
+
+  ```java
+  @WebFilter(urlPatterns = "/api/*", filterName = "myFilter")
+  public class MyFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          chain.doFilter(request, response);
+      }
+  }
+  
+  // In main application class
+  @SpringBootApplication
+  @ServletComponentScan
+  public class Application {
+      public static void main(String[] args) {
+          SpringApplication.run(Application.class, args);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Interceptor Registration</summary>
+  <br/>
+
+  **Register in WebMvcConfigurer:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Autowired
+      private AuthInterceptor authInterceptor;
+      
+      @Autowired
+      private LoggingInterceptor loggingInterceptor;
+      
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          // Register interceptors with order
+          registry.addInterceptor(loggingInterceptor)
+                  .addPathPatterns("/**")
+                  .order(1);
+          
+          registry.addInterceptor(authInterceptor)
+                  .addPathPatterns("/api/**")
+                  .excludePathPatterns("/api/auth/**", "/api/public/**")
+                  .order(2);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Filters for servlet-level concerns
+  // - Request/response modification
+  // - Character encoding
+  // - CORS
+  // - Compression
+  // - Security (IP filtering)
+  
+  // ✅ DO: Use Interceptors for Spring MVC concerns
+  // - Authentication/authorization (controller-specific)
+  // - Performance monitoring
+  // - Accessing ModelAndView
+  // - Handler-specific logic
+  // - Auditing
+  
+  // ✅ DO: Use Filter for all requests (including static resources)
+  @Component
+  public class CorsFilter implements Filter {
+      // Applies to all requests
+  }
+  
+  // ✅ DO: Use Interceptor for controller requests only
+  @Component
+  public class AuthInterceptor implements HandlerInterceptor {
+      // Applies only to controller methods
+  }
+  
+  // ✅ DO: Access Spring beans in Interceptors
+  @Component
+  public class AuthInterceptor implements HandlerInterceptor {
+      @Autowired
+      private UserService userService;  // Easy access to Spring beans
+  }
+  
+  // ⚠️ CAUTION: Accessing Spring beans in Filters requires @Component
+  @Component
+  public class MyFilter implements Filter {
+      @Autowired
+      private SomeService service;  // Works with @Component
+  }
+  
+  // ✅ DO: Use Filter for CORS (needs to run before Spring Security)
+  @Component
+  @Order(Ordered.HIGHEST_PRECEDENCE)
+  public class CorsFilter implements Filter {
+  }
+  
+  // ✅ DO: Use Interceptor to access handler information
+  if (handler instanceof HandlerMethod) {
+      HandlerMethod method = (HandlerMethod) handler;
+      // Access controller class, method, annotations
+  }
+  
+  // ✅ DO: Set execution order
+  // Filters
+  @Order(1)
+  public class Filter1 implements Filter {}
+  
+  // Interceptors
+  registry.addInterceptor(interceptor1).order(1);
+  registry.addInterceptor(interceptor2).order(2);
+  
+  // ✅ DO: Call chain.doFilter() in Filters
+  @Override
+  public void doFilter(...) {
+      // Before logic
+      chain.doFilter(request, response);  // Must call this!
+      // After logic
+  }
+  
+  // ✅ DO: Return true/false in Interceptor preHandle
+  @Override
+  public boolean preHandle(...) {
+      if (isValid) {
+          return true;  // Continue
+      }
+      return false;  // Stop
+  }
+  
+  // ✅ DO: Use path patterns appropriately
+  // Filter - URL patterns
+  registration.addUrlPatterns("/api/*", "/admin/*");
+  
+  // Interceptor - Ant-style patterns
+  registry.addInterceptor(interceptor)
+          .addPathPatterns("/api/**")
+          .excludePathPatterns("/api/public/**");
+  ```
+
+  **Summary:**
+  + **Filters** work at **servlet container level** (before Spring MVC)
+  + **Interceptors** work at **Spring MVC level** (after DispatcherServlet)
+  + Use **Filters** for request/response modification, encoding, CORS, compression
+  + Use **Interceptors** for authentication, authorization, performance monitoring, auditing
+  + **Filters** apply to **all requests** (including static resources)
+  + **Interceptors** apply only to **controller requests**
+  + **Interceptors** have access to **Handler** and **ModelAndView**
+  + **Interceptors** have **full access to Spring beans**
+  + **Filters** execute **before** Interceptors
+  + Use **@Order** for Filter ordering, **InterceptorRegistry.order()** for Interceptor ordering
+  + **Filters** use **doFilter()**, **Interceptors** use **preHandle/postHandle/afterCompletion**
+
+</details>

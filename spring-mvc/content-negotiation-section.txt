@@ -1,0 +1,718 @@
+## Content Negotiation
+
+<details>
+  <summary>What is Content Negotiation?</summary>
+  <br/>
+
+  **Content Negotiation** allows the server to return different representations (JSON, XML, etc.) of the same resource based on client preferences.
+
+  **How it works:**
+  + Client specifies preferred format in **Accept** header
+  + Server returns response in requested format
+  + Spring MVC automatically handles conversion
+
+  **Example:**
+
+  ```
+  Request with Accept: application/json
+  → Server returns JSON
+  
+  Request with Accept: application/xml
+  → Server returns XML
+  ```
+
+  **Benefits:**
+  + Single endpoint serves multiple formats
+  + Client chooses preferred format
+  + Automatic conversion by Spring
+
+</details>
+
+<details>
+  <summary>Accept Header</summary>
+  <br/>
+
+  **Accept header** specifies client's preferred response format.
+
+  **Common media types:**
+
+  ```
+  Accept: application/json          → JSON
+  Accept: application/xml           → XML
+  Accept: text/html                 → HTML
+  Accept: text/plain                → Plain text
+  Accept: application/pdf           → PDF
+  Accept: */*                       → Any format
+  ```
+
+  **Multiple formats with priority:**
+
+  ```
+  Accept: application/json, application/xml;q=0.9, */*;q=0.8
+  ```
+
+  + `q` parameter indicates quality/priority (0.0 to 1.0)
+  + Higher value = higher priority
+  + Default q=1.0 if not specified
+
+  **Example:**
+
+  ```bash
+  # Request JSON
+  curl -H "Accept: application/json" http://localhost:8080/api/users/1
+  
+  # Request XML
+  curl -H "Accept: application/xml" http://localhost:8080/api/users/1
+  ```
+
+</details>
+
+<details>
+  <summary>JSON Support (Default)</summary>
+  <br/>
+
+  **JSON is enabled by default in Spring Boot.**
+
+  **Dependency (included in spring-boot-starter-web):**
+
+  ```xml
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-json</artifactId>
+  </dependency>
+  ```
+
+  **Controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      @GetMapping
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+  }
+  ```
+
+  **Request:**
+
+  ```bash
+  curl -H "Accept: application/json" http://localhost:8080/api/users/1
+  ```
+
+  **Response:**
+
+  ```json
+  {
+    "id": 1,
+    "username": "john",
+    "email": "john@example.com",
+    "createdAt": "2024-01-15T10:30:00"
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>XML Support</summary>
+  <br/>
+
+  **Add XML dependency:**
+
+  ```xml
+  <dependency>
+      <groupId>com.fasterxml.jackson.dataformat</groupId>
+      <artifactId>jackson-dataformat-xml</artifactId>
+  </dependency>
+  ```
+
+  **Entity with XML annotations:**
+
+  ```java
+  @Entity
+  @XmlRootElement(name = "user")
+  @XmlAccessorType(XmlAccessType.FIELD)
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      @XmlElement
+      private Long id;
+      
+      @XmlElement
+      private String username;
+      
+      @XmlElement
+      private String email;
+      
+      @XmlElement
+      private LocalDateTime createdAt;
+      
+      // Getters and setters
+  }
+  ```
+
+  **Controller (same as JSON):**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **Request:**
+
+  ```bash
+  curl -H "Accept: application/xml" http://localhost:8080/api/users/1
+  ```
+
+  **Response:**
+
+  ```xml
+  <user>
+      <id>1</id>
+      <username>john</username>
+      <email>john@example.com</email>
+      <createdAt>2024-01-15T10:30:00</createdAt>
+  </user>
+  ```
+
+</details>
+
+<details>
+  <summary>Produces Annotation</summary>
+  <br/>
+
+  **@produces** restricts which formats a method can return.
+
+  **JSON only:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+      public User getUserJson(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **XML only:**
+
+  ```java
+  @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_XML_VALUE)
+  public User getUserXml(@PathVariable Long id) {
+      return userService.findById(id);
+  }
+  ```
+
+  **Multiple formats:**
+
+  ```java
+  @GetMapping(
+      value = "/{id}",
+      produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
+  )
+  public User getUser(@PathVariable Long id) {
+      return userService.findById(id);
+  }
+  ```
+
+  **Class-level produces:**
+
+  ```java
+  @RestController
+  @RequestMapping(value = "/api/users", produces = MediaType.APPLICATION_JSON_VALUE)
+  public class UserController {
+      
+      // All methods return JSON by default
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      // Override for specific method
+      @GetMapping(value = "/{id}/xml", produces = MediaType.APPLICATION_XML_VALUE)
+      public User getUserXml(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Consumes Annotation</summary>
+  <br/>
+
+  **@Consumes** restricts which formats a method can accept.
+
+  **JSON only:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+      public User createUserJson(@RequestBody User user) {
+          return userService.create(user);
+      }
+  }
+  ```
+
+  **XML only:**
+
+  ```java
+  @PostMapping(consumes = MediaType.APPLICATION_XML_VALUE)
+  public User createUserXml(@RequestBody User user) {
+      return userService.create(user);
+  }
+  ```
+
+  **Multiple formats:**
+
+  ```java
+  @PostMapping(
+      consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE},
+      produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
+  )
+  public User createUser(@RequestBody User user) {
+      return userService.create(user);
+  }
+  ```
+
+  **Request examples:**
+
+  ```bash
+  # JSON request
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d '{"username":"john","email":"john@example.com"}' \
+    http://localhost:8080/api/users
+  
+  # XML request
+  curl -X POST \
+    -H "Content-Type: application/xml" \
+    -H "Accept: application/xml" \
+    -d '<user><username>john</username><email>john@example.com</email></user>' \
+    http://localhost:8080/api/users
+  ```
+
+</details>
+
+<details>
+  <summary>Path Extension Strategy</summary>
+  <br/>
+
+  **Use file extension in URL to specify format.**
+
+  **Enable path extension (deprecated but still used):**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+          configurer
+              .favorPathExtension(true)  // Deprecated in Spring 5.3
+              .favorParameter(false)
+              .ignoreAcceptHeader(false)
+              .defaultContentType(MediaType.APPLICATION_JSON)
+              .mediaType("json", MediaType.APPLICATION_JSON)
+              .mediaType("xml", MediaType.APPLICATION_XML);
+      }
+  }
+  ```
+
+  **Usage:**
+
+  ```bash
+  # JSON
+  curl http://localhost:8080/api/users/1.json
+  
+  # XML
+  curl http://localhost:8080/api/users/1.xml
+  ```
+
+  **Note:** Path extension strategy is deprecated in Spring 5.3+ due to security concerns. Use Accept header or query parameter instead.
+
+</details>
+
+<details>
+  <summary>Query Parameter Strategy</summary>
+  <br/>
+
+  **Use query parameter to specify format.**
+
+  **Enable query parameter:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+          configurer
+              .favorParameter(true)
+              .parameterName("format")  // Default is "format"
+              .ignoreAcceptHeader(false)
+              .defaultContentType(MediaType.APPLICATION_JSON)
+              .mediaType("json", MediaType.APPLICATION_JSON)
+              .mediaType("xml", MediaType.APPLICATION_XML);
+      }
+  }
+  ```
+
+  **Usage:**
+
+  ```bash
+  # JSON
+  curl http://localhost:8080/api/users/1?format=json
+  
+  # XML
+  curl http://localhost:8080/api/users/1?format=xml
+  ```
+
+</details>
+
+<details>
+  <summary>Custom Content Negotiation Configuration</summary>
+  <br/>
+
+  **Configure content negotiation strategy:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+          configurer
+              // Disable path extension (recommended)
+              .favorPathExtension(false)
+              
+              // Enable query parameter
+              .favorParameter(true)
+              .parameterName("mediaType")
+              
+              // Use Accept header (recommended)
+              .ignoreAcceptHeader(false)
+              
+              // Default content type
+              .defaultContentType(MediaType.APPLICATION_JSON)
+              
+              // Register media types
+              .mediaType("json", MediaType.APPLICATION_JSON)
+              .mediaType("xml", MediaType.APPLICATION_XML)
+              .mediaType("html", MediaType.TEXT_HTML);
+      }
+  }
+  ```
+
+  **Priority order:**
+  1. Query parameter (if enabled)
+  2. Path extension (if enabled, deprecated)
+  3. Accept header
+  4. Default content type
+
+</details>
+
+<details>
+  <summary>Custom Message Converter</summary>
+  <br/>
+
+  **Create custom converter for specific format.**
+
+  **CSV converter example:**
+
+  ```java
+  public class CsvHttpMessageConverter extends AbstractHttpMessageConverter<List<User>> {
+      
+      public CsvHttpMessageConverter() {
+          super(new MediaType("text", "csv"));
+      }
+      
+      @Override
+      protected boolean supports(Class<?> clazz) {
+          return List.class.isAssignableFrom(clazz);
+      }
+      
+      @Override
+      protected List<User> readInternal(
+          Class<? extends List<User>> clazz,
+          HttpInputMessage inputMessage
+      ) throws IOException {
+          // Parse CSV to List<User>
+          return new ArrayList<>();
+      }
+      
+      @Override
+      protected void writeInternal(
+          List<User> users,
+          HttpOutputMessage outputMessage
+      ) throws IOException {
+          // Write List<User> as CSV
+          String csv = users.stream()
+              .map(user -> String.format("%d,%s,%s", 
+                  user.getId(), user.getUsername(), user.getEmail()))
+              .collect(Collectors.joining("\n"));
+          
+          outputMessage.getBody().write(csv.getBytes());
+      }
+  }
+  ```
+
+  **Register converter:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
+          converters.add(new CsvHttpMessageConverter());
+      }
+      
+      @Override
+      public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+          configurer
+              .defaultContentType(MediaType.APPLICATION_JSON)
+              .mediaType("json", MediaType.APPLICATION_JSON)
+              .mediaType("xml", MediaType.APPLICATION_XML)
+              .mediaType("csv", new MediaType("text", "csv"));
+      }
+  }
+  ```
+
+  **Usage:**
+
+  ```bash
+  curl -H "Accept: text/csv" http://localhost:8080/api/users
+  ```
+
+</details>
+
+<details>
+  <summary>Complete Example</summary>
+  <br/>
+
+  **Entity:**
+
+  ```java
+  @Entity
+  @XmlRootElement(name = "user")
+  @XmlAccessorType(XmlAccessType.FIELD)
+  public class User {
+      
+      @Id
+      @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      
+      private String username;
+      private String email;
+      
+      // Getters and setters
+  }
+  ```
+
+  **Controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @Autowired
+      private UserService userService;
+      
+      // Supports both JSON and XML
+      @GetMapping(
+          value = "/{id}",
+          produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
+      )
+      public ResponseEntity<User> getUser(@PathVariable Long id) {
+          return userService.findById(id)
+              .map(ResponseEntity::ok)
+              .orElse(ResponseEntity.notFound().build());
+      }
+      
+      @GetMapping(
+          produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
+      )
+      public List<User> getAllUsers() {
+          return userService.findAll();
+      }
+      
+      @PostMapping(
+          consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE},
+          produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
+      )
+      public ResponseEntity<User> createUser(@RequestBody User user) {
+          User created = userService.create(user);
+          return ResponseEntity.status(HttpStatus.CREATED).body(created);
+      }
+  }
+  ```
+
+  **Configuration:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+          configurer
+              .favorParameter(true)
+              .parameterName("format")
+              .ignoreAcceptHeader(false)
+              .defaultContentType(MediaType.APPLICATION_JSON)
+              .mediaType("json", MediaType.APPLICATION_JSON)
+              .mediaType("xml", MediaType.APPLICATION_XML);
+      }
+  }
+  ```
+
+  **Requests:**
+
+  ```bash
+  # JSON via Accept header
+  curl -H "Accept: application/json" http://localhost:8080/api/users/1
+  
+  # XML via Accept header
+  curl -H "Accept: application/xml" http://localhost:8080/api/users/1
+  
+  # JSON via query parameter
+  curl http://localhost:8080/api/users/1?format=json
+  
+  # XML via query parameter
+  curl http://localhost:8080/api/users/1?format=xml
+  
+  # POST JSON
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d '{"username":"john","email":"john@example.com"}' \
+    http://localhost:8080/api/users
+  
+  # POST XML
+  curl -X POST \
+    -H "Content-Type: application/xml" \
+    -H "Accept: application/xml" \
+    -d '<user><username>john</username><email>john@example.com</email></user>' \
+    http://localhost:8080/api/users
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Accept header for content negotiation (recommended)
+  curl -H "Accept: application/json" http://localhost:8080/api/users/1
+  
+  // ✅ DO: Support multiple formats in single endpoint
+  @GetMapping(
+      value = "/{id}",
+      produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
+  )
+  public User getUser(@PathVariable Long id) {
+  }
+  
+  // ✅ DO: Set default content type
+  configurer.defaultContentType(MediaType.APPLICATION_JSON)
+  
+  // ✅ DO: Use @produces to restrict response format
+  @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+  public User getUser(@PathVariable Long id) {
+  }
+  
+  // ✅ DO: Use @Consumes to restrict request format
+  @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+  public User createUser(@RequestBody User user) {
+  }
+  
+  // ✅ DO: Enable query parameter for browser testing
+  configurer.favorParameter(true).parameterName("format")
+  
+  // ❌ DON'T: Use path extension (deprecated and security risk)
+  configurer.favorPathExtension(true)  // Deprecated
+  
+  // ✅ DO: Add XML dependency for XML support
+  <dependency>
+      <groupId>com.fasterxml.jackson.dataformat</groupId>
+      <artifactId>jackson-dataformat-xml</artifactId>
+  </dependency>
+  
+  // ✅ DO: Use @XmlRootElement for XML entities
+  @XmlRootElement(name = "user")
+  public class User {
+  }
+  
+  // ✅ DO: Return 406 Not Acceptable for unsupported formats
+  // Spring does this automatically
+  
+  // ✅ DO: Use MediaType constants
+  MediaType.APPLICATION_JSON_VALUE
+  MediaType.APPLICATION_XML_VALUE
+  MediaType.TEXT_HTML_VALUE
+  
+  // ❌ DON'T: Hardcode media type strings
+  produces = "application/json"  // Use MediaType constant instead
+  
+  // ✅ DO: Configure content negotiation in WebMvcConfigurer
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      @Override
+      public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+      }
+  }
+  
+  // ✅ DO: Test with different Accept headers
+  curl -H "Accept: application/json" ...
+  curl -H "Accept: application/xml" ...
+  
+  // ✅ DO: Handle unsupported media types gracefully
+  @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+  public ResponseEntity<String> handleNotAcceptable(HttpMediaTypeNotAcceptableException ex) {
+      return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+          .body("Supported formats: JSON, XML");
+  }
+  ```
+
+  **Summary:**
+  + **Content negotiation** allows serving multiple formats from single endpoint
+  + Client specifies format via **Accept header** (recommended)
+  + **JSON** is enabled by default in Spring Boot
+  + Add **jackson-dataformat-xml** dependency for XML support
+  + Use **@produces** to restrict response formats
+  + Use **@Consumes** to restrict request formats
+  + Configure via **WebMvcConfigurer.configureContentNegotiation()**
+  + **Query parameter** strategy useful for browser testing
+  + **Path extension** strategy is deprecated (security risk)
+  + Default content type is **application/json**
+  + Spring returns **406 Not Acceptable** for unsupported formats
+  + Use **MediaType constants** instead of hardcoded strings
+  + Priority: Query parameter → Path extension → Accept header → Default
+
+</details>

@@ -1,0 +1,708 @@
+## Interceptors
+
+<details>
+  <summary>What are Interceptors?</summary>
+  <br/>
+
+  **Interceptors** intercept HTTP requests before/after controller execution.
+
+  **Use cases:**
+  + Authentication and authorization
+  + Logging and auditing
+  + Request/response modification
+  + Performance monitoring
+  + Cross-cutting concerns
+
+  **Execution flow:**
+
+  ```
+  Request → Filter → Interceptor.preHandle() → Controller → Interceptor.postHandle() → View → Interceptor.afterCompletion() → Response
+  ```
+
+  **Key points:**
+  + Interceptors work at Spring MVC level
+  + Have access to Handler (controller method)
+  + Can access ModelAndView
+  + Can prevent request from reaching controller
+
+</details>
+
+<details>
+  <summary>HandlerInterceptor Interface</summary>
+  <br/>
+
+  **HandlerInterceptor** provides three callback methods.
+
+  **Interface methods:**
+
+  ```java
+  public interface HandlerInterceptor {
+      
+      // Called before controller method execution
+      // Return true to continue, false to stop
+      default boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          return true;
+      }
+      
+      // Called after controller method execution, before view rendering
+      // Only called if preHandle returns true
+      default void postHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          ModelAndView modelAndView
+      ) throws Exception {
+      }
+      
+      // Called after view rendering (or after exception)
+      // Always called if preHandle was called
+      default void afterCompletion(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Exception ex
+      ) throws Exception {
+      }
+  }
+  ```
+
+  **Method execution:**
+  + **preHandle**: Before controller execution
+  + **postHandle**: After controller, before view rendering
+  + **afterCompletion**: After view rendering (cleanup)
+
+</details>
+
+<details>
+  <summary>Basic Interceptor Example</summary>
+  <br/>
+
+  **Create interceptor:**
+
+  ```java
+  @Component
+  @Slf4j
+  public class LoggingInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          log.info("Request URL: {}", request.getRequestURL());
+          log.info("HTTP Method: {}", request.getMethod());
+          log.info("Handler: {}", handler);
+          
+          // Store start time for performance monitoring
+          request.setAttribute("startTime", System.currentTimeMillis());
+          
+          return true;  // Continue to controller
+      }
+      
+      @Override
+      public void postHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          ModelAndView modelAndView
+      ) throws Exception {
+          log.info("Response Status: {}", response.getStatus());
+      }
+      
+      @Override
+      public void afterCompletion(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Exception ex
+      ) throws Exception {
+          long startTime = (Long) request.getAttribute("startTime");
+          long endTime = System.currentTimeMillis();
+          long executionTime = endTime - startTime;
+          
+          log.info("Request completed in {} ms", executionTime);
+          
+          if (ex != null) {
+              log.error("Request failed with exception: ", ex);
+          }
+      }
+  }
+  ```
+
+  **Register interceptor:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Autowired
+      private LoggingInterceptor loggingInterceptor;
+      
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          registry.addInterceptor(loggingInterceptor)
+                  .addPathPatterns("/**")  // Apply to all paths
+                  .excludePathPatterns("/health", "/actuator/**");  // Exclude paths
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Authentication Interceptor</summary>
+  <br/>
+
+  **Intercept requests to check authentication.**
+
+  **Create interceptor:**
+
+  ```java
+  @Component
+  @Slf4j
+  public class AuthenticationInterceptor implements HandlerInterceptor {
+      
+      @Autowired
+      private JwtTokenProvider tokenProvider;
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          // Get token from header
+          String token = request.getHeader("Authorization");
+          
+          if (token == null || !token.startsWith("Bearer ")) {
+              log.warn("Missing or invalid Authorization header");
+              response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+              response.getWriter().write("Unauthorized: Missing or invalid token");
+              return false;  // Stop request
+          }
+          
+          // Extract and validate token
+          String jwt = token.substring(7);
+          
+          if (!tokenProvider.validateToken(jwt)) {
+              log.warn("Invalid JWT token");
+              response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+              response.getWriter().write("Unauthorized: Invalid token");
+              return false;
+          }
+          
+          // Extract user info and store in request
+          String username = tokenProvider.getUsernameFromToken(jwt);
+          request.setAttribute("username", username);
+          
+          log.info("User {} authenticated successfully", username);
+          return true;  // Continue to controller
+      }
+  }
+  ```
+
+  **Register interceptor:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Autowired
+      private AuthenticationInterceptor authenticationInterceptor;
+      
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          registry.addInterceptor(authenticationInterceptor)
+                  .addPathPatterns("/api/**")  // Protect API endpoints
+                  .excludePathPatterns("/api/auth/**", "/api/public/**");  // Exclude auth endpoints
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Rate Limiting Interceptor</summary>
+  <br/>
+
+  **Limit request rate per user/IP.**
+
+  **Create interceptor:**
+
+  ```java
+  @Component
+  @Slf4j
+  public class RateLimitInterceptor implements HandlerInterceptor {
+      
+      private final Map<String, List<Long>> requestCounts = new ConcurrentHashMap<>();
+      private static final int MAX_REQUESTS = 100;
+      private static final long TIME_WINDOW = 60000; // 1 minute
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          String clientId = getClientId(request);
+          long currentTime = System.currentTimeMillis();
+          
+          // Get or create request list for client
+          List<Long> requests = requestCounts.computeIfAbsent(
+              clientId, 
+              k -> new ArrayList<>()
+          );
+          
+          // Remove old requests outside time window
+          requests.removeIf(time -> currentTime - time > TIME_WINDOW);
+          
+          // Check rate limit
+          if (requests.size() >= MAX_REQUESTS) {
+              log.warn("Rate limit exceeded for client: {}", clientId);
+              response.setStatus(HttpServletResponse.SC_TOO_MANY_REQUESTS);
+              response.getWriter().write("Rate limit exceeded. Try again later.");
+              return false;
+          }
+          
+          // Add current request
+          requests.add(currentTime);
+          
+          return true;
+      }
+      
+      private String getClientId(HttpServletRequest request) {
+          // Use user ID if authenticated, otherwise use IP
+          String username = (String) request.getAttribute("username");
+          return username != null ? username : request.getRemoteAddr();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Performance Monitoring Interceptor</summary>
+  <br/>
+
+  **Monitor request execution time.**
+
+  **Create interceptor:**
+
+  ```java
+  @Component
+  @Slf4j
+  public class PerformanceInterceptor implements HandlerInterceptor {
+      
+      private static final String START_TIME = "startTime";
+      private static final long SLOW_REQUEST_THRESHOLD = 1000; // 1 second
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          request.setAttribute(START_TIME, System.currentTimeMillis());
+          return true;
+      }
+      
+      @Override
+      public void afterCompletion(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Exception ex
+      ) throws Exception {
+          long startTime = (Long) request.getAttribute(START_TIME);
+          long endTime = System.currentTimeMillis();
+          long executionTime = endTime - startTime;
+          
+          String method = request.getMethod();
+          String uri = request.getRequestURI();
+          int status = response.getStatus();
+          
+          if (executionTime > SLOW_REQUEST_THRESHOLD) {
+              log.warn("SLOW REQUEST: {} {} - {} ms - Status: {}", 
+                  method, uri, executionTime, status);
+          } else {
+              log.info("{} {} - {} ms - Status: {}", 
+                  method, uri, executionTime, status);
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Request/Response Modification</summary>
+  <br/>
+
+  **Modify request headers or response.**
+
+  **Add custom headers:**
+
+  ```java
+  @Component
+  public class CustomHeaderInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          // Add custom request attribute
+          request.setAttribute("requestId", UUID.randomUUID().toString());
+          return true;
+      }
+      
+      @Override
+      public void postHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          ModelAndView modelAndView
+      ) throws Exception {
+          // Add custom response headers
+          String requestId = (String) request.getAttribute("requestId");
+          response.setHeader("X-Request-Id", requestId);
+          response.setHeader("X-Powered-By", "Spring Boot");
+          response.setHeader("X-Response-Time", String.valueOf(System.currentTimeMillis()));
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Multiple Interceptors</summary>
+  <br/>
+
+  **Register multiple interceptors with order.**
+
+  **Configuration:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Autowired
+      private LoggingInterceptor loggingInterceptor;
+      
+      @Autowired
+      private AuthenticationInterceptor authenticationInterceptor;
+      
+      @Autowired
+      private RateLimitInterceptor rateLimitInterceptor;
+      
+      @Autowired
+      private PerformanceInterceptor performanceInterceptor;
+      
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          // Order matters! Executed in registration order
+          
+          // 1. Logging (first)
+          registry.addInterceptor(loggingInterceptor)
+                  .addPathPatterns("/**")
+                  .order(1);
+          
+          // 2. Authentication
+          registry.addInterceptor(authenticationInterceptor)
+                  .addPathPatterns("/api/**")
+                  .excludePathPatterns("/api/auth/**", "/api/public/**")
+                  .order(2);
+          
+          // 3. Rate limiting
+          registry.addInterceptor(rateLimitInterceptor)
+                  .addPathPatterns("/api/**")
+                  .order(3);
+          
+          // 4. Performance monitoring (last)
+          registry.addInterceptor(performanceInterceptor)
+                  .addPathPatterns("/**")
+                  .order(4);
+      }
+  }
+  ```
+
+  **Execution order:**
+
+  ```
+  Request
+    ↓
+  LoggingInterceptor.preHandle()
+    ↓
+  AuthenticationInterceptor.preHandle()
+    ↓
+  RateLimitInterceptor.preHandle()
+    ↓
+  PerformanceInterceptor.preHandle()
+    ↓
+  Controller
+    ↓
+  PerformanceInterceptor.postHandle()
+    ↓
+  RateLimitInterceptor.postHandle()
+    ↓
+  AuthenticationInterceptor.postHandle()
+    ↓
+  LoggingInterceptor.postHandle()
+    ↓
+  View Rendering
+    ↓
+  LoggingInterceptor.afterCompletion()
+    ↓
+  AuthenticationInterceptor.afterCompletion()
+    ↓
+  RateLimitInterceptor.afterCompletion()
+    ↓
+  PerformanceInterceptor.afterCompletion()
+    ↓
+  Response
+  ```
+
+</details>
+
+<details>
+  <summary>Path Patterns</summary>
+  <br/>
+
+  **Configure which paths interceptor applies to.**
+
+  **Pattern examples:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          
+          // Apply to all paths
+          registry.addInterceptor(loggingInterceptor)
+                  .addPathPatterns("/**");
+          
+          // Apply to specific paths
+          registry.addInterceptor(authInterceptor)
+                  .addPathPatterns("/api/**")
+                  .addPathPatterns("/admin/**");
+          
+          // Exclude specific paths
+          registry.addInterceptor(authInterceptor)
+                  .addPathPatterns("/api/**")
+                  .excludePathPatterns("/api/auth/**")
+                  .excludePathPatterns("/api/public/**")
+                  .excludePathPatterns("/health", "/actuator/**");
+          
+          // Multiple patterns
+          registry.addInterceptor(corsInterceptor)
+                  .addPathPatterns("/api/users/**", "/api/orders/**")
+                  .excludePathPatterns("/api/users/public/**");
+          
+          // Specific file extensions
+          registry.addInterceptor(staticResourceInterceptor)
+                  .addPathPatterns("/**/*.js", "/**/*.css", "/**/*.html");
+      }
+  }
+  ```
+
+  **Pattern syntax:**
+  + `/**` - All paths
+  + `/api/**` - All paths under /api
+  + `/api/users/*` - One level under /api/users
+  + `/api/users/**` - All levels under /api/users
+  + `/**/*.js` - All .js files
+
+</details>
+
+<details>
+  <summary>Accessing Handler Information</summary>
+  <br/>
+
+  **Get information about the controller method.**
+
+  **Handler inspection:**
+
+  ```java
+  @Component
+  @Slf4j
+  public class HandlerInspectionInterceptor implements HandlerInterceptor {
+      
+      @Override
+      public boolean preHandle(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler
+      ) throws Exception {
+          
+          if (handler instanceof HandlerMethod) {
+              HandlerMethod handlerMethod = (HandlerMethod) handler;
+              
+              // Get controller class
+              Class<?> controllerClass = handlerMethod.getBeanType();
+              log.info("Controller: {}", controllerClass.getSimpleName());
+              
+              // Get method
+              Method method = handlerMethod.getMethod();
+              log.info("Method: {}", method.getName());
+              
+              // Get method parameters
+              MethodParameter[] parameters = handlerMethod.getMethodParameters();
+              log.info("Parameters: {}", parameters.length);
+              
+              // Check for annotations
+              if (method.isAnnotationPresent(RequiresPermission.class)) {
+                  RequiresPermission annotation = method.getAnnotation(RequiresPermission.class);
+                  String permission = annotation.value();
+                  log.info("Required permission: {}", permission);
+                  
+                  // Check permission
+                  if (!hasPermission(request, permission)) {
+                      response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                      return false;
+                  }
+              }
+          }
+          
+          return true;
+      }
+      
+      private boolean hasPermission(HttpServletRequest request, String permission) {
+          // Check user permissions
+          return true;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Implement HandlerInterceptor
+  @Component
+  public class LoggingInterceptor implements HandlerInterceptor {
+  }
+  
+  // ✅ DO: Return true to continue, false to stop
+  @Override
+  public boolean preHandle(...) {
+      if (isValid) {
+          return true;  // Continue to controller
+      }
+      response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+      return false;  // Stop request
+  }
+  
+  // ✅ DO: Use preHandle for authentication/authorization
+  @Override
+  public boolean preHandle(...) {
+      if (!isAuthenticated(request)) {
+          response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+          return false;
+      }
+      return true;
+  }
+  
+  // ✅ DO: Use afterCompletion for cleanup
+  @Override
+  public void afterCompletion(...) {
+      // Clean up resources
+      // Log completion
+      // Always executed (even if exception occurs)
+  }
+  
+  // ✅ DO: Store data in request attributes
+  @Override
+  public boolean preHandle(...) {
+      request.setAttribute("startTime", System.currentTimeMillis());
+      request.setAttribute("username", username);
+      return true;
+  }
+  
+  // ✅ DO: Use path patterns to apply selectively
+  registry.addInterceptor(authInterceptor)
+          .addPathPatterns("/api/**")
+          .excludePathPatterns("/api/auth/**");
+  
+  // ✅ DO: Set execution order
+  registry.addInterceptor(loggingInterceptor).order(1);
+  registry.addInterceptor(authInterceptor).order(2);
+  
+  // ✅ DO: Handle exceptions gracefully
+  @Override
+  public boolean preHandle(...) {
+      try {
+          // Interceptor logic
+          return true;
+      } catch (Exception e) {
+          log.error("Interceptor error: ", e);
+          response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+          return false;
+      }
+  }
+  
+  // ✅ DO: Check handler type before casting
+  if (handler instanceof HandlerMethod) {
+      HandlerMethod handlerMethod = (HandlerMethod) handler;
+      // Use handlerMethod
+  }
+  
+  // ✅ DO: Use interceptors for cross-cutting concerns
+  // - Authentication/Authorization
+  // - Logging
+  // - Performance monitoring
+  // - Rate limiting
+  // - Request/response modification
+  
+  // ❌ DON'T: Put business logic in interceptors
+  @Override
+  public boolean preHandle(...) {
+      // BAD: Business logic belongs in service layer
+      userService.updateLastLogin(userId);
+      return true;
+  }
+  
+  // ❌ DON'T: Modify request body in interceptor
+  // Use Filter or @RequestBody with custom deserializer instead
+  
+  // ✅ DO: Log important information
+  @Override
+  public boolean preHandle(...) {
+      log.info("Request: {} {}", request.getMethod(), request.getRequestURI());
+      return true;
+  }
+  
+  // ✅ DO: Set appropriate HTTP status codes
+  if (!isAuthorized) {
+      response.setStatus(HttpServletResponse.SC_FORBIDDEN);  // 403
+      return false;
+  }
+  ```
+
+  **Summary:**
+  + Interceptors work at **Spring MVC level**
+  + Use **preHandle** for authentication, authorization, validation
+  + Use **postHandle** for response modification (before view rendering)
+  + Use **afterCompletion** for cleanup and logging
+  + Return **true** to continue, **false** to stop request
+  + Store data in **request attributes** to share between methods
+  + Use **path patterns** to apply interceptors selectively
+  + Set **execution order** with `.order()`
+  + Check **handler type** before casting to HandlerMethod
+  + Use for **cross-cutting concerns** (auth, logging, monitoring)
+  + Don't put **business logic** in interceptors
+  + Handle **exceptions gracefully**
+  + Log **important information**
+  + Set **appropriate HTTP status codes**
+
+</details>

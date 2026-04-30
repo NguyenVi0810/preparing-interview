@@ -1,0 +1,674 @@
+## CORS Configuration
+
+<details>
+  <summary>What is CORS?</summary>
+  <br/>
+
+  **CORS (Cross-Origin Resource Sharing)** allows web applications from one domain to access resources from another domain.
+
+  **Same-Origin Policy:**
+  + Browsers block requests from different origins by default
+  + Origin = protocol + domain + port
+  + `http://example.com:8080` ≠ `http://example.com:3000` (different port)
+  + `http://example.com` ≠ `https://example.com` (different protocol)
+
+  **CORS headers:**
+  + **Access-Control-Allow-Origin** - Which origins can access
+  + **Access-Control-Allow-Methods** - Which HTTP methods allowed
+  + **Access-Control-Allow-Headers** - Which headers allowed
+  + **Access-Control-Max-Age** - How long to cache preflight response
+
+  **Preflight request:**
+  + Browser sends OPTIONS request before actual request
+  + Checks if server allows the cross-origin request
+  + Only for certain requests (POST with custom headers, PUT, DELETE)
+
+</details>
+
+<details>
+  <summary>@CrossOrigin Annotation</summary>
+  <br/>
+
+  **@CrossOrigin** enables CORS on controller or method level.
+
+  **Method-level:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @CrossOrigin(origins = "http://localhost:3000")
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **Controller-level:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  @CrossOrigin(origins = "http://localhost:3000")
+  public class UserController {
+      
+      // All methods allow CORS from http://localhost:3000
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+      
+      @PostMapping
+      public User createUser(@RequestBody User user) {
+          return userService.create(user);
+      }
+  }
+  ```
+
+  **Multiple origins:**
+
+  ```java
+  @CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200"})
+  @GetMapping("/{id}")
+  public User getUser(@PathVariable Long id) {
+      return userService.findById(id);
+  }
+  ```
+
+  **Allow all origins:**
+
+  ```java
+  @CrossOrigin(origins = "*")
+  @GetMapping("/{id}")
+  public User getUser(@PathVariable Long id) {
+      return userService.findById(id);
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>@CrossOrigin Configuration Options</summary>
+  <br/>
+
+  **All configuration options:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @CrossOrigin(
+          origins = {"http://localhost:3000", "http://localhost:4200"},
+          methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT},
+          allowedHeaders = {"Authorization", "Content-Type"},
+          exposedHeaders = {"X-Custom-Header"},
+          allowCredentials = "true",
+          maxAge = 3600
+      )
+      @GetMapping("/{id}")
+      public User getUser(@PathVariable Long id) {
+          return userService.findById(id);
+      }
+  }
+  ```
+
+  **Configuration breakdown:**
+  + **origins** - Allowed origins (domains)
+  + **methods** - Allowed HTTP methods
+  + **allowedHeaders** - Headers client can send
+  + **exposedHeaders** - Headers client can read from response
+  + **allowCredentials** - Allow cookies/authentication
+  + **maxAge** - Cache preflight response (seconds)
+
+</details>
+
+<details>
+  <summary>Global CORS Configuration</summary>
+  <br/>
+
+  **Configure CORS globally for all endpoints.**
+
+  **Method 1: WebMvcConfigurer:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**")
+                  .allowedOrigins("http://localhost:3000")
+                  .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                  .allowedHeaders("*")
+                  .allowCredentials(true)
+                  .maxAge(3600);
+      }
+  }
+  ```
+
+  **Multiple path patterns:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          // API endpoints
+          registry.addMapping("/api/**")
+                  .allowedOrigins("http://localhost:3000", "http://localhost:4200")
+                  .allowedMethods("GET", "POST", "PUT", "DELETE")
+                  .allowedHeaders("*")
+                  .allowCredentials(true)
+                  .maxAge(3600);
+          
+          // Public endpoints
+          registry.addMapping("/public/**")
+                  .allowedOrigins("*")
+                  .allowedMethods("GET")
+                  .allowedHeaders("*")
+                  .maxAge(3600);
+      }
+  }
+  ```
+
+  **Allow all origins (development only):**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/**")
+                  .allowedOrigins("*")
+                  .allowedMethods("*")
+                  .allowedHeaders("*")
+                  .maxAge(3600);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>CORS Filter</summary>
+  <br/>
+
+  **Create custom CORS filter for fine-grained control.**
+
+  **Basic CORS filter:**
+
+  ```java
+  @Component
+  @Order(Ordered.HIGHEST_PRECEDENCE)
+  public class CorsFilter implements Filter {
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          
+          // Set CORS headers
+          httpResponse.setHeader("Access-Control-Allow-Origin", "*");
+          httpResponse.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+          httpResponse.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+          httpResponse.setHeader("Access-Control-Max-Age", "3600");
+          
+          // Handle preflight request
+          if ("OPTIONS".equalsIgnoreCase(httpRequest.getMethod())) {
+              httpResponse.setStatus(HttpServletResponse.SC_OK);
+              return;
+          }
+          
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+  **Advanced CORS filter with origin validation:**
+
+  ```java
+  @Component
+  @Order(Ordered.HIGHEST_PRECEDENCE)
+  @Slf4j
+  public class CorsFilter implements Filter {
+      
+      private static final List<String> ALLOWED_ORIGINS = Arrays.asList(
+          "http://localhost:3000",
+          "http://localhost:4200",
+          "https://example.com"
+      );
+      
+      @Override
+      public void doFilter(
+          ServletRequest request,
+          ServletResponse response,
+          FilterChain chain
+      ) throws IOException, ServletException {
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          
+          String origin = httpRequest.getHeader("Origin");
+          
+          // Check if origin is allowed
+          if (origin != null && ALLOWED_ORIGINS.contains(origin)) {
+              httpResponse.setHeader("Access-Control-Allow-Origin", origin);
+              httpResponse.setHeader("Access-Control-Allow-Credentials", "true");
+          }
+          
+          httpResponse.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+          httpResponse.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With");
+          httpResponse.setHeader("Access-Control-Expose-Headers", "X-Total-Count, X-Page-Number");
+          httpResponse.setHeader("Access-Control-Max-Age", "3600");
+          
+          // Handle preflight request
+          if ("OPTIONS".equalsIgnoreCase(httpRequest.getMethod())) {
+              log.debug("Preflight request from origin: {}", origin);
+              httpResponse.setStatus(HttpServletResponse.SC_OK);
+              return;
+          }
+          
+          chain.doFilter(request, response);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>CORS with Spring Security</summary>
+  <br/>
+
+  **Configure CORS with Spring Security.**
+
+  **Security configuration:**
+
+  ```java
+  @Configuration
+  @EnableWebSecurity
+  public class SecurityConfig {
+      
+      @Bean
+      public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+          http
+              .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+              .csrf(csrf -> csrf.disable())
+              .authorizeHttpRequests(auth -> auth
+                  .requestMatchers("/api/public/**").permitAll()
+                  .requestMatchers("/api/**").authenticated()
+              );
+          
+          return http.build();
+      }
+      
+      @Bean
+      public CorsConfigurationSource corsConfigurationSource() {
+          CorsConfiguration configuration = new CorsConfiguration();
+          configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
+          configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+          configuration.setAllowedHeaders(Arrays.asList("*"));
+          configuration.setAllowCredentials(true);
+          configuration.setMaxAge(3600L);
+          
+          UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+          source.registerCorsConfiguration("/api/**", configuration);
+          return source;
+      }
+  }
+  ```
+
+  **With WebMvcConfigurer:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**")
+                  .allowedOrigins("http://localhost:3000")
+                  .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                  .allowedHeaders("*")
+                  .allowCredentials(true)
+                  .maxAge(3600);
+      }
+  }
+  
+  @Configuration
+  @EnableWebSecurity
+  public class SecurityConfig {
+      
+      @Bean
+      public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+          http
+              .cors(Customizer.withDefaults())  // Use CORS from WebMvcConfigurer
+              .csrf(csrf -> csrf.disable())
+              .authorizeHttpRequests(auth -> auth
+                  .requestMatchers("/api/**").authenticated()
+              );
+          
+          return http.build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Environment-Specific CORS</summary>
+  <br/>
+
+  **Configure CORS based on environment.**
+
+  **application.properties:**
+
+  ```properties
+  # Development
+  cors.allowed-origins=http://localhost:3000,http://localhost:4200
+  cors.allowed-methods=GET,POST,PUT,DELETE,OPTIONS
+  cors.allowed-headers=*
+  cors.allow-credentials=true
+  cors.max-age=3600
+  ```
+
+  **Configuration class:**
+
+  ```java
+  @Configuration
+  public class CorsConfig implements WebMvcConfigurer {
+      
+      @Value("${cors.allowed-origins}")
+      private String[] allowedOrigins;
+      
+      @Value("${cors.allowed-methods}")
+      private String[] allowedMethods;
+      
+      @Value("${cors.allowed-headers}")
+      private String[] allowedHeaders;
+      
+      @Value("${cors.allow-credentials}")
+      private boolean allowCredentials;
+      
+      @Value("${cors.max-age}")
+      private long maxAge;
+      
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**")
+                  .allowedOrigins(allowedOrigins)
+                  .allowedMethods(allowedMethods)
+                  .allowedHeaders(allowedHeaders)
+                  .allowCredentials(allowCredentials)
+                  .maxAge(maxAge);
+      }
+  }
+  ```
+
+  **Profile-specific configuration:**
+
+  ```properties
+  # application-dev.properties
+  cors.allowed-origins=http://localhost:3000,http://localhost:4200
+  
+  # application-prod.properties
+  cors.allowed-origins=https://example.com,https://www.example.com
+  ```
+
+</details>
+
+<details>
+  <summary>Preflight Request Handling</summary>
+  <br/>
+
+  **Preflight request** is an OPTIONS request sent by browser before actual request.
+
+  **When preflight is triggered:**
+  + Custom headers (e.g., Authorization)
+  + Content-Type other than application/x-www-form-urlencoded, multipart/form-data, text/plain
+  + HTTP methods: PUT, DELETE, PATCH
+
+  **Preflight request:**
+
+  ```
+  OPTIONS /api/users/1 HTTP/1.1
+  Origin: http://localhost:3000
+  Access-Control-Request-Method: DELETE
+  Access-Control-Request-Headers: Authorization
+  ```
+
+  **Preflight response:**
+
+  ```
+  HTTP/1.1 200 OK
+  Access-Control-Allow-Origin: http://localhost:3000
+  Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+  Access-Control-Allow-Headers: Authorization, Content-Type
+  Access-Control-Max-Age: 3600
+  ```
+
+  **Handle preflight in controller:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/users")
+  public class UserController {
+      
+      @RequestMapping(value = "/{id}", method = RequestMethod.OPTIONS)
+      public ResponseEntity<?> handlePreflight() {
+          return ResponseEntity.ok().build();
+      }
+      
+      @DeleteMapping("/{id}")
+      @CrossOrigin(origins = "http://localhost:3000")
+      public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+          userService.delete(id);
+          return ResponseEntity.noContent().build();
+      }
+  }
+  ```
+
+  **Note:** Spring handles preflight automatically when using @CrossOrigin or global CORS configuration.
+
+</details>
+
+<details>
+  <summary>CORS with Credentials</summary>
+  <br/>
+
+  **Allow cookies and authentication headers.**
+
+  **Configuration:**
+
+  ```java
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**")
+                  .allowedOrigins("http://localhost:3000")  // Cannot use "*" with credentials
+                  .allowedMethods("GET", "POST", "PUT", "DELETE")
+                  .allowedHeaders("*")
+                  .allowCredentials(true)  // Allow cookies
+                  .maxAge(3600);
+      }
+  }
+  ```
+
+  **Important:**
+  + Cannot use `allowedOrigins("*")` with `allowCredentials(true)`
+  + Must specify exact origins
+  + Browser will send cookies with cross-origin requests
+
+  **Client-side (JavaScript):**
+
+  ```javascript
+  // Fetch API
+  fetch('http://localhost:8080/api/users', {
+    method: 'GET',
+    credentials: 'include',  // Include cookies
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  });
+  
+  // Axios
+  axios.get('http://localhost:8080/api/users', {
+    withCredentials: true  // Include cookies
+  });
+  ```
+
+</details>
+
+<details>
+  <summary>Testing CORS</summary>
+  <br/>
+
+  **Test CORS configuration.**
+
+  **Using curl:**
+
+  ```bash
+  # Test preflight request
+  curl -X OPTIONS \
+    -H "Origin: http://localhost:3000" \
+    -H "Access-Control-Request-Method: DELETE" \
+    -H "Access-Control-Request-Headers: Authorization" \
+    -v \
+    http://localhost:8080/api/users/1
+  
+  # Test actual request
+  curl -X GET \
+    -H "Origin: http://localhost:3000" \
+    -v \
+    http://localhost:8080/api/users/1
+  ```
+
+  **Check response headers:**
+
+  ```
+  Access-Control-Allow-Origin: http://localhost:3000
+  Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+  Access-Control-Allow-Headers: Authorization, Content-Type
+  Access-Control-Max-Age: 3600
+  ```
+
+  **Browser DevTools:**
+  + Open Network tab
+  + Look for OPTIONS request (preflight)
+  + Check response headers
+  + Look for CORS errors in Console
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use global CORS configuration for consistency
+  @Configuration
+  public class WebMvcConfig implements WebMvcConfigurer {
+      @Override
+      public void addCorsMappings(CorsRegistry registry) {
+          registry.addMapping("/api/**")
+                  .allowedOrigins("http://localhost:3000")
+                  .allowedMethods("GET", "POST", "PUT", "DELETE")
+                  .allowedHeaders("*")
+                  .allowCredentials(true)
+                  .maxAge(3600);
+      }
+  }
+  
+  // ✅ DO: Specify exact origins in production
+  .allowedOrigins("https://example.com", "https://www.example.com")
+  
+  // ❌ DON'T: Use wildcard in production
+  .allowedOrigins("*")  // Security risk
+  
+  // ✅ DO: Use environment-specific configuration
+  @Value("${cors.allowed-origins}")
+  private String[] allowedOrigins;
+  
+  // ✅ DO: Specify allowed methods explicitly
+  .allowedMethods("GET", "POST", "PUT", "DELETE")
+  
+  // ❌ DON'T: Allow all methods in production
+  .allowedMethods("*")
+  
+  // ✅ DO: Set appropriate max age for preflight caching
+  .maxAge(3600)  // 1 hour
+  
+  // ✅ DO: Use allowCredentials only when needed
+  .allowCredentials(true)
+  
+  // ❌ DON'T: Use wildcard with credentials
+  .allowedOrigins("*")
+  .allowCredentials(true)  // This will fail!
+  
+  // ✅ DO: Use @CrossOrigin for method-specific CORS
+  @CrossOrigin(origins = "http://localhost:3000")
+  @GetMapping("/{id}")
+  public User getUser(@PathVariable Long id) {
+  }
+  
+  // ✅ DO: Handle preflight requests (Spring does this automatically)
+  // No need to manually handle OPTIONS requests
+  
+  // ✅ DO: Use CORS filter for complex scenarios
+  @Component
+  @Order(Ordered.HIGHEST_PRECEDENCE)
+  public class CorsFilter implements Filter {
+  }
+  
+  // ✅ DO: Configure CORS before Spring Security
+  @Bean
+  public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+      http.cors(Customizer.withDefaults())  // CORS first
+          .csrf(csrf -> csrf.disable());
+      return http.build();
+  }
+  
+  // ✅ DO: Expose custom headers if needed
+  .exposedHeaders("X-Total-Count", "X-Page-Number")
+  
+  // ✅ DO: Test CORS configuration
+  curl -X OPTIONS -H "Origin: http://localhost:3000" -v http://localhost:8080/api/users
+  
+  // ✅ DO: Log CORS issues for debugging
+  @Slf4j
+  public class CorsFilter implements Filter {
+      log.debug("CORS request from origin: {}", origin);
+  }
+  
+  // ✅ DO: Use specific path patterns
+  registry.addMapping("/api/**")  // Only API endpoints
+  
+  // ❌ DON'T: Apply CORS to all endpoints unnecessarily
+  registry.addMapping("/**")  // Too broad
+  ```
+
+  **Summary:**
+  + **CORS** allows cross-origin requests from browsers
+  + Use **@CrossOrigin** for method/controller-level configuration
+  + Use **WebMvcConfigurer.addCorsMappings()** for global configuration
+  + Use **CORS filter** for complex scenarios
+  + **Preflight request** (OPTIONS) checks if cross-origin request is allowed
+  + Cannot use **wildcard** (`*`) with **credentials**
+  + Specify **exact origins** in production
+  + Set **maxAge** to cache preflight responses
+  + Configure **CORS before Spring Security**
+  + Use **environment-specific** configuration
+  + **Test CORS** with curl or browser DevTools
+  + **Expose custom headers** if client needs to read them
+  + Use **allowCredentials** only when needed (cookies, auth)
+
+</details>
