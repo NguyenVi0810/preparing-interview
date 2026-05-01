@@ -1,0 +1,759 @@
+## Jenkins - Pipelines, Stages, Agents
+
+<details>
+  <summary>Jenkins Pipeline Basics</summary>
+  <br/>
+
+  **Jenkins Pipeline** is a suite of plugins for implementing continuous delivery pipelines as code.
+
+  **Pipeline Types:**
+
+  **1. Declarative Pipeline (Recommended):**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      stages {
+          stage('Build') {
+              steps {
+                  echo 'Building...'
+                  sh 'mvn clean package'
+              }
+          }
+          
+          stage('Test') {
+              steps {
+                  echo 'Testing...'
+                  sh 'mvn test'
+              }
+          }
+          
+          stage('Deploy') {
+              steps {
+                  echo 'Deploying...'
+                  sh './deploy.sh'
+              }
+          }
+      }
+  }
+  ```
+
+  **2. Scripted Pipeline (More flexible):**
+
+  ```groovy
+  node {
+      stage('Build') {
+          echo 'Building...'
+          sh 'mvn clean package'
+      }
+      
+      stage('Test') {
+          echo 'Testing...'
+          sh 'mvn test'
+      }
+      
+      stage('Deploy') {
+          echo 'Deploying...'
+          sh './deploy.sh'
+      }
+  }
+  ```
+
+  **Pipeline Structure:**
+
+  ```
+  Pipeline
+  │
+  ├── Agent (where to run)
+  │
+  ├── Environment (variables)
+  │
+  ├── Stages
+  │   ├── Stage 1: Checkout
+  │   ├── Stage 2: Build
+  │   ├── Stage 3: Test
+  │   ├── Stage 4: Quality Gate
+  │   └── Stage 5: Deploy
+  │
+  ├── Post Actions
+  │   ├── Always
+  │   ├── Success
+  │   └── Failure
+  ```
+
+  **Complete Example:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      environment {
+          MAVEN_HOME = tool 'Maven-3.8'
+          JAVA_HOME = tool 'JDK-17'
+          PATH = "${MAVEN_HOME}/bin:${JAVA_HOME}/bin:${env.PATH}"
+      }
+      
+      stages {
+          stage('Checkout') {
+              steps {
+                  git branch: 'main',
+                      url: 'https://github.com/company/app.git',
+                      credentialsId: 'github-credentials'
+              }
+          }
+          
+          stage('Build') {
+              steps {
+                  sh 'mvn clean compile'
+              }
+          }
+          
+          stage('Test') {
+              steps {
+                  sh 'mvn test'
+              }
+              post {
+                  always {
+                      junit '**/target/surefire-reports/*.xml'
+                  }
+              }
+          }
+          
+          stage('Package') {
+              steps {
+                  sh 'mvn package -DskipTests'
+              }
+          }
+          
+          stage('Deploy') {
+              steps {
+                  sh './deploy.sh'
+              }
+          }
+      }
+      
+      post {
+          success {
+              echo 'Pipeline succeeded!'
+              emailext to: 'team@company.com',
+                       subject: "Build Success: ${env.JOB_NAME}",
+                       body: "Build ${env.BUILD_NUMBER} succeeded"
+          }
+          failure {
+              echo 'Pipeline failed!'
+              emailext to: 'team@company.com',
+                       subject: "Build Failed: ${env.JOB_NAME}",
+                       body: "Build ${env.BUILD_NUMBER} failed"
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Jenkins Agents</summary>
+  <br/>
+
+  **Agents** define where the pipeline or stage executes.
+
+  **Agent Types:**
+
+  **1. Any Agent:**
+
+  ```groovy
+  pipeline {
+      agent any  // Run on any available agent
+      
+      stages {
+          stage('Build') {
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+      }
+  }
+  ```
+
+  **2. None (Define per stage):**
+
+  ```groovy
+  pipeline {
+      agent none  // No global agent
+      
+      stages {
+          stage('Build') {
+              agent {
+                  label 'linux'  // Run on Linux agent
+              }
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+          
+          stage('Test') {
+              agent {
+                  label 'windows'  // Run on Windows agent
+              }
+              steps {
+                  bat 'mvn test'
+              }
+          }
+      }
+  }
+  ```
+
+  **3. Label (Specific agent):**
+
+  ```groovy
+  pipeline {
+      agent {
+          label 'linux && docker'  // Agent with both labels
+      }
+      
+      stages {
+          stage('Build') {
+              steps {
+                  sh 'docker build -t myapp .'
+              }
+          }
+      }
+  }
+  ```
+
+  **4. Docker Agent:**
+
+  ```groovy
+  pipeline {
+      agent {
+          docker {
+              image 'maven:3.8-openjdk-17'
+              args '-v $HOME/.m2:/root/.m2'
+          }
+      }
+      
+      stages {
+          stage('Build') {
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+      }
+  }
+  ```
+
+  **5. Multiple Agents (Different stages):**
+
+  ```groovy
+  pipeline {
+      agent none
+      
+      stages {
+          stage('Build on Linux') {
+              agent {
+                  label 'linux'
+              }
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+          
+          stage('Test on Windows') {
+              agent {
+                  label 'windows'
+              }
+              steps {
+                  bat 'mvn test'
+              }
+          }
+          
+          stage('Build Docker') {
+              agent {
+                  docker {
+                      image 'docker:latest'
+                  }
+              }
+              steps {
+                  sh 'docker build -t myapp .'
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Pipeline Stages</summary>
+  <br/>
+
+  **Stages** organize pipeline work into logical phases.
+
+  **Common Stage Pattern:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      stages {
+          // 1. Source Control
+          stage('Checkout') {
+              steps {
+                  git branch: 'main',
+                      url: 'https://github.com/company/app.git'
+              }
+          }
+          
+          // 2. Build
+          stage('Build') {
+              steps {
+                  sh 'mvn clean compile'
+              }
+          }
+          
+          // 3. Unit Tests
+          stage('Unit Tests') {
+              steps {
+                  sh 'mvn test'
+              }
+              post {
+                  always {
+                      junit '**/target/surefire-reports/*.xml'
+                      jacoco execPattern: '**/target/jacoco.exec'
+                  }
+              }
+          }
+          
+          // 4. Code Quality
+          stage('SonarQube Analysis') {
+              steps {
+                  withSonarQubeEnv('SonarQube') {
+                      sh 'mvn sonar:sonar'
+                  }
+              }
+          }
+          
+          stage('Quality Gate') {
+              steps {
+                  timeout(time: 5, unit: 'MINUTES') {
+                      waitForQualityGate abortPipeline: true
+                  }
+              }
+          }
+          
+          // 5. Package
+          stage('Package') {
+              steps {
+                  sh 'mvn package -DskipTests'
+              }
+          }
+          
+          // 6. Build Docker Image
+          stage('Docker Build') {
+              steps {
+                  script {
+                      docker.build("myapp:${env.BUILD_NUMBER}")
+                  }
+              }
+          }
+          
+          // 7. Push to Registry
+          stage('Push to Registry') {
+              steps {
+                  script {
+                      docker.withRegistry('https://registry.company.com', 'docker-credentials') {
+                          docker.image("myapp:${env.BUILD_NUMBER}").push()
+                          docker.image("myapp:${env.BUILD_NUMBER}").push('latest')
+                      }
+                  }
+              }
+          }
+          
+          // 8. Deploy to Dev
+          stage('Deploy to Dev') {
+              steps {
+                  sh 'kubectl set image deployment/myapp myapp=registry.company.com/myapp:${BUILD_NUMBER} -n dev'
+              }
+          }
+          
+          // 9. Integration Tests
+          stage('Integration Tests') {
+              steps {
+                  sh 'mvn verify -Pintegration-tests'
+              }
+          }
+          
+          // 10. Deploy to Staging
+          stage('Deploy to Staging') {
+              when {
+                  branch 'main'
+              }
+              steps {
+                  sh 'kubectl set image deployment/myapp myapp=registry.company.com/myapp:${BUILD_NUMBER} -n staging'
+              }
+          }
+          
+          // 11. Manual Approval
+          stage('Approve Production') {
+              when {
+                  branch 'main'
+              }
+              steps {
+                  input message: 'Deploy to production?',
+                        ok: 'Deploy',
+                        submitter: 'admin,release-manager'
+              }
+          }
+          
+          // 12. Deploy to Production
+          stage('Deploy to Production') {
+              when {
+                  branch 'main'
+              }
+              steps {
+                  sh 'kubectl set image deployment/myapp myapp=registry.company.com/myapp:${BUILD_NUMBER} -n production'
+              }
+          }
+      }
+  }
+  ```
+
+  **Parallel Stages:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      stages {
+          stage('Build') {
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+          
+          stage('Parallel Tests') {
+              parallel {
+                  stage('Unit Tests') {
+                      steps {
+                          sh 'mvn test'
+                      }
+                  }
+                  
+                  stage('Integration Tests') {
+                      steps {
+                          sh 'mvn verify -Pintegration'
+                      }
+                  }
+                  
+                  stage('Security Scan') {
+                      steps {
+                          sh 'dependency-check.sh'
+                      }
+                  }
+              }
+          }
+          
+          stage('Deploy') {
+              steps {
+                  sh './deploy.sh'
+              }
+          }
+      }
+  }
+  ```
+
+  **Conditional Stages:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      stages {
+          stage('Build') {
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+          
+          // Only on main branch
+          stage('Deploy to Staging') {
+              when {
+                  branch 'main'
+              }
+              steps {
+                  sh './deploy-staging.sh'
+              }
+          }
+          
+          // Only on release branches
+          stage('Deploy to Production') {
+              when {
+                  branch 'release/*'
+              }
+              steps {
+                  sh './deploy-production.sh'
+              }
+          }
+          
+          // Only if environment variable set
+          stage('Performance Tests') {
+              when {
+                  environment name: 'RUN_PERF_TESTS', value: 'true'
+              }
+              steps {
+                  sh 'mvn verify -Pperformance'
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Environment Variables and Credentials</summary>
+  <br/>
+
+  **Environment Variables:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      environment {
+          // Global variables
+          APP_NAME = 'myapp'
+          VERSION = '1.0.0'
+          REGISTRY = 'registry.company.com'
+          
+          // Tool paths
+          MAVEN_HOME = tool 'Maven-3.8'
+          JAVA_HOME = tool 'JDK-17'
+          
+          // Credentials
+          DOCKER_CREDENTIALS = credentials('docker-registry-credentials')
+          AWS_CREDENTIALS = credentials('aws-credentials')
+      }
+      
+      stages {
+          stage('Build') {
+              environment {
+                  // Stage-specific variable
+                  BUILD_ENV = 'production'
+              }
+              steps {
+                  echo "Building ${APP_NAME} version ${VERSION}"
+                  echo "Build environment: ${BUILD_ENV}"
+                  sh 'mvn clean package'
+              }
+          }
+      }
+  }
+  ```
+
+  **Built-in Environment Variables:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      stages {
+          stage('Info') {
+              steps {
+                  echo "Job Name: ${env.JOB_NAME}"
+                  echo "Build Number: ${env.BUILD_NUMBER}"
+                  echo "Build ID: ${env.BUILD_ID}"
+                  echo "Build URL: ${env.BUILD_URL}"
+                  echo "Workspace: ${env.WORKSPACE}"
+                  echo "Git Branch: ${env.GIT_BRANCH}"
+                  echo "Git Commit: ${env.GIT_COMMIT}"
+                  echo "Node Name: ${env.NODE_NAME}"
+              }
+          }
+      }
+  }
+  ```
+
+  **Credentials Management:**
+
+  ```groovy
+  pipeline {
+      agent any
+      
+      stages {
+          // Username/Password
+          stage('Docker Login') {
+              steps {
+                  withCredentials([usernamePassword(
+                      credentialsId: 'docker-credentials',
+                      usernameVariable: 'DOCKER_USER',
+                      passwordVariable: 'DOCKER_PASS'
+                  )]) {
+                      sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                  }
+              }
+          }
+          
+          // Secret Text
+          stage('API Call') {
+              steps {
+                  withCredentials([string(
+                      credentialsId: 'api-token',
+                      variable: 'API_TOKEN'
+                  )]) {
+                      sh 'curl -H "Authorization: Bearer $API_TOKEN" https://api.company.com'
+                  }
+              }
+          }
+          
+          // SSH Key
+          stage('Deploy via SSH') {
+              steps {
+                  withCredentials([sshUserPrivateKey(
+                      credentialsId: 'ssh-key',
+                      keyFileVariable: 'SSH_KEY',
+                      usernameVariable: 'SSH_USER'
+                  )]) {
+                      sh 'ssh -i $SSH_KEY $SSH_USER@server.com ./deploy.sh'
+                  }
+              }
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```groovy
+  // ✅ DO: Use Declarative Pipeline
+  pipeline {
+      agent any
+      stages {
+          stage('Build') {
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+      }
+  }
+  
+  // ✅ DO: Define agent per stage for efficiency
+  pipeline {
+      agent none
+      stages {
+          stage('Build') {
+              agent { label 'linux' }
+              steps {
+                  sh 'mvn clean package'
+              }
+          }
+      }
+  }
+  
+  // ✅ DO: Use environment variables
+  pipeline {
+      agent any
+      environment {
+          APP_NAME = 'myapp'
+          VERSION = '1.0.0'
+      }
+      stages {
+          stage('Build') {
+              steps {
+                  echo "Building ${APP_NAME} ${VERSION}"
+              }
+          }
+      }
+  }
+  
+  // ✅ DO: Use credentials() for secrets
+  pipeline {
+      agent any
+      environment {
+          DOCKER_CREDS = credentials('docker-credentials')
+      }
+      stages {
+          stage('Push') {
+              steps {
+                  sh 'docker login -u $DOCKER_CREDS_USR -p $DOCKER_CREDS_PSW'
+              }
+          }
+      }
+  }
+  
+  // ✅ DO: Use parallel stages for speed
+  stage('Tests') {
+      parallel {
+          stage('Unit') {
+              steps { sh 'mvn test' }
+          }
+          stage('Integration') {
+              steps { sh 'mvn verify' }
+          }
+      }
+  }
+  
+  // ✅ DO: Add timeouts
+  stage('Deploy') {
+      steps {
+          timeout(time: 10, unit: 'MINUTES') {
+              sh './deploy.sh'
+          }
+      }
+  }
+  
+  // ✅ DO: Use retry for flaky operations
+  stage('Deploy') {
+      steps {
+          retry(3) {
+              sh './deploy.sh'
+          }
+      }
+  }
+  
+  // ✅ DO: Archive artifacts and test results
+  post {
+      always {
+          junit '**/target/surefire-reports/*.xml'
+          archiveArtifacts 'target/*.jar'
+      }
+  }
+  
+  // ✅ DO: Clean workspace
+  post {
+      always {
+          cleanWs()
+      }
+  }
+  
+  // ❌ DON'T: Hardcode credentials
+  // Use credentials() instead
+  
+  // ❌ DON'T: Use agent any for all stages
+  // Define specific agents per stage
+  
+  // ❌ DON'T: Run long operations without timeout
+  // Always add timeout for external calls
+  
+  // ❌ DON'T: Ignore test failures
+  // Always publish test results
+  ```
+
+  **Summary:**
+  + **Declarative Pipeline** - Structured, easier to read and maintain
+  + **Agents** - Define where pipeline executes (any, label, docker, kubernetes)
+  + **Stages** - Organize work into logical phases
+  + **Environment** - Manage variables and credentials securely
+  + **Parallel** - Run stages concurrently for speed
+  + **Retry/Timeout** - Handle failures and prevent hanging
+  + **Post Actions** - Always, success, failure notifications
+  + **Credentials** - Never hardcode, use credentials()
+  + **Clean Workspace** - Always clean up after build
+  + **Archive Artifacts** - Save build outputs and test results
+
+</details>

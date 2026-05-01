@@ -1,0 +1,1503 @@
+## Kubernetes - Orchestration
+
+<details>
+  <summary>Kubernetes Basics</summary>
+  <br/>
+
+  **Kubernetes (K8s)** orchestrates containerized applications across clusters.
+
+  **Architecture:**
+
+  ```
+  ┌─────────────────────────────────────────────────────────┐
+  │                   Kubernetes Cluster                    │
+  ├─────────────────────────────────────────────────────────┤
+  │                                                         │
+  │  Control Plane (Master)                                 │
+  │  ┌──────────────────────────────────────────────┐     │
+  │  │ API Server │ Scheduler │ Controller Manager  │     │
+  │  │            │ etcd (state storage)            │     │
+  │  └──────────────────────────────────────────────┘     │
+  │                        │                               │
+  │  ──────────────────────┼───────────────────────────   │
+  │                        │                               │
+  │  Worker Nodes                                          │
+  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+  │  │   Node 1    │  │   Node 2    │  │   Node 3    │  │
+  │  │             │  │             │  │             │  │
+  │  │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │  │
+  │  │ │  Pod 1  │ │  │ │  Pod 2  │ │  │ │  Pod 3  │ │  │
+  │  │ └─────────┘ │  │ └─────────┘ │  │ └─────────┘ │  │
+  │  │ ┌─────────┐ │  │ ┌─────────┐ │  │             │  │
+  │  │ │  Pod 4  │ │  │ │  Pod 5  │ │  │             │  │
+  │  │ └─────────┘ │  │ └─────────┘ │  │             │  │
+  │  └─────────────┘  └─────────────┘  └─────────────┘  │
+  └─────────────────────────────────────────────────────────┘
+  ```
+
+  **Key Concepts:**
+
+  - **Pod**: Smallest deployable unit (one or more containers)
+  - **Service**: Stable network endpoint for pods
+  - **Deployment**: Manages pod replicas and updates
+  - **ConfigMap**: Configuration data
+  - **Secret**: Sensitive data (passwords, tokens)
+  - **Namespace**: Virtual cluster for resource isolation
+
+  **Basic Commands:**
+
+  ```bash
+  # Cluster info
+  kubectl cluster-info
+  kubectl get nodes
+  
+  # Pods
+  kubectl get pods
+  kubectl get pods -n namespace
+  kubectl describe pod pod-name
+  kubectl logs pod-name
+  kubectl logs -f pod-name  # Follow logs
+  kubectl exec -it pod-name -- bash
+  
+  # Deployments
+  kubectl get deployments
+  kubectl describe deployment deployment-name
+  kubectl scale deployment deployment-name --replicas=3
+  kubectl rollout status deployment/deployment-name
+  kubectl rollout history deployment/deployment-name
+  kubectl rollout undo deployment/deployment-name
+  
+  # Services
+  kubectl get services
+  kubectl describe service service-name
+  
+  # ConfigMaps & Secrets
+  kubectl get configmaps
+  kubectl get secrets
+  kubectl describe configmap configmap-name
+  
+  # Apply/Delete resources
+  kubectl apply -f file.yaml
+  kubectl delete -f file.yaml
+  kubectl delete pod pod-name
+  
+  # Namespaces
+  kubectl get namespaces
+  kubectl create namespace my-namespace
+  kubectl config set-context --current --namespace=my-namespace
+  
+  # Debug
+  kubectl get events
+  kubectl top nodes
+  kubectl top pods
+  ```
+
+</details>
+
+<details>
+  <summary>Pods</summary>
+  <br/>
+
+  **Pod** is the smallest deployable unit in Kubernetes.
+
+  **Basic Pod:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+    labels:
+      app: myapp
+      environment: production
+  spec:
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      ports:
+      - containerPort: 8080
+      env:
+      - name: SPRING_PROFILES_ACTIVE
+        value: "prod"
+  ```
+
+  **Pod with Resources:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      ports:
+      - containerPort: 8080
+      
+      # Resource requests and limits
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "500m"
+        limits:
+          memory: "512Mi"
+          cpu: "1000m"
+      
+      # Environment variables
+      env:
+      - name: DB_HOST
+        value: "postgres"
+      - name: DB_PORT
+        value: "5432"
+      
+      # Liveness probe (restart if fails)
+      livenessProbe:
+        httpGet:
+          path: /actuator/health/liveness
+          port: 8080
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+      
+      # Readiness probe (remove from service if fails)
+      readinessProbe:
+        httpGet:
+          path: /actuator/health/readiness
+          port: 8080
+        initialDelaySeconds: 20
+        periodSeconds: 5
+        timeoutSeconds: 3
+        failureThreshold: 3
+  ```
+
+  **Multi-Container Pod:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    # Main application
+    - name: myapp
+      image: myapp:1.0
+      ports:
+      - containerPort: 8080
+      volumeMounts:
+      - name: shared-logs
+        mountPath: /app/logs
+    
+    # Sidecar: Log shipper
+    - name: log-shipper
+      image: fluent-bit:latest
+      volumeMounts:
+      - name: shared-logs
+        mountPath: /logs
+      env:
+      - name: ELASTICSEARCH_HOST
+        value: "elasticsearch:9200"
+    
+    # Shared volume
+    volumes:
+    - name: shared-logs
+      emptyDir: {}
+  ```
+
+  **Init Containers:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    # Init containers run before main containers
+    initContainers:
+    - name: wait-for-db
+      image: busybox:latest
+      command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for db; sleep 2; done']
+    
+    - name: migration
+      image: myapp:1.0
+      command: ['java', '-jar', 'app.jar', '--migrate']
+      env:
+      - name: DB_HOST
+        value: "postgres"
+    
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      ports:
+      - containerPort: 8080
+  ```
+
+</details>
+
+<details>
+  <summary>Services</summary>
+  <br/>
+
+  **Service** provides stable network endpoint for pods.
+
+  **Service Types:**
+
+  ```
+  1. ClusterIP (Default)
+  ┌─────────────────────────────────┐
+  │  Internal IP (cluster only)     │
+  │  Service: 10.0.0.1:80          │
+  │     │                           │
+  │     └──▶ Pod 1, Pod 2, Pod 3   │
+  └─────────────────────────────────┘
+  
+  2. NodePort
+  ┌─────────────────────────────────┐
+  │  External access via node IP    │
+  │  NodeIP:30080 ──▶ Service      │
+  │                    │            │
+  │                    └──▶ Pods    │
+  └─────────────────────────────────┘
+  
+  3. LoadBalancer
+  ┌─────────────────────────────────┐
+  │  Cloud load balancer            │
+  │  External IP ──▶ Service        │
+  │                   │             │
+  │                   └──▶ Pods     │
+  └─────────────────────────────────┘
+  ```
+
+  **ClusterIP Service (Internal):**
+
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: myapp-service
+  spec:
+    type: ClusterIP  # Default
+    selector:
+      app: myapp
+    ports:
+    - protocol: TCP
+      port: 80        # Service port
+      targetPort: 8080  # Container port
+  ```
+
+  **NodePort Service (External):**
+
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: myapp-service
+  spec:
+    type: NodePort
+    selector:
+      app: myapp
+    ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30080  # External port (30000-32767)
+  ```
+
+  **LoadBalancer Service (Cloud):**
+
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: myapp-service
+  spec:
+    type: LoadBalancer
+    selector:
+      app: myapp
+    ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  ```
+
+  **Headless Service (Direct pod access):**
+
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: myapp-headless
+  spec:
+    clusterIP: None  # Headless
+    selector:
+      app: myapp
+    ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  ```
+
+  **Service with Multiple Ports:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: myapp-service
+  spec:
+    selector:
+      app: myapp
+    ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 8443
+    - name: metrics
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+  ```
+
+</details>
+
+<details>
+  <summary>Deployments</summary>
+  <br/>
+
+  **Deployment** manages pod replicas and rolling updates.
+
+  **Basic Deployment:**
+
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: myapp-deployment
+    labels:
+      app: myapp
+  spec:
+    replicas: 3
+    selector:
+      matchLabels:
+        app: myapp
+    template:
+      metadata:
+        labels:
+          app: myapp
+      spec:
+        containers:
+        - name: myapp
+          image: myapp:1.0
+          ports:
+          - containerPort: 8080
+  ```
+
+  **Complete Deployment:**
+
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: myapp-deployment
+    namespace: production
+    labels:
+      app: myapp
+      version: v1
+  spec:
+    # Number of pod replicas
+    replicas: 3
+    
+    # Rolling update strategy
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1        # Max pods above desired count
+        maxUnavailable: 1  # Max pods unavailable during update
+    
+    # Minimum time pod should be ready
+    minReadySeconds: 10
+    
+    # Revision history limit
+    revisionHistoryLimit: 10
+    
+    # Pod selector
+    selector:
+      matchLabels:
+        app: myapp
+    
+    # Pod template
+    template:
+      metadata:
+        labels:
+          app: myapp
+          version: v1
+      spec:
+        containers:
+        - name: myapp
+          image: myapp:1.0
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+          - name: http
+            containerPort: 8080
+            protocol: TCP
+          
+          # Environment variables
+          env:
+          - name: SPRING_PROFILES_ACTIVE
+            value: "prod"
+          - name: DB_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: myapp-config
+                key: db.host
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: myapp-secret
+                key: db.password
+          
+          # Resource limits
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "500m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          
+          # Liveness probe
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          # Readiness probe
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          # Volume mounts
+          volumeMounts:
+          - name: config
+            mountPath: /app/config
+            readOnly: true
+          - name: data
+            mountPath: /app/data
+        
+        # Volumes
+        volumes:
+        - name: config
+          configMap:
+            name: myapp-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: myapp-pvc
+  ```
+
+  **Deployment Commands:**
+
+  ```bash
+  # Create deployment
+  kubectl apply -f deployment.yaml
+  
+  # Get deployments
+  kubectl get deployments
+  kubectl get deployment myapp-deployment
+  
+  # Describe deployment
+  kubectl describe deployment myapp-deployment
+  
+  # Scale deployment
+  kubectl scale deployment myapp-deployment --replicas=5
+  
+  # Update image
+  kubectl set image deployment/myapp-deployment myapp=myapp:2.0
+  
+  # Rollout status
+  kubectl rollout status deployment/myapp-deployment
+  
+  # Rollout history
+  kubectl rollout history deployment/myapp-deployment
+  
+  # Rollback to previous version
+  kubectl rollout undo deployment/myapp-deployment
+  
+  # Rollback to specific revision
+  kubectl rollout undo deployment/myapp-deployment --to-revision=2
+  
+  # Pause rollout
+  kubectl rollout pause deployment/myapp-deployment
+  
+  # Resume rollout
+  kubectl rollout resume deployment/myapp-deployment
+  
+  # Delete deployment
+  kubectl delete deployment myapp-deployment
+  ```
+
+  **Update Strategies:**
+
+  ```yaml
+  # Rolling Update (Default)
+  spec:
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 1
+  
+  # Recreate (All pods killed before new ones created)
+  spec:
+    strategy:
+      type: Recreate
+  ```
+
+</details>
+
+<details>
+  <summary>ConfigMaps</summary>
+  <br/>
+
+  **ConfigMap** stores non-sensitive configuration data.
+
+  **Create ConfigMap from Literal:**
+
+  ```bash
+  kubectl create configmap myapp-config \
+    --from-literal=db.host=postgres \
+    --from-literal=db.port=5432 \
+    --from-literal=app.name=myapp
+  ```
+
+  **Create ConfigMap from File:**
+
+  ```bash
+  # From properties file
+  kubectl create configmap myapp-config \
+    --from-file=application.properties
+  
+  # From multiple files
+  kubectl create configmap myapp-config \
+    --from-file=config/
+  ```
+
+  **ConfigMap YAML:**
+
+  ```yaml
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: myapp-config
+    namespace: production
+  data:
+    # Key-value pairs
+    db.host: "postgres"
+    db.port: "5432"
+    app.name: "myapp"
+    log.level: "INFO"
+    
+    # File content
+    application.properties: |
+      spring.datasource.url=jdbc:postgresql://postgres:5432/mydb
+      spring.datasource.username=user
+      spring.jpa.hibernate.ddl-auto=validate
+      logging.level.root=INFO
+    
+    nginx.conf: |
+      server {
+        listen 80;
+        server_name myapp.com;
+        location / {
+          proxy_pass http://myapp:8080;
+        }
+      }
+  ```
+
+  **Use ConfigMap in Pod (Environment Variables):**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      
+      # Single environment variable
+      env:
+      - name: DB_HOST
+        valueFrom:
+          configMapKeyRef:
+            name: myapp-config
+            key: db.host
+      
+      # All keys as environment variables
+      envFrom:
+      - configMapRef:
+          name: myapp-config
+  ```
+
+  **Use ConfigMap as Volume:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      volumeMounts:
+      - name: config
+        mountPath: /app/config
+        readOnly: true
+    
+    volumes:
+    - name: config
+      configMap:
+        name: myapp-config
+        items:
+        - key: application.properties
+          path: application.properties
+  ```
+
+  **Update ConfigMap:**
+
+  ```bash
+  # Edit ConfigMap
+  kubectl edit configmap myapp-config
+  
+  # Replace ConfigMap
+  kubectl replace -f configmap.yaml
+  
+  # Delete and recreate
+  kubectl delete configmap myapp-config
+  kubectl apply -f configmap.yaml
+  
+  # Note: Pods need restart to pick up changes
+  kubectl rollout restart deployment/myapp-deployment
+  ```
+
+</details>
+
+<details>
+  <summary>Secrets</summary>
+  <br/>
+
+  **Secret** stores sensitive data (passwords, tokens, keys).
+
+  **Create Secret from Literal:**
+
+  ```bash
+  kubectl create secret generic myapp-secret \
+    --from-literal=db.password=secret123 \
+    --from-literal=api.key=abc123xyz
+  ```
+
+  **Create Secret from File:**
+
+  ```bash
+  # From file
+  kubectl create secret generic myapp-secret \
+    --from-file=ssh-privatekey=~/.ssh/id_rsa \
+    --from-file=ssh-publickey=~/.ssh/id_rsa.pub
+  
+  # TLS secret
+  kubectl create secret tls myapp-tls \
+    --cert=path/to/cert.crt \
+    --key=path/to/key.key
+  
+  # Docker registry secret
+  kubectl create secret docker-registry regcred \
+    --docker-server=registry.company.com \
+    --docker-username=user \
+    --docker-password=password \
+    --docker-email=user@company.com
+  ```
+
+  **Secret YAML:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: myapp-secret
+    namespace: production
+  type: Opaque
+  data:
+    # Base64 encoded values
+    db.password: c2VjcmV0MTIz  # echo -n 'secret123' | base64
+    api.key: YWJjMTIzeHl6      # echo -n 'abc123xyz' | base64
+  
+  # Or use stringData (automatically encoded)
+  stringData:
+    db.password: secret123
+    api.key: abc123xyz
+  ```
+
+  **Use Secret in Pod (Environment Variables):**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      
+      # Single environment variable
+      env:
+      - name: DB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: myapp-secret
+            key: db.password
+      
+      # All keys as environment variables
+      envFrom:
+      - secretRef:
+          name: myapp-secret
+  ```
+
+  **Use Secret as Volume:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    - name: myapp
+      image: myapp:1.0
+      volumeMounts:
+      - name: secret
+        mountPath: /app/secrets
+        readOnly: true
+    
+    volumes:
+    - name: secret
+      secret:
+        secretName: myapp-secret
+        items:
+        - key: db.password
+          path: db-password.txt
+  ```
+
+  **Use Docker Registry Secret:**
+
+  ```yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: myapp-pod
+  spec:
+    containers:
+    - name: myapp
+      image: registry.company.com/myapp:1.0
+    
+    # Pull image using secret
+    imagePullSecrets:
+    - name: regcred
+  ```
+
+  **TLS Secret for Ingress:**
+
+  ```yaml
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: myapp-ingress
+  spec:
+    tls:
+    - hosts:
+      - myapp.com
+      secretName: myapp-tls
+    rules:
+    - host: myapp.com
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: myapp-service
+              port:
+                number: 80
+  ```
+
+</details>
+
+<details>
+  <summary>Helm - Package Management</summary>
+  <br/>
+
+  **Helm** is a package manager for Kubernetes.
+
+  **Helm Concepts:**
+
+  ```
+  Chart = Package (templates + values)
+  Release = Installed instance of chart
+  Repository = Collection of charts
+  ```
+
+  **Helm Commands:**
+
+  ```bash
+  # Add repository
+  helm repo add bitnami https://charts.bitnami.com/bitnami
+  helm repo add stable https://charts.helm.sh/stable
+  
+  # Update repositories
+  helm repo update
+  
+  # Search charts
+  helm search repo nginx
+  helm search hub wordpress
+  
+  # Install chart
+  helm install my-release bitnami/nginx
+  
+  # Install with custom values
+  helm install my-release bitnami/nginx -f values.yaml
+  helm install my-release bitnami/nginx --set replicaCount=3
+  
+  # List releases
+  helm list
+  helm list -n namespace
+  
+  # Get release info
+  helm status my-release
+  helm get values my-release
+  helm get manifest my-release
+  
+  # Upgrade release
+  helm upgrade my-release bitnami/nginx -f values.yaml
+  
+  # Rollback release
+  helm rollback my-release
+  helm rollback my-release 1  # To specific revision
+  
+  # Uninstall release
+  helm uninstall my-release
+  
+  # Create new chart
+  helm create mychart
+  
+  # Package chart
+  helm package mychart/
+  
+  # Lint chart
+  helm lint mychart/
+  
+  # Dry run (test without installing)
+  helm install my-release mychart/ --dry-run --debug
+  ```
+
+  **Chart Structure:**
+
+  ```
+  mychart/
+  ├── Chart.yaml          # Chart metadata
+  ├── values.yaml         # Default values
+  ├── charts/             # Dependencies
+  ├── templates/          # Kubernetes manifests
+  │   ├── deployment.yaml
+  │   ├── service.yaml
+  │   ├── ingress.yaml
+  │   ├── configmap.yaml
+  │   ├── secret.yaml
+  │   ├── _helpers.tpl    # Template helpers
+  │   └── NOTES.txt       # Post-install notes
+  └── .helmignore         # Files to ignore
+  ```
+
+  **Chart.yaml:**
+
+  ```yaml
+  apiVersion: v2
+  name: myapp
+  description: My Spring Boot Application
+  type: application
+  version: 1.0.0
+  appVersion: "1.0.0"
+  keywords:
+    - spring-boot
+    - java
+  maintainers:
+    - name: Team
+      email: team@company.com
+  dependencies:
+    - name: postgresql
+      version: 12.x.x
+      repository: https://charts.bitnami.com/bitnami
+  ```
+
+  **values.yaml:**
+
+  ```yaml
+  # Default values
+  replicaCount: 3
+  
+  image:
+    repository: myapp
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+  
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: myapp.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: myapp-tls
+        hosts:
+          - myapp.com
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "500m"
+    limits:
+      memory: "512Mi"
+      cpu: "1000m"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+  
+  env:
+    SPRING_PROFILES_ACTIVE: prod
+    LOG_LEVEL: INFO
+  
+  postgresql:
+    enabled: true
+    auth:
+      username: user
+      password: password
+      database: mydb
+  ```
+
+  **templates/deployment.yaml:**
+
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: {{ include "myapp.fullname" . }}
+    labels:
+      {{- include "myapp.labels" . | nindent 4 }}
+  spec:
+    replicas: {{ .Values.replicaCount }}
+    selector:
+      matchLabels:
+        {{- include "myapp.selectorLabels" . | nindent 6 }}
+    template:
+      metadata:
+        labels:
+          {{- include "myapp.selectorLabels" . | nindent 8 }}
+      spec:
+        containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+          - name: http
+            containerPort: {{ .Values.service.targetPort }}
+            protocol: TCP
+          env:
+          {{- range $key, $value := .Values.env }}
+          - name: {{ $key }}
+            value: {{ $value | quote }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 5
+  ```
+
+  **templates/_helpers.tpl:**
+
+  ```yaml
+  {{/*
+  Expand the name of the chart.
+  */}}
+  {{- define "myapp.name" -}}
+  {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+  {{- end }}
+  
+  {{/*
+  Create a default fully qualified app name.
+  */}}
+  {{- define "myapp.fullname" -}}
+  {{- if .Values.fullnameOverride }}
+  {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+  {{- else }}
+  {{- $name := default .Chart.Name .Values.nameOverride }}
+  {{- if contains $name .Release.Name }}
+  {{- .Release.Name | trunc 63 | trimSuffix "-" }}
+  {{- else }}
+  {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  
+  {{/*
+  Common labels
+  */}}
+  {{- define "myapp.labels" -}}
+  helm.sh/chart: {{ include "myapp.chart" . }}
+  {{ include "myapp.selectorLabels" . }}
+  {{- if .Chart.AppVersion }}
+  app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+  {{- end }}
+  app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- end }}
+  
+  {{/*
+  Selector labels
+  */}}
+  {{- define "myapp.selectorLabels" -}}
+  app.kubernetes.io/name: {{ include "myapp.name" . }}
+  app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- end }}
+  ```
+
+  **Custom values file (values-prod.yaml):**
+
+  ```yaml
+  replicaCount: 5
+  
+  image:
+    tag: "2.0.0"
+  
+  ingress:
+    hosts:
+      - host: myapp.production.com
+        paths:
+          - path: /
+            pathType: Prefix
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "1000m"
+    limits:
+      memory: "1Gi"
+      cpu: "2000m"
+  
+  env:
+    SPRING_PROFILES_ACTIVE: production
+    LOG_LEVEL: WARN
+  ```
+
+  ```bash
+  # Install with custom values
+  helm install myapp-prod ./mychart -f values-prod.yaml
+  ```
+
+</details>
+
+<details>
+  <summary>Istio - Service Mesh (Bonus)</summary>
+  <br/>
+
+  **Istio** provides traffic management, security, and observability.
+
+  **Istio Architecture:**
+
+  ```
+  ┌─────────────────────────────────────────────┐
+  │           Istio Control Plane               │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+  │  │  Pilot   │  │  Citadel │  │  Galley  │ │
+  │  │(Traffic) │  │(Security)│  │(Config)  │ │
+  │  └──────────┘  └──────────┘  └──────────┘ │
+  └─────────────────────────────────────────────┘
+                      │
+  ────────────────────┼────────────────────────
+                      │
+  ┌─────────────────────────────────────────────┐
+  │              Data Plane                     │
+  │  ┌──────────────┐      ┌──────────────┐   │
+  │  │   Pod A      │      │   Pod B      │   │
+  │  │ ┌──────────┐ │      │ ┌──────────┐ │   │
+  │  │ │  Envoy   │ │◀────▶│ │  Envoy   │ │   │
+  │  │ │ Sidecar  │ │      │ │ Sidecar  │ │   │
+  │  │ └──────────┘ │      │ └──────────┘ │   │
+  │  │ ┌──────────┐ │      │ ┌──────────┐ │   │
+  │  │ │   App    │ │      │ │   App    │ │   │
+  │  │ └──────────┘ │      │ └──────────┘ │   │
+  │  └──────────────┘      └──────────────┘   │
+  └─────────────────────────────────────────────┘
+  ```
+
+  **Enable Istio Injection:**
+
+  ```bash
+  # Label namespace for automatic sidecar injection
+  kubectl label namespace default istio-injection=enabled
+  
+  # Verify
+  kubectl get namespace -L istio-injection
+  ```
+
+  **VirtualService (Traffic Routing):**
+
+  ```yaml
+  apiVersion: networking.istio.io/v1beta1
+  kind: VirtualService
+  metadata:
+    name: myapp
+  spec:
+    hosts:
+    - myapp.com
+    gateways:
+    - myapp-gateway
+    http:
+    # Canary deployment (90% v1, 10% v2)
+    - match:
+      - headers:
+          user-agent:
+            regex: ".*Chrome.*"
+      route:
+      - destination:
+          host: myapp
+          subset: v2
+        weight: 10
+      - destination:
+          host: myapp
+          subset: v1
+        weight: 90
+    
+    # Default route
+    - route:
+      - destination:
+          host: myapp
+          subset: v1
+  ```
+
+  **DestinationRule (Load Balancing):**
+
+  ```yaml
+  apiVersion: networking.istio.io/v1beta1
+  kind: DestinationRule
+  metadata:
+    name: myapp
+  spec:
+    host: myapp
+    trafficPolicy:
+      loadBalancer:
+        simple: ROUND_ROBIN
+      connectionPool:
+        tcp:
+          maxConnections: 100
+        http:
+          http1MaxPendingRequests: 50
+          http2MaxRequests: 100
+      outlierDetection:
+        consecutiveErrors: 5
+        interval: 30s
+        baseEjectionTime: 30s
+    subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+  ```
+
+  **Gateway (Ingress):**
+
+  ```yaml
+  apiVersion: networking.istio.io/v1beta1
+  kind: Gateway
+  metadata:
+    name: myapp-gateway
+  spec:
+    selector:
+      istio: ingressgateway
+    servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+      - myapp.com
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: myapp-tls
+      hosts:
+      - myapp.com
+  ```
+
+  **Circuit Breaker:**
+
+  ```yaml
+  apiVersion: networking.istio.io/v1beta1
+  kind: DestinationRule
+  metadata:
+    name: myapp
+  spec:
+    host: myapp
+    trafficPolicy:
+      connectionPool:
+        tcp:
+          maxConnections: 100
+        http:
+          http1MaxPendingRequests: 10
+          maxRequestsPerConnection: 2
+      outlierDetection:
+        consecutiveErrors: 5
+        interval: 30s
+        baseEjectionTime: 30s
+        maxEjectionPercent: 50
+  ```
+
+  **Retry Policy:**
+
+  ```yaml
+  apiVersion: networking.istio.io/v1beta1
+  kind: VirtualService
+  metadata:
+    name: myapp
+  spec:
+    hosts:
+    - myapp
+    http:
+    - route:
+      - destination:
+          host: myapp
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: 5xx,reset,connect-failure,refused-stream
+  ```
+
+  **Timeout:**
+
+  ```yaml
+  apiVersion: networking.istio.io/v1beta1
+  kind: VirtualService
+  metadata:
+    name: myapp
+  spec:
+    hosts:
+    - myapp
+    http:
+    - route:
+      - destination:
+          host: myapp
+      timeout: 10s
+  ```
+
+  **Mutual TLS:**
+
+  ```yaml
+  apiVersion: security.istio.io/v1beta1
+  kind: PeerAuthentication
+  metadata:
+    name: default
+    namespace: production
+  spec:
+    mtls:
+      mode: STRICT  # Require mTLS for all services
+  ```
+
+  **Authorization Policy:**
+
+  ```yaml
+  apiVersion: security.istio.io/v1beta1
+  kind: AuthorizationPolicy
+  metadata:
+    name: myapp-authz
+    namespace: production
+  spec:
+    selector:
+      matchLabels:
+        app: myapp
+    action: ALLOW
+    rules:
+    - from:
+      - source:
+          principals: ["cluster.local/ns/production/sa/frontend"]
+      to:
+      - operation:
+          methods: ["GET", "POST"]
+          paths: ["/api/*"]
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```yaml
+  # ✅ DO: Use namespaces for isolation
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: production
+  
+  # ✅ DO: Set resource requests and limits
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "500m"
+    limits:
+      memory: "512Mi"
+      cpu: "1000m"
+  
+  # ✅ DO: Use liveness and readiness probes
+  livenessProbe:
+    httpGet:
+      path: /actuator/health/liveness
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  
+  readinessProbe:
+    httpGet:
+      path: /actuator/health/readiness
+      port: 8080
+    initialDelaySeconds: 20
+    periodSeconds: 5
+  
+  # ✅ DO: Use ConfigMaps and Secrets
+  env:
+  - name: DB_HOST
+    valueFrom:
+      configMapKeyRef:
+        name: myapp-config
+        key: db.host
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: myapp-secret
+        key: db.password
+  
+  # ✅ DO: Use rolling updates
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  
+  # ✅ DO: Use HorizontalPodAutoscaler
+  apiVersion: autoscaling/v2
+  kind: HorizontalPodAutoscaler
+  metadata:
+    name: myapp-hpa
+  spec:
+    scaleTargetRef:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: myapp
+    minReplicas: 2
+    maxReplicas: 10
+    metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+  
+  # ✅ DO: Use PodDisruptionBudget
+  apiVersion: policy/v1
+  kind: PodDisruptionBudget
+  metadata:
+    name: myapp-pdb
+  spec:
+    minAvailable: 2
+    selector:
+      matchLabels:
+        app: myapp
+  
+  # ✅ DO: Use labels and selectors
+  metadata:
+    labels:
+      app: myapp
+      version: v1
+      environment: production
+  
+  # ❌ DON'T: Run as root
+  # Use securityContext
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # ❌ DON'T: Use latest tag
+  # Use specific versions
+  image: myapp:1.0.0
+  
+  # ❌ DON'T: Hardcode values
+  # Use ConfigMaps and Secrets
+  ```
+
+  **Summary:**
+  + **Pods** - Smallest deployable unit, containers + volumes
+  + **Services** - Stable network endpoint (ClusterIP, NodePort, LoadBalancer)
+  + **Deployments** - Manage replicas and rolling updates
+  + **ConfigMaps** - Non-sensitive configuration
+  + **Secrets** - Sensitive data (passwords, tokens)
+  + **Helm** - Package manager for Kubernetes
+  + **Istio** - Service mesh (traffic, security, observability)
+  + Use **namespaces** for isolation
+  + Set **resource limits** to prevent resource exhaustion
+  + Use **probes** for health monitoring
+  + Use **HPA** for auto-scaling
+  + Use **PDB** for high availability
+  + **Never run as root** in containers
+  + Use **specific image tags**, not latest
+
+</details>

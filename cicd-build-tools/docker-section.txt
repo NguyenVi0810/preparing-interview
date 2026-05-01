@@ -1,0 +1,1267 @@
+## Docker - Containerization
+
+<details>
+  <summary>Docker Basics</summary>
+  <br/>
+
+  **Docker** packages applications and dependencies into containers.
+
+  **Key Concepts:**
+
+  ```
+  ┌─────────────────────────────────────┐
+  │         Docker Architecture         │
+  ├─────────────────────────────────────┤
+  │                                     │
+  │  Dockerfile ──build──▶ Image       │
+  │                          │          │
+  │                          │ run      │
+  │                          ▼          │
+  │                      Container      │
+  │                                     │
+  │  Image = Template (read-only)      │
+  │  Container = Running instance      │
+  └─────────────────────────────────────┘
+  ```
+
+  **Basic Commands:**
+
+  ```bash
+  # Images
+  docker images                    # List images
+  docker pull nginx:latest         # Download image
+  docker build -t myapp:1.0 .     # Build image
+  docker rmi myapp:1.0            # Remove image
+  docker tag myapp:1.0 myapp:latest  # Tag image
+  
+  # Containers
+  docker ps                        # List running containers
+  docker ps -a                     # List all containers
+  docker run -d -p 8080:8080 myapp:1.0  # Run container
+  docker stop container_id         # Stop container
+  docker start container_id        # Start container
+  docker restart container_id      # Restart container
+  docker rm container_id           # Remove container
+  docker logs container_id         # View logs
+  docker exec -it container_id bash  # Enter container
+  
+  # System
+  docker system df                 # Show disk usage
+  docker system prune              # Clean up unused resources
+  docker system prune -a           # Remove all unused images
+  ```
+
+  **Docker Run Options:**
+
+  ```bash
+  # Basic run
+  docker run nginx
+  
+  # Detached mode (background)
+  docker run -d nginx
+  
+  # Port mapping
+  docker run -p 8080:80 nginx
+  
+  # Name container
+  docker run --name my-nginx nginx
+  
+  # Environment variables
+  docker run -e DB_HOST=localhost -e DB_PORT=5432 myapp
+  
+  # Volume mount
+  docker run -v /host/path:/container/path myapp
+  
+  # Network
+  docker run --network my-network myapp
+  
+  # Resource limits
+  docker run --memory="512m" --cpus="1.0" myapp
+  
+  # Auto-remove after stop
+  docker run --rm myapp
+  
+  # Interactive terminal
+  docker run -it ubuntu bash
+  
+  # Complete example
+  docker run -d \
+    --name myapp \
+    -p 8080:8080 \
+    -e SPRING_PROFILES_ACTIVE=prod \
+    -e DB_HOST=postgres \
+    -v /data:/app/data \
+    --network app-network \
+    --memory="1g" \
+    --cpus="2.0" \
+    --restart unless-stopped \
+    myapp:1.0
+  ```
+
+</details>
+
+<details>
+  <summary>Dockerfile</summary>
+  <br/>
+
+  **Dockerfile** defines how to build a Docker image.
+
+  **Basic Dockerfile:**
+
+  ```dockerfile
+  # Base image
+  FROM openjdk:17-jdk-slim
+  
+  # Metadata
+  LABEL maintainer="team@company.com"
+  LABEL version="1.0"
+  
+  # Working directory
+  WORKDIR /app
+  
+  # Copy files
+  COPY target/myapp.jar app.jar
+  
+  # Expose port
+  EXPOSE 8080
+  
+  # Run command
+  CMD ["java", "-jar", "app.jar"]
+  ```
+
+  **Complete Spring Boot Dockerfile:**
+
+  ```dockerfile
+  FROM openjdk:17-jdk-slim
+  
+  # Install dependencies
+  RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+  
+  # Create app user (security)
+  RUN groupadd -r appuser && useradd -r -g appuser appuser
+  
+  # Set working directory
+  WORKDIR /app
+  
+  # Copy JAR
+  COPY target/myapp-1.0.0.jar app.jar
+  
+  # Change ownership
+  RUN chown -R appuser:appuser /app
+  
+  # Switch to non-root user
+  USER appuser
+  
+  # Health check
+  HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
+  
+  # Expose port
+  EXPOSE 8080
+  
+  # JVM options
+  ENV JAVA_OPTS="-Xmx512m -Xms256m"
+  
+  # Run application
+  ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+  ```
+
+  **Multi-Stage Build (Recommended):**
+
+  ```dockerfile
+  # Stage 1: Build
+  FROM maven:3.8-openjdk-17 AS build
+  
+  WORKDIR /app
+  
+  # Copy pom.xml first (layer caching)
+  COPY pom.xml .
+  RUN mvn dependency:go-offline
+  
+  # Copy source code
+  COPY src ./src
+  
+  # Build application
+  RUN mvn clean package -DskipTests
+  
+  # Stage 2: Runtime
+  FROM openjdk:17-jdk-slim
+  
+  # Create non-root user
+  RUN groupadd -r appuser && useradd -r -g appuser appuser
+  
+  WORKDIR /app
+  
+  # Copy only the JAR from build stage
+  COPY --from=build /app/target/myapp-*.jar app.jar
+  
+  RUN chown -R appuser:appuser /app
+  USER appuser
+  
+  EXPOSE 8080
+  
+  HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
+  
+  ENTRYPOINT ["java", "-jar", "app.jar"]
+  ```
+
+  **Dockerfile Instructions:**
+
+  ```dockerfile
+  # FROM - Base image
+  FROM openjdk:17-jdk-slim
+  
+  # LABEL - Metadata
+  LABEL maintainer="team@company.com"
+  LABEL version="1.0"
+  
+  # ENV - Environment variables
+  ENV APP_HOME=/app
+  ENV JAVA_OPTS="-Xmx512m"
+  
+  # ARG - Build-time variables
+  ARG VERSION=1.0.0
+  ARG BUILD_DATE
+  
+  # WORKDIR - Set working directory
+  WORKDIR /app
+  
+  # COPY - Copy files from host to image
+  COPY target/app.jar app.jar
+  COPY config/ /app/config/
+  
+  # ADD - Copy and extract (use COPY instead)
+  ADD archive.tar.gz /app/
+  
+  # RUN - Execute commands during build
+  RUN apt-get update && apt-get install -y curl
+  RUN mkdir -p /app/logs
+  
+  # EXPOSE - Document port (doesn't publish)
+  EXPOSE 8080
+  EXPOSE 8443
+  
+  # VOLUME - Create mount point
+  VOLUME ["/app/data", "/app/logs"]
+  
+  # USER - Switch user
+  USER appuser
+  
+  # HEALTHCHECK - Container health check
+  HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -f http://localhost:8080/health || exit 1
+  
+  # CMD - Default command (can be overridden)
+  CMD ["java", "-jar", "app.jar"]
+  
+  # ENTRYPOINT - Main command (not easily overridden)
+  ENTRYPOINT ["java", "-jar", "app.jar"]
+  
+  # ENTRYPOINT + CMD (CMD becomes default args)
+  ENTRYPOINT ["java"]
+  CMD ["-jar", "app.jar"]
+  ```
+
+  **Build Arguments:**
+
+  ```dockerfile
+  FROM openjdk:17-jdk-slim
+  
+  # Build arguments
+  ARG VERSION=1.0.0
+  ARG BUILD_DATE
+  ARG GIT_COMMIT
+  
+  # Use in labels
+  LABEL version="${VERSION}"
+  LABEL build-date="${BUILD_DATE}"
+  LABEL git-commit="${GIT_COMMIT}"
+  
+  WORKDIR /app
+  
+  # Use in file names
+  COPY target/myapp-${VERSION}.jar app.jar
+  
+  EXPOSE 8080
+  
+  CMD ["java", "-jar", "app.jar"]
+  ```
+
+  ```bash
+  # Build with arguments
+  docker build \
+    --build-arg VERSION=1.2.3 \
+    --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+    --build-arg GIT_COMMIT=$(git rev-parse HEAD) \
+    -t myapp:1.2.3 .
+  ```
+
+</details>
+
+<details>
+  <summary>Docker Volumes</summary>
+  <br/>
+
+  **Volumes** persist data outside containers.
+
+  **Volume Types:**
+
+  ```
+  1. Named Volumes (Managed by Docker)
+  ┌─────────────────────────────────┐
+  │  Container                      │
+  │  /app/data ──▶ my-data-volume  │
+  └─────────────────────────────────┘
+  
+  2. Bind Mounts (Host directory)
+  ┌─────────────────────────────────┐
+  │  Container                      │
+  │  /app/data ──▶ /host/path      │
+  └─────────────────────────────────┘
+  
+  3. tmpfs (Memory only)
+  ┌─────────────────────────────────┐
+  │  Container                      │
+  │  /app/temp ──▶ RAM             │
+  └─────────────────────────────────┘
+  ```
+
+  **Named Volumes:**
+
+  ```bash
+  # Create volume
+  docker volume create my-data
+  
+  # List volumes
+  docker volume ls
+  
+  # Inspect volume
+  docker volume inspect my-data
+  
+  # Remove volume
+  docker volume rm my-data
+  
+  # Remove unused volumes
+  docker volume prune
+  
+  # Use volume in container
+  docker run -v my-data:/app/data myapp
+  
+  # Read-only volume
+  docker run -v my-data:/app/data:ro myapp
+  ```
+
+  **Bind Mounts:**
+
+  ```bash
+  # Mount host directory
+  docker run -v /host/path:/container/path myapp
+  
+  # Current directory
+  docker run -v $(pwd):/app myapp
+  
+  # Read-only
+  docker run -v /host/path:/container/path:ro myapp
+  
+  # Example: Development with hot reload
+  docker run -d \
+    -p 8080:8080 \
+    -v $(pwd)/src:/app/src \
+    -v $(pwd)/target:/app/target \
+    myapp-dev
+  ```
+
+  **Docker Compose Volumes:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    app:
+      image: myapp:1.0
+      volumes:
+        # Named volume
+        - app-data:/app/data
+        
+        # Bind mount
+        - ./config:/app/config:ro
+        
+        # Anonymous volume
+        - /app/temp
+    
+    postgres:
+      image: postgres:15
+      volumes:
+        # Named volume for database
+        - postgres-data:/var/lib/postgresql/data
+        
+        # Init scripts
+        - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+  
+  volumes:
+    app-data:
+      driver: local
+    postgres-data:
+      driver: local
+  ```
+
+  **Volume in Dockerfile:**
+
+  ```dockerfile
+  FROM openjdk:17-jdk-slim
+  
+  WORKDIR /app
+  
+  # Declare volume mount points
+  VOLUME ["/app/data", "/app/logs"]
+  
+  COPY target/app.jar app.jar
+  
+  CMD ["java", "-jar", "app.jar"]
+  ```
+
+  **Backup and Restore:**
+
+  ```bash
+  # Backup volume
+  docker run --rm \
+    -v my-data:/data \
+    -v $(pwd):/backup \
+    ubuntu tar czf /backup/backup.tar.gz /data
+  
+  # Restore volume
+  docker run --rm \
+    -v my-data:/data \
+    -v $(pwd):/backup \
+    ubuntu tar xzf /backup/backup.tar.gz -C /
+  
+  # Copy files from container
+  docker cp container_id:/app/data ./backup/
+  
+  # Copy files to container
+  docker cp ./config container_id:/app/config/
+  ```
+
+</details>
+
+<details>
+  <summary>Docker Networks</summary>
+  <br/>
+
+  **Networks** enable container communication.
+
+  **Network Types:**
+
+  ```
+  1. Bridge (Default)
+  ┌─────────────────────────────────────┐
+  │  Docker Host                        │
+  │  ┌──────────┐      ┌──────────┐   │
+  │  │Container1│◀────▶│Container2│   │
+  │  └──────────┘      └──────────┘   │
+  │         │              │           │
+  │         └──────┬───────┘           │
+  │             Bridge                 │
+  └─────────────────────────────────────┘
+  
+  2. Host (Share host network)
+  ┌─────────────────────────────────────┐
+  │  Container uses host network stack  │
+  └─────────────────────────────────────┘
+  
+  3. None (No network)
+  ┌─────────────────────────────────────┐
+  │  Container isolated                 │
+  └─────────────────────────────────────┘
+  ```
+
+  **Network Commands:**
+
+  ```bash
+  # List networks
+  docker network ls
+  
+  # Create network
+  docker network create my-network
+  
+  # Create network with subnet
+  docker network create --subnet=172.18.0.0/16 my-network
+  
+  # Inspect network
+  docker network inspect my-network
+  
+  # Connect container to network
+  docker network connect my-network container_id
+  
+  # Disconnect container from network
+  docker network disconnect my-network container_id
+  
+  # Remove network
+  docker network rm my-network
+  
+  # Remove unused networks
+  docker network prune
+  ```
+
+  **Using Networks:**
+
+  ```bash
+  # Create network
+  docker network create app-network
+  
+  # Run containers on same network
+  docker run -d --name postgres --network app-network postgres:15
+  docker run -d --name app --network app-network -e DB_HOST=postgres myapp
+  
+  # Containers can communicate using container names as hostnames
+  # app can connect to postgres using hostname "postgres"
+  ```
+
+  **Network in Docker Compose:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    app:
+      image: myapp:1.0
+      networks:
+        - frontend
+        - backend
+      environment:
+        DB_HOST: postgres
+        REDIS_HOST: redis
+    
+    postgres:
+      image: postgres:15
+      networks:
+        - backend
+      environment:
+        POSTGRES_PASSWORD: secret
+    
+    redis:
+      image: redis:7
+      networks:
+        - backend
+    
+    nginx:
+      image: nginx:latest
+      networks:
+        - frontend
+      ports:
+        - "80:80"
+  
+  networks:
+    frontend:
+      driver: bridge
+    backend:
+      driver: bridge
+      internal: true  # No external access
+  ```
+
+  **Network Aliases:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    app:
+      image: myapp:1.0
+      networks:
+        backend:
+          aliases:
+            - myapp
+            - api
+    
+    postgres:
+      image: postgres:15
+      networks:
+        backend:
+          aliases:
+            - db
+            - database
+  
+  networks:
+    backend:
+  ```
+
+  **Custom Network Configuration:**
+
+  ```bash
+  # Create network with custom settings
+  docker network create \
+    --driver bridge \
+    --subnet 172.20.0.0/16 \
+    --gateway 172.20.0.1 \
+    --ip-range 172.20.240.0/20 \
+    my-custom-network
+  
+  # Run container with static IP
+  docker run -d \
+    --name app \
+    --network my-custom-network \
+    --ip 172.20.0.10 \
+    myapp
+  ```
+
+</details>
+
+<details>
+  <summary>Docker Compose</summary>
+  <br/>
+
+  **Docker Compose** manages multi-container applications.
+
+  **Basic docker-compose.yml:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    app:
+      image: myapp:1.0
+      ports:
+        - "8080:8080"
+      environment:
+        - SPRING_PROFILES_ACTIVE=prod
+        - DB_HOST=postgres
+      depends_on:
+        - postgres
+        - redis
+    
+    postgres:
+      image: postgres:15
+      environment:
+        POSTGRES_DB: mydb
+        POSTGRES_USER: user
+        POSTGRES_PASSWORD: password
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+    
+    redis:
+      image: redis:7
+      volumes:
+        - redis-data:/data
+  
+  volumes:
+    postgres-data:
+    redis-data:
+  ```
+
+  **Complete Example:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    # Application
+    app:
+      build:
+        context: .
+        dockerfile: Dockerfile
+        args:
+          VERSION: 1.0.0
+      image: myapp:1.0
+      container_name: myapp
+      ports:
+        - "8080:8080"
+      environment:
+        SPRING_PROFILES_ACTIVE: prod
+        DB_HOST: postgres
+        DB_PORT: 5432
+        DB_NAME: mydb
+        DB_USER: user
+        DB_PASSWORD: password
+        REDIS_HOST: redis
+        REDIS_PORT: 6379
+      volumes:
+        - ./logs:/app/logs
+        - app-data:/app/data
+      networks:
+        - backend
+        - frontend
+      depends_on:
+        postgres:
+          condition: service_healthy
+        redis:
+          condition: service_started
+      restart: unless-stopped
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+        interval: 30s
+        timeout: 3s
+        retries: 3
+        start_period: 40s
+      deploy:
+        resources:
+          limits:
+            cpus: '2.0'
+            memory: 1G
+          reservations:
+            cpus: '1.0'
+            memory: 512M
+    
+    # Database
+    postgres:
+      image: postgres:15-alpine
+      container_name: postgres
+      environment:
+        POSTGRES_DB: mydb
+        POSTGRES_USER: user
+        POSTGRES_PASSWORD: password
+        POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+        - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      networks:
+        - backend
+      restart: unless-stopped
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+      deploy:
+        resources:
+          limits:
+            memory: 512M
+    
+    # Cache
+    redis:
+      image: redis:7-alpine
+      container_name: redis
+      command: redis-server --appendonly yes
+      volumes:
+        - redis-data:/data
+      networks:
+        - backend
+      restart: unless-stopped
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 10s
+        timeout: 3s
+        retries: 3
+    
+    # Reverse Proxy
+    nginx:
+      image: nginx:alpine
+      container_name: nginx
+      ports:
+        - "80:80"
+        - "443:443"
+      volumes:
+        - ./nginx.conf:/etc/nginx/nginx.conf:ro
+        - ./ssl:/etc/nginx/ssl:ro
+      networks:
+        - frontend
+      depends_on:
+        - app
+      restart: unless-stopped
+  
+  volumes:
+    postgres-data:
+      driver: local
+    redis-data:
+      driver: local
+    app-data:
+      driver: local
+  
+  networks:
+    frontend:
+      driver: bridge
+    backend:
+      driver: bridge
+      internal: true
+  ```
+
+  **Docker Compose Commands:**
+
+  ```bash
+  # Start services
+  docker-compose up
+  
+  # Start in background
+  docker-compose up -d
+  
+  # Build and start
+  docker-compose up --build
+  
+  # Stop services
+  docker-compose stop
+  
+  # Stop and remove containers
+  docker-compose down
+  
+  # Stop and remove containers, volumes
+  docker-compose down -v
+  
+  # View logs
+  docker-compose logs
+  docker-compose logs -f app
+  
+  # List services
+  docker-compose ps
+  
+  # Execute command in service
+  docker-compose exec app bash
+  
+  # Scale service
+  docker-compose up -d --scale app=3
+  
+  # Restart service
+  docker-compose restart app
+  
+  # Pull images
+  docker-compose pull
+  
+  # Build images
+  docker-compose build
+  
+  # Validate compose file
+  docker-compose config
+  ```
+
+  **Environment Files:**
+
+  ```yaml
+  # docker-compose.yml
+  version: '3.8'
+  
+  services:
+    app:
+      image: myapp:1.0
+      env_file:
+        - .env
+        - .env.prod
+      environment:
+        # Override specific variables
+        LOG_LEVEL: INFO
+  ```
+
+  ```bash
+  # .env
+  DB_HOST=postgres
+  DB_PORT=5432
+  DB_NAME=mydb
+  DB_USER=user
+  DB_PASSWORD=secret
+  REDIS_HOST=redis
+  REDIS_PORT=6379
+  ```
+
+  **Profiles:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    app:
+      image: myapp:1.0
+      profiles: ["prod"]
+    
+    app-dev:
+      build: .
+      profiles: ["dev"]
+      volumes:
+        - ./src:/app/src
+    
+    postgres:
+      image: postgres:15
+      # Always runs
+    
+    pgadmin:
+      image: dpage/pgadmin4
+      profiles: ["dev"]
+      ports:
+        - "5050:80"
+  ```
+
+  ```bash
+  # Run with profile
+  docker-compose --profile dev up
+  docker-compose --profile prod up
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  **1. Multi-Stage Builds:**
+
+  ```dockerfile
+  # ✅ DO: Use multi-stage builds
+  # Stage 1: Build
+  FROM maven:3.8-openjdk-17 AS build
+  WORKDIR /app
+  COPY pom.xml .
+  RUN mvn dependency:go-offline
+  COPY src ./src
+  RUN mvn clean package -DskipTests
+  
+  # Stage 2: Runtime (smaller image)
+  FROM openjdk:17-jdk-slim
+  WORKDIR /app
+  COPY --from=build /app/target/*.jar app.jar
+  CMD ["java", "-jar", "app.jar"]
+  
+  # Result: Build tools not in final image (smaller, more secure)
+  ```
+
+  **2. Layer Caching:**
+
+  ```dockerfile
+  # ✅ DO: Order instructions for better caching
+  FROM openjdk:17-jdk-slim
+  
+  WORKDIR /app
+  
+  # 1. Copy dependency file first (changes rarely)
+  COPY pom.xml .
+  RUN mvn dependency:go-offline
+  
+  # 2. Copy source code (changes frequently)
+  COPY src ./src
+  
+  # 3. Build
+  RUN mvn clean package
+  
+  # ❌ DON'T: Copy everything at once
+  # COPY . .  # Any file change invalidates all layers
+  ```
+
+  **3. Minimize Image Size:**
+
+  ```dockerfile
+  # ✅ DO: Use slim/alpine images
+  FROM openjdk:17-jdk-slim  # ~400MB
+  # or
+  FROM openjdk:17-jdk-alpine  # ~150MB
+  
+  # ❌ DON'T: Use full images
+  # FROM openjdk:17-jdk  # ~800MB
+  
+  # ✅ DO: Clean up in same layer
+  RUN apt-get update && \
+      apt-get install -y curl && \
+      rm -rf /var/lib/apt/lists/*
+  
+  # ❌ DON'T: Clean up in separate layer
+  # RUN apt-get update
+  # RUN apt-get install -y curl
+  # RUN rm -rf /var/lib/apt/lists/*  # Doesn't reduce image size
+  
+  # ✅ DO: Use .dockerignore
+  # .dockerignore file:
+  # target/
+  # .git/
+  # .idea/
+  # *.md
+  # .env
+  ```
+
+  **4. Security:**
+
+  ```dockerfile
+  # ✅ DO: Run as non-root user
+  FROM openjdk:17-jdk-slim
+  
+  # Create user
+  RUN groupadd -r appuser && useradd -r -g appuser appuser
+  
+  WORKDIR /app
+  COPY target/app.jar app.jar
+  
+  # Change ownership
+  RUN chown -R appuser:appuser /app
+  
+  # Switch to non-root
+  USER appuser
+  
+  CMD ["java", "-jar", "app.jar"]
+  
+  # ❌ DON'T: Run as root
+  # USER root  # Default, insecure
+  
+  # ✅ DO: Scan for vulnerabilities
+  # docker scan myapp:1.0
+  # trivy image myapp:1.0
+  
+  # ✅ DO: Use specific versions
+  FROM openjdk:17.0.8-jdk-slim
+  
+  # ❌ DON'T: Use latest tag
+  # FROM openjdk:latest  # Unpredictable
+  ```
+
+  **5. Health Checks:**
+
+  ```dockerfile
+  # ✅ DO: Add health checks
+  FROM openjdk:17-jdk-slim
+  
+  WORKDIR /app
+  COPY target/app.jar app.jar
+  
+  # Health check
+  HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
+  
+  CMD ["java", "-jar", "app.jar"]
+  ```
+
+  **6. Environment Variables:**
+
+  ```dockerfile
+  # ✅ DO: Use ENV for configuration
+  FROM openjdk:17-jdk-slim
+  
+  ENV JAVA_OPTS="-Xmx512m -Xms256m" \
+      APP_PORT=8080 \
+      LOG_LEVEL=INFO
+  
+  WORKDIR /app
+  COPY target/app.jar app.jar
+  
+  EXPOSE ${APP_PORT}
+  
+  CMD ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+  
+  # ❌ DON'T: Hardcode secrets
+  # ENV DB_PASSWORD=secret123  # Never do this!
+  
+  # ✅ DO: Pass secrets at runtime
+  # docker run -e DB_PASSWORD=secret myapp
+  ```
+
+  **7. Metadata:**
+
+  ```dockerfile
+  # ✅ DO: Add labels
+  FROM openjdk:17-jdk-slim
+  
+  LABEL maintainer="team@company.com" \
+        version="1.0.0" \
+        description="My Spring Boot Application" \
+        org.opencontainers.image.source="https://github.com/company/app" \
+        org.opencontainers.image.licenses="MIT"
+  
+  WORKDIR /app
+  COPY target/app.jar app.jar
+  
+  CMD ["java", "-jar", "app.jar"]
+  ```
+
+  **8. Efficient Copying:**
+
+  ```dockerfile
+  # ✅ DO: Copy only what's needed
+  FROM openjdk:17-jdk-slim
+  
+  WORKDIR /app
+  
+  # Copy specific files
+  COPY target/app.jar app.jar
+  COPY config/ /app/config/
+  
+  # ❌ DON'T: Copy everything
+  # COPY . .  # Includes unnecessary files
+  
+  # ✅ DO: Use .dockerignore
+  # .dockerignore:
+  # .git
+  # .idea
+  # target/
+  # *.md
+  # Dockerfile
+  ```
+
+  **9. Build Arguments:**
+
+  ```dockerfile
+  # ✅ DO: Use build args for flexibility
+  FROM openjdk:17-jdk-slim
+  
+  ARG VERSION=1.0.0
+  ARG BUILD_DATE
+  ARG GIT_COMMIT
+  
+  LABEL version="${VERSION}" \
+        build-date="${BUILD_DATE}" \
+        git-commit="${GIT_COMMIT}"
+  
+  WORKDIR /app
+  COPY target/myapp-${VERSION}.jar app.jar
+  
+  CMD ["java", "-jar", "app.jar"]
+  ```
+
+  ```bash
+  # Build with arguments
+  docker build \
+    --build-arg VERSION=1.2.3 \
+    --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+    --build-arg GIT_COMMIT=$(git rev-parse HEAD) \
+    -t myapp:1.2.3 .
+  ```
+
+  **10. Complete Best Practice Example:**
+
+  ```dockerfile
+  # Multi-stage build
+  FROM maven:3.8-openjdk-17-slim AS build
+  
+  WORKDIR /build
+  
+  # Copy pom.xml first for layer caching
+  COPY pom.xml .
+  RUN mvn dependency:go-offline
+  
+  # Copy source and build
+  COPY src ./src
+  RUN mvn clean package -DskipTests
+  
+  # Runtime stage
+  FROM openjdk:17-jdk-slim
+  
+  # Metadata
+  LABEL maintainer="team@company.com" \
+        version="1.0.0"
+  
+  # Install curl for health check
+  RUN apt-get update && \
+      apt-get install -y --no-install-recommends curl && \
+      rm -rf /var/lib/apt/lists/*
+  
+  # Create non-root user
+  RUN groupadd -r appuser && \
+      useradd -r -g appuser appuser
+  
+  # Set working directory
+  WORKDIR /app
+  
+  # Copy JAR from build stage
+  COPY --from=build /build/target/*.jar app.jar
+  
+  # Change ownership
+  RUN chown -R appuser:appuser /app
+  
+  # Switch to non-root user
+  USER appuser
+  
+  # Expose port
+  EXPOSE 8080
+  
+  # Health check
+  HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
+  
+  # Environment variables
+  ENV JAVA_OPTS="-Xmx512m -Xms256m"
+  
+  # Run application
+  ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+  ```
+
+  **Docker Compose Best Practices:**
+
+  ```yaml
+  version: '3.8'
+  
+  services:
+    app:
+      # ✅ DO: Use specific versions
+      image: myapp:1.0.0
+      
+      # ✅ DO: Set container name
+      container_name: myapp
+      
+      # ✅ DO: Use health checks
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+        interval: 30s
+        timeout: 3s
+        retries: 3
+      
+      # ✅ DO: Set restart policy
+      restart: unless-stopped
+      
+      # ✅ DO: Set resource limits
+      deploy:
+        resources:
+          limits:
+            cpus: '2.0'
+            memory: 1G
+          reservations:
+            cpus: '1.0'
+            memory: 512M
+      
+      # ✅ DO: Use depends_on with conditions
+      depends_on:
+        postgres:
+          condition: service_healthy
+      
+      # ✅ DO: Use named volumes
+      volumes:
+        - app-data:/app/data
+      
+      # ✅ DO: Use custom networks
+      networks:
+        - backend
+      
+      # ✅ DO: Use env files
+      env_file:
+        - .env
+    
+    postgres:
+      image: postgres:15-alpine
+      
+      # ✅ DO: Add health check
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U user"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+      
+      # ✅ DO: Use volumes for data
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+      
+      # ✅ DO: Use secrets for passwords
+      environment:
+        POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      
+      secrets:
+        - db_password
+  
+  volumes:
+    app-data:
+    postgres-data:
+  
+  networks:
+    backend:
+      driver: bridge
+  
+  secrets:
+    db_password:
+      file: ./secrets/db_password.txt
+  ```
+
+  **Summary:**
+  + **Multi-stage builds** - Smaller, more secure images
+  + **Layer caching** - Order instructions for faster builds
+  + **Minimize size** - Use slim/alpine images, clean up in same layer
+  + **Security** - Run as non-root, scan for vulnerabilities, use specific versions
+  + **Health checks** - Monitor container health
+  + **Environment variables** - Configuration, never hardcode secrets
+  + **Metadata** - Add labels for documentation
+  + **.dockerignore** - Exclude unnecessary files
+  + **Build arguments** - Flexible builds
+  + **Named volumes** - Persist data
+  + **Custom networks** - Isolate services
+  + **Resource limits** - Prevent resource exhaustion
+  + **Restart policies** - Automatic recovery
+
+</details>
