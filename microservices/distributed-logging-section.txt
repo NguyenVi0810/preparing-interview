@@ -1,0 +1,751 @@
+## Distributed Logging & Tracing
+
+<details>
+  <summary>Correlation IDs</summary>
+  <br/>
+
+  **Correlation ID** (or Trace ID) tracks requests across multiple services.
+
+  **Why needed:**
+  + Track request flow across services
+  + Debug distributed transactions
+  + Monitor performance
+  + Troubleshoot errors
+
+  **Flow:**
+
+  ```
+  Client Request
+       │
+       ▼
+  ┌─────────────┐  Correlation-ID: abc-123
+  │ API Gateway │────────────────────────┐
+  └─────────────┘                        │
+       │                                 ▼
+       │ Correlation-ID: abc-123   ┌──────────┐
+       ├──────────────────────────▶│   User   │
+       │                           │ Service  │
+       │                           └──────────┘
+       │                                 │
+       │ Correlation-ID: abc-123         │
+       └──────────────────────────┐      │
+                                  ▼      ▼
+                            ┌──────────┐ ┌──────────┐
+                            │  Order   │ │ Product  │
+                            │ Service  │ │ Service  │
+                            └──────────┘ └──────────┘
+  
+  All logs include: [abc-123] Log message
+  ```
+
+  **Implementation with Filter:**
+
+  ```java
+  @Component
+  @Order(Ordered.HIGHEST_PRECEDENCE)
+  public class CorrelationIdFilter implements Filter {
+      
+      private static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
+      private static final String CORRELATION_ID_LOG_VAR = "correlationId";
+      
+      @Override
+      public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+              throws IOException, ServletException {
+          
+          HttpServletRequest httpRequest = (HttpServletRequest) request;
+          HttpServletResponse httpResponse = (HttpServletResponse) response;
+          
+          // Get or generate correlation ID
+          String correlationId = httpRequest.getHeader(CORRELATION_ID_HEADER);
+          if (correlationId == null || correlationId.isEmpty()) {
+              correlationId = UUID.randomUUID().toString();
+          }
+          
+          // Add to MDC (Mapped Diagnostic Context)
+          MDC.put(CORRELATION_ID_LOG_VAR, correlationId);
+          
+          // Add to response header
+          httpResponse.setHeader(CORRELATION_ID_HEADER, correlationId);
+          
+          try {
+              chain.doFilter(request, response);
+          } finally {
+              // Clean up MDC
+              MDC.clear();
+          }
+      }
+  }
+  ```
+
+  **Logback Configuration:**
+
+  ```xml
+  <!-- logback-spring.xml -->
+  <configuration>
+      <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+          <encoder>
+              <pattern>
+                  %d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n
+              </pattern>
+          </encoder>
+      </appender>
+      
+      <root level="INFO">
+          <appender-ref ref="CONSOLE"/>
+      </root>
+  </configuration>
+  ```
+
+  **Log Output:**
+
+  ```
+  2024-01-15 10:30:45 [http-nio-8081-exec-1] INFO  [abc-123] c.e.UserController - Creating user: john
+  2024-01-15 10:30:45 [http-nio-8081-exec-1] INFO  [abc-123] c.e.UserService - User created: 1
+  2024-01-15 10:30:46 [http-nio-8082-exec-2] INFO  [abc-123] c.e.OrderController - Creating order for user: 1
+  2024-01-15 10:30:46 [http-nio-8082-exec-2] INFO  [abc-123] c.e.OrderService - Order created: 101
+  ```
+
+  **Propagate to downstream services:**
+
+  ```java
+  @Configuration
+  public class RestTemplateConfig {
+      
+      @Bean
+      public RestTemplate restTemplate() {
+          RestTemplate restTemplate = new RestTemplate();
+          
+          // Add interceptor to propagate correlation ID
+          restTemplate.setInterceptors(Collections.singletonList(
+              (request, body, execution) -> {
+                  String correlationId = MDC.get("correlationId");
+                  if (correlationId != null) {
+                      request.getHeaders().add("X-Correlation-ID", correlationId);
+                  }
+                  return execution.execute(request, body);
+              }
+          ));
+          
+          return restTemplate;
+      }
+  }
+  ```
+
+  **Feign Client:**
+
+  ```java
+  @Component
+  public class FeignCorrelationIdInterceptor implements RequestInterceptor {
+      
+      @Override
+      public void apply(RequestTemplate template) {
+          String correlationId = MDC.get("correlationId");
+          if (correlationId != null) {
+              template.header("X-Correlation-ID", correlationId);
+          }
+      }
+  }
+  ```
+
+  **WebClient (Reactive):**
+
+  ```java
+  @Configuration
+  public class WebClientConfig {
+      
+      @Bean
+      public WebClient webClient() {
+          return WebClient.builder()
+              .filter((request, next) -> {
+                  String correlationId = MDC.get("correlationId");
+                  if (correlationId != null) {
+                      ClientRequest filtered = ClientRequest.from(request)
+                          .header("X-Correlation-ID", correlationId)
+                          .build();
+                      return next.exchange(filtered);
+                  }
+                  return next.exchange(request);
+              })
+              .build();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>MDC (Mapped Diagnostic Context)</summary>
+  <br/>
+
+  **MDC** stores contextual information in a thread-local map.
+
+  **Basic Usage:**
+
+  ```java
+  @Service
+  @Slf4j
+  public class UserService {
+      
+      public User createUser(UserRequest request) {
+          // Add context to MDC
+          MDC.put("userId", request.getUsername());
+          MDC.put("operation", "createUser");
+          
+          try {
+              log.info("Creating user");
+              User user = userRepository.save(new User(request));
+              log.info("User created successfully");
+              return user;
+          } catch (Exception e) {
+              log.error("Failed to create user", e);
+              throw e;
+          } finally {
+              // Clean up MDC
+              MDC.remove("userId");
+              MDC.remove("operation");
+          }
+      }
+  }
+  ```
+
+  **Log Output:**
+
+  ```
+  2024-01-15 10:30:45 [http-nio-8081-exec-1] INFO  [abc-123] [userId=john] [operation=createUser] c.e.UserService - Creating user
+  2024-01-15 10:30:45 [http-nio-8081-exec-1] INFO  [abc-123] [userId=john] [operation=createUser] c.e.UserService - User created successfully
+  ```
+
+  **Logback Pattern:**
+
+  ```xml
+  <pattern>
+      %d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{correlationId}] [%X{userId}] [%X{operation}] %logger{36} - %msg%n
+  </pattern>
+  ```
+
+  **MDC with Async:**
+
+  ```java
+  @Configuration
+  @EnableAsync
+  public class AsyncConfig implements AsyncConfigurer {
+      
+      @Override
+      public Executor getAsyncExecutor() {
+          ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(5);
+          executor.setMaxPoolSize(10);
+          executor.setQueueCapacity(25);
+          executor.setThreadNamePrefix("async-");
+          
+          // Propagate MDC to async threads
+          executor.setTaskDecorator(new MdcTaskDecorator());
+          executor.initialize();
+          return executor;
+      }
+  }
+  
+  public class MdcTaskDecorator implements TaskDecorator {
+      
+      @Override
+      public Runnable decorate(Runnable runnable) {
+          // Capture MDC from parent thread
+          Map<String, String> contextMap = MDC.getCopyOfContextMap();
+          
+          return () -> {
+              try {
+                  // Set MDC in child thread
+                  if (contextMap != null) {
+                      MDC.setContextMap(contextMap);
+                  }
+                  runnable.run();
+              } finally {
+                  MDC.clear();
+              }
+          };
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Centralized Logging (ELK Stack)</summary>
+  <br/>
+
+  **ELK Stack:**
+  + **Elasticsearch** - Store and search logs
+  + **Logstash** - Process and transform logs
+  + **Kibana** - Visualize logs
+
+  **Architecture:**
+
+  ```
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │   User   │    │  Order   │    │ Product  │
+  │ Service  │    │ Service  │    │ Service  │
+  └────┬─────┘    └────┬─────┘    └────┬─────┘
+       │               │               │
+       │ Logs          │ Logs          │ Logs
+       ▼               ▼               ▼
+  ┌────────────────────────────────────────┐
+  │            Logstash                    │
+  │  (Collect, Parse, Transform)           │
+  └────────────────┬───────────────────────┘
+                   │
+                   ▼
+  ┌────────────────────────────────────────┐
+  │         Elasticsearch                  │
+  │  (Store, Index, Search)                │
+  └────────────────┬───────────────────────┘
+                   │
+                   ▼
+  ┌────────────────────────────────────────┐
+  │            Kibana                      │
+  │  (Visualize, Dashboard, Alerts)        │
+  └────────────────────────────────────────┘
+  ```
+
+  **Logstash Configuration:**
+
+  ```ruby
+  # logstash.conf
+  input {
+    tcp {
+      port => 5000
+      codec => json_lines
+    }
+  }
+  
+  filter {
+    # Parse JSON logs
+    json {
+      source => "message"
+    }
+    
+    # Add timestamp
+    date {
+      match => ["timestamp", "ISO8601"]
+    }
+    
+    # Extract fields
+    mutate {
+      add_field => {
+        "service" => "%{[fields][service]}"
+        "environment" => "%{[fields][environment]}"
+      }
+    }
+  }
+  
+  output {
+    elasticsearch {
+      hosts => ["elasticsearch:9200"]
+      index => "logs-%{+YYYY.MM.dd}"
+    }
+    
+    stdout {
+      codec => rubydebug
+    }
+  }
+  ```
+
+  **Logback with Logstash:**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>net.logstash.logback</groupId>
+      <artifactId>logstash-logback-encoder</artifactId>
+      <version>7.3</version>
+  </dependency>
+  ```
+
+  ```xml
+  <!-- logback-spring.xml -->
+  <configuration>
+      <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+          <destination>logstash:5000</destination>
+          <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+              <customFields>{"service":"user-service","environment":"production"}</customFields>
+          </encoder>
+      </appender>
+      
+      <root level="INFO">
+          <appender-ref ref="LOGSTASH"/>
+      </root>
+  </configuration>
+  ```
+
+  **Structured Logging:**
+
+  ```java
+  @Slf4j
+  @Service
+  public class UserService {
+      
+      public User createUser(UserRequest request) {
+          // Structured logging with key-value pairs
+          log.info("Creating user: username={}, email={}", 
+              request.getUsername(), 
+              request.getEmail());
+          
+          User user = userRepository.save(new User(request));
+          
+          log.info("User created: userId={}, username={}", 
+              user.getId(), 
+              user.getUsername());
+          
+          return user;
+      }
+  }
+  ```
+
+  **JSON Log Output:**
+
+  ```json
+  {
+    "@timestamp": "2024-01-15T10:30:45.123Z",
+    "level": "INFO",
+    "service": "user-service",
+    "environment": "production",
+    "correlationId": "abc-123",
+    "thread": "http-nio-8081-exec-1",
+    "logger": "com.example.UserService",
+    "message": "User created",
+    "userId": "1",
+    "username": "john"
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Distributed Tracing (Zipkin/Jaeger)</summary>
+  <br/>
+
+  **Distributed tracing** tracks requests across services with timing information.
+
+  **Spring Cloud Sleuth + Zipkin:**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-sleuth</artifactId>
+  </dependency>
+  <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-sleuth-zipkin</artifactId>
+  </dependency>
+  ```
+
+  ```yaml
+  # application.yml
+  spring:
+    application:
+      name: user-service
+    sleuth:
+      sampler:
+        probability: 1.0  # Sample 100% of requests (use 0.1 for 10% in prod)
+    zipkin:
+      base-url: http://zipkin:9411
+      sender:
+        type: web
+  ```
+
+  **Automatic Instrumentation:**
+
+  ```java
+  @RestController
+  @Slf4j
+  public class UserController {
+      
+      @Autowired
+      private RestTemplate restTemplate;
+      
+      @GetMapping("/users/{id}")
+      public User getUser(@PathVariable Long id) {
+          // Sleuth automatically adds trace/span IDs to logs
+          log.info("Getting user: {}", id);
+          
+          // Trace propagates to downstream service
+          Order order = restTemplate.getForObject(
+              "http://order-service/orders?userId=" + id,
+              Order.class
+          );
+          
+          return userService.getUser(id);
+      }
+  }
+  ```
+
+  **Log Output with Trace IDs:**
+
+  ```
+  2024-01-15 10:30:45 [user-service,abc123,def456,true] INFO  c.e.UserController - Getting user: 1
+  
+  Format: [service-name, trace-id, span-id, exportable]
+  - trace-id: Unique ID for entire request flow
+  - span-id: Unique ID for this service call
+  - exportable: Whether to send to Zipkin
+  ```
+
+  **Custom Spans:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private Tracer tracer;
+      
+      public User createUser(UserRequest request) {
+          // Create custom span
+          Span span = tracer.nextSpan().name("createUser").start();
+          
+          try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
+              span.tag("username", request.getUsername());
+              span.tag("email", request.getEmail());
+              
+              User user = userRepository.save(new User(request));
+              
+              span.tag("userId", user.getId().toString());
+              span.annotate("User created successfully");
+              
+              return user;
+          } catch (Exception e) {
+              span.tag("error", e.getMessage());
+              throw e;
+          } finally {
+              span.end();
+          }
+      }
+  }
+  ```
+
+  **Zipkin UI:**
+
+  ```
+  http://localhost:9411
+  
+  Shows:
+  - Request timeline
+  - Service dependencies
+  - Latency breakdown
+  - Error traces
+  ```
+
+</details>
+
+<details>
+  <summary>Log Aggregation Patterns</summary>
+  <br/>
+
+  **1. Sidecar Pattern:**
+
+  ```yaml
+  # Kubernetes deployment with Filebeat sidecar
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: user-service
+  spec:
+    template:
+      spec:
+        containers:
+        # Main application
+        - name: user-service
+          image: user-service:1.0
+          volumeMounts:
+          - name: logs
+            mountPath: /var/log/app
+        
+        # Filebeat sidecar
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:7.15.0
+          volumeMounts:
+          - name: logs
+            mountPath: /var/log/app
+          - name: filebeat-config
+            mountPath: /usr/share/filebeat/filebeat.yml
+            subPath: filebeat.yml
+        
+        volumes:
+        - name: logs
+          emptyDir: {}
+        - name: filebeat-config
+          configMap:
+            name: filebeat-config
+  ```
+
+  **2. Log Forwarder:**
+
+  ```yaml
+  # Fluentd DaemonSet
+  apiVersion: apps/v1
+  kind: DaemonSet
+  metadata:
+    name: fluentd
+  spec:
+    template:
+      spec:
+        containers:
+        - name: fluentd
+          image: fluent/fluentd:v1.14
+          volumeMounts:
+          - name: varlog
+            mountPath: /var/log
+          - name: varlibdockercontainers
+            mountPath: /var/lib/docker/containers
+            readOnly: true
+        volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+  ```
+
+  **3. Direct Shipping:**
+
+  ```xml
+  <!-- Logback with direct Elasticsearch shipping -->
+  <appender name="ELASTIC" class="com.internetitem.logback.elasticsearch.ElasticsearchAppender">
+      <url>http://elasticsearch:9200/_bulk</url>
+      <index>logs-%date{yyyy-MM-dd}</index>
+      <type>log</type>
+      <loggerName>es-logger</loggerName>
+      <errorLoggerName>es-error-logger</errorLoggerName>
+      <connectTimeout>30000</connectTimeout>
+      <errorsToStderr>false</errorsToStderr>
+      <includeCallerData>false</includeCallerData>
+      <logsToStderr>false</logsToStderr>
+      <maxQueueSize>104857600</maxQueueSize>
+      <maxRetries>3</maxRetries>
+      <readTimeout>30000</readTimeout>
+      <sleepTime>250</sleepTime>
+      <rawJsonMessage>false</rawJsonMessage>
+      <includeMdc>true</includeMdc>
+      <maxMessageSize>100</maxMessageSize>
+      <authentication class="com.internetitem.logback.elasticsearch.config.BasicAuthentication">
+          <username>elastic</username>
+          <password>changeme</password>
+      </authentication>
+  </appender>
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use correlation IDs for request tracking
+  @Component
+  public class CorrelationIdFilter implements Filter {
+      @Override
+      public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+          String correlationId = UUID.randomUUID().toString();
+          MDC.put("correlationId", correlationId);
+          try {
+              chain.doFilter(request, response);
+          } finally {
+              MDC.clear();
+          }
+      }
+  }
+  
+  // ✅ DO: Use structured logging
+  log.info("User created: userId={}, username={}, email={}", 
+      user.getId(), user.getUsername(), user.getEmail());
+  
+  // ❌ DON'T: Use string concatenation
+  log.info("User created: " + user.getId() + ", " + user.getUsername());
+  
+  // ✅ DO: Log at appropriate levels
+  log.trace("Detailed debug information");
+  log.debug("Debug information");
+  log.info("Important business events");
+  log.warn("Warning conditions");
+  log.error("Error conditions", exception);
+  
+  // ✅ DO: Include context in logs
+  log.info("Processing order: orderId={}, userId={}, total={}", 
+      order.getId(), order.getUserId(), order.getTotal());
+  
+  // ✅ DO: Propagate correlation ID to downstream services
+  @Bean
+  public RestTemplate restTemplate() {
+      RestTemplate restTemplate = new RestTemplate();
+      restTemplate.setInterceptors(Collections.singletonList(
+          (request, body, execution) -> {
+              String correlationId = MDC.get("correlationId");
+              if (correlationId != null) {
+                  request.getHeaders().add("X-Correlation-ID", correlationId);
+              }
+              return execution.execute(request, body);
+          }
+      ));
+      return restTemplate;
+  }
+  
+  // ✅ DO: Use MDC for contextual information
+  MDC.put("userId", user.getId().toString());
+  MDC.put("operation", "createOrder");
+  try {
+      // Business logic
+  } finally {
+      MDC.clear();
+  }
+  
+  // ✅ DO: Use distributed tracing
+  spring:
+    sleuth:
+      sampler:
+        probability: 0.1  # Sample 10% in production
+    zipkin:
+      base-url: http://zipkin:9411
+  
+  // ✅ DO: Centralize logs
+  # Use ELK, Splunk, or cloud logging services
+  
+  // ✅ DO: Set log retention policies
+  # Elasticsearch index lifecycle management
+  # Delete logs older than 30 days
+  
+  // ❌ DON'T: Log sensitive data
+  log.info("User password: {}", user.getPassword());  // Bad!
+  log.info("Credit card: {}", payment.getCreditCard());  // Bad!
+  
+  // ✅ DO: Mask sensitive data
+  log.info("User email: {}", maskEmail(user.getEmail()));
+  log.info("Credit card: {}", maskCreditCard(payment.getCreditCard()));
+  
+  // ✅ DO: Use async logging for performance
+  <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+      <appender-ref ref="FILE"/>
+      <queueSize>512</queueSize>
+      <discardingThreshold>0</discardingThreshold>
+  </appender>
+  
+  // ✅ DO: Monitor log volume
+  # Alert if log volume spikes (indicates errors)
+  # Alert if log volume drops (indicates service down)
+  ```
+
+  **Summary:**
+  + Use **correlation IDs** to track requests across services
+  + Use **MDC** for contextual information
+  + Use **structured logging** (key-value pairs)
+  + **Centralize logs** with ELK, Splunk, or cloud services
+  + Use **distributed tracing** (Zipkin, Jaeger)
+  + **Propagate** correlation IDs to downstream services
+  + Log at **appropriate levels** (INFO, WARN, ERROR)
+  + **Mask sensitive data** in logs
+  + Use **async logging** for performance
+  + Set **log retention policies**
+  + **Monitor** log volume and patterns
+
+</details>

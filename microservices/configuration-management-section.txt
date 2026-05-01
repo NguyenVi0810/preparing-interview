@@ -1,0 +1,769 @@
+## Configuration Management
+
+<details>
+  <summary>Spring Cloud Config</summary>
+  <br/>
+
+  **Spring Cloud Config** provides centralized configuration management for distributed systems.
+
+  **Architecture:**
+
+  ```
+  ┌─────────────────────────────────────┐
+  │     Git Repository (Config)         │
+  │  - application.yml                  │
+  │  - user-service.yml                 │
+  │  - order-service.yml                │
+  └──────────────┬──────────────────────┘
+                 │
+                 ▼
+  ┌─────────────────────────────────────┐
+  │     Config Server (Port 8888)       │
+  └──────────────┬──────────────────────┘
+                 │
+       ┌─────────┼─────────┐
+       ▼         ▼         ▼
+  ┌────────┐ ┌────────┐ ┌────────┐
+  │  User  │ │ Order  │ │Product │
+  │Service │ │Service │ │Service │
+  └────────┘ └────────┘ └────────┘
+  ```
+
+  **Config Server Setup:**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-config-server</artifactId>
+  </dependency>
+  ```
+
+  ```java
+  @SpringBootApplication
+  @EnableConfigServer
+  public class ConfigServerApplication {
+      public static void main(String[] args) {
+          SpringApplication.run(ConfigServerApplication.class, args);
+      }
+  }
+  ```
+
+  ```yaml
+  # application.yml
+  server:
+    port: 8888
+  
+  spring:
+    cloud:
+      config:
+        server:
+          git:
+            uri: https://github.com/your-org/config-repo
+            default-label: main
+            search-paths: '{application}'
+            clone-on-start: true
+          # Or use local file system
+          # native:
+          #   search-locations: file:///path/to/config
+  ```
+
+  **Config Repository Structure:**
+
+  ```
+  config-repo/
+  ├── application.yml          # Common config for all services
+  ├── application-dev.yml      # Dev environment
+  ├── application-prod.yml     # Prod environment
+  ├── user-service.yml         # User service specific
+  ├── user-service-dev.yml
+  ├── user-service-prod.yml
+  ├── order-service.yml
+  └── order-service-prod.yml
+  ```
+
+  **application.yml (Common):**
+
+  ```yaml
+  # Common configuration for all services
+  logging:
+    level:
+      root: INFO
+  
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,metrics
+  ```
+
+  **user-service.yml:**
+
+  ```yaml
+  # User service specific configuration
+  server:
+    port: 8081
+  
+  spring:
+    datasource:
+      url: jdbc:postgresql://localhost:5432/user_db
+      username: user
+      password: '{cipher}AQA...'  # Encrypted
+  
+  app:
+    jwt:
+      secret: '{cipher}AQB...'
+      expiration: 86400000
+  ```
+
+</details>
+
+<details>
+  <summary>Config Client Setup</summary>
+  <br/>
+
+  **Config Client (Microservice):**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-config</artifactId>
+  </dependency>
+  ```
+
+  ```yaml
+  # bootstrap.yml (loaded before application.yml)
+  spring:
+    application:
+      name: user-service
+    cloud:
+      config:
+        uri: http://localhost:8888
+        fail-fast: true
+        retry:
+          max-attempts: 6
+          initial-interval: 1000
+          multiplier: 1.1
+    profiles:
+      active: dev
+  ```
+
+  ```java
+  @SpringBootApplication
+  public class UserServiceApplication {
+      public static void main(String[] args) {
+          SpringApplication.run(UserServiceApplication.class, args);
+      }
+  }
+  
+  @RestController
+  @RefreshScope  // Enable config refresh
+  public class UserController {
+      
+      @Value("${app.message:Default Message}")
+      private String message;
+      
+      @GetMapping("/message")
+      public String getMessage() {
+          return message;
+      }
+  }
+  ```
+
+  **Configuration Priority:**
+
+  ```
+  1. application.yml (in config repo)
+  2. application-{profile}.yml (in config repo)
+  3. {service-name}.yml (in config repo)
+  4. {service-name}-{profile}.yml (in config repo)
+  5. application.yml (in service)
+  6. application-{profile}.yml (in service)
+  ```
+
+</details>
+
+<details>
+  <summary>Config Refresh</summary>
+  <br/>
+
+  **Refresh configuration without restart:**
+
+  **1. Using @RefreshScope:**
+
+  ```java
+  @RestController
+  @RefreshScope  // Beans will be recreated on refresh
+  public class ConfigController {
+      
+      @Value("${app.message}")
+      private String message;
+      
+      @Value("${app.feature.enabled}")
+      private boolean featureEnabled;
+      
+      @GetMapping("/config")
+      public Map<String, Object> getConfig() {
+          return Map.of(
+              "message", message,
+              "featureEnabled", featureEnabled
+          );
+      }
+  }
+  ```
+
+  **2. Manual Refresh:**
+
+  ```bash
+  # Trigger refresh endpoint
+  curl -X POST http://localhost:8081/actuator/refresh
+  ```
+
+  ```yaml
+  # Enable refresh endpoint
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: refresh
+  ```
+
+  **3. Spring Cloud Bus (Automatic Refresh):**
+
+  ```xml
+  <!-- pom.xml -->
+  <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+  </dependency>
+  ```
+
+  ```yaml
+  # application.yml
+  spring:
+    rabbitmq:
+      host: localhost
+      port: 5672
+      username: guest
+      password: guest
+  
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: busrefresh
+  ```
+
+  ```bash
+  # Refresh all services at once
+  curl -X POST http://localhost:8888/actuator/busrefresh
+  ```
+
+  **4. Config Change Webhook:**
+
+  ```yaml
+  # Config Server
+  spring:
+    cloud:
+      config:
+        server:
+          git:
+            uri: https://github.com/your-org/config-repo
+          monitor:
+            github:
+              enabled: true
+  ```
+
+  **GitHub Webhook:**
+  - Go to repository settings → Webhooks
+  - Add webhook: `http://config-server:8888/monitor`
+  - Content type: `application/json`
+  - Events: `push`
+
+</details>
+
+<details>
+  <summary>Encryption & Security</summary>
+  <br/>
+
+  **Encrypt sensitive data:**
+
+  **1. Setup Encryption Key:**
+
+  ```yaml
+  # Config Server application.yml
+  encrypt:
+    key: my-secret-encryption-key
+  
+  # Or use key store
+  encrypt:
+    key-store:
+      location: classpath:server.jks
+      password: keystorepass
+      alias: mytestkey
+      secret: changeme
+  ```
+
+  **2. Encrypt Values:**
+
+  ```bash
+  # Encrypt a value
+  curl http://localhost:8888/encrypt -d "mysecretpassword"
+  # Returns: AQA1234567890abcdef...
+  
+  # Decrypt a value
+  curl http://localhost:8888/decrypt -d "AQA1234567890abcdef..."
+  # Returns: mysecretpassword
+  ```
+
+  **3. Use Encrypted Values:**
+
+  ```yaml
+  # user-service.yml
+  spring:
+    datasource:
+      password: '{cipher}AQA1234567890abcdef...'
+  
+  app:
+    jwt:
+      secret: '{cipher}AQB9876543210fedcba...'
+  ```
+
+  **4. Asymmetric Encryption (RSA):**
+
+  ```bash
+  # Generate key pair
+  keytool -genkeypair -alias mytestkey -keyalg RSA \
+    -dname "CN=Config Server,OU=Unit,O=Org,L=City,S=State,C=US" \
+    -keypass changeme -keystore server.jks -storepass keystorepass
+  ```
+
+  ```yaml
+  # Config Server
+  encrypt:
+    key-store:
+      location: classpath:server.jks
+      password: keystorepass
+      alias: mytestkey
+  ```
+
+</details>
+
+<details>
+  <summary>Profiles & Environment-Specific Config</summary>
+  <br/>
+
+  **Multiple environments:**
+
+  ```yaml
+  # application.yml (default)
+  app:
+    name: User Service
+    version: 1.0.0
+  
+  ---
+  # application-dev.yml
+  spring:
+    config:
+      activate:
+        on-profile: dev
+  
+  app:
+    environment: Development
+    debug: true
+  
+  logging:
+    level:
+      root: DEBUG
+  
+  ---
+  # application-prod.yml
+  spring:
+    config:
+      activate:
+        on-profile: prod
+  
+  app:
+    environment: Production
+    debug: false
+  
+  logging:
+    level:
+      root: WARN
+  ```
+
+  **Service-specific profiles:**
+
+  ```yaml
+  # user-service-dev.yml
+  server:
+    port: 8081
+  
+  spring:
+    datasource:
+      url: jdbc:postgresql://localhost:5432/user_db_dev
+      username: dev_user
+      password: dev_pass
+  
+  ---
+  # user-service-prod.yml
+  server:
+    port: 8081
+  
+  spring:
+    datasource:
+      url: jdbc:postgresql://prod-db:5432/user_db
+      username: prod_user
+      password: '{cipher}AQA...'
+  ```
+
+  **Activate profile:**
+
+  ```bash
+  # Command line
+  java -jar user-service.jar --spring.profiles.active=prod
+  
+  # Environment variable
+  export SPRING_PROFILES_ACTIVE=prod
+  java -jar user-service.jar
+  ```
+
+  ```yaml
+  # bootstrap.yml
+  spring:
+    profiles:
+      active: ${ENVIRONMENT:dev}
+  ```
+
+</details>
+
+<details>
+  <summary>Configuration Properties</summary>
+  <br/>
+
+  **Type-safe configuration:**
+
+  ```java
+  @Configuration
+  @ConfigurationProperties(prefix = "app")
+  @RefreshScope
+  public class AppProperties {
+      
+      private String name;
+      private String version;
+      private Jwt jwt;
+      private Feature feature;
+      
+      public static class Jwt {
+          private String secret;
+          private long expiration;
+          
+          // Getters and setters
+      }
+      
+      public static class Feature {
+          private boolean enabled;
+          private int maxRetries;
+          
+          // Getters and setters
+      }
+      
+      // Getters and setters
+  }
+  ```
+
+  ```yaml
+  # Configuration
+  app:
+    name: User Service
+    version: 1.0.0
+    jwt:
+      secret: my-secret-key
+      expiration: 86400000
+    feature:
+      enabled: true
+      max-retries: 3
+  ```
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private AppProperties appProperties;
+      
+      public String generateToken(User user) {
+          String secret = appProperties.getJwt().getSecret();
+          long expiration = appProperties.getJwt().getExpiration();
+          
+          return Jwts.builder()
+              .setSubject(user.getUsername())
+              .setExpiration(new Date(System.currentTimeMillis() + expiration))
+              .signWith(SignatureAlgorithm.HS512, secret)
+              .compact();
+      }
+  }
+  ```
+
+  **Validation:**
+
+  ```java
+  @Configuration
+  @ConfigurationProperties(prefix = "app")
+  @Validated
+  public class AppProperties {
+      
+      @NotBlank
+      private String name;
+      
+      @Min(1)
+      @Max(100)
+      private int maxConnections;
+      
+      @Valid
+      private Jwt jwt;
+      
+      public static class Jwt {
+          @NotBlank
+          private String secret;
+          
+          @Min(1000)
+          private long expiration;
+          
+          // Getters and setters
+      }
+      
+      // Getters and setters
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Externalized Configuration</summary>
+  <br/>
+
+  **Configuration sources (priority order):**
+
+  1. Command line arguments
+  2. Environment variables
+  3. Config server
+  4. application.yml in jar
+  5. Default values
+
+  **Environment variables:**
+
+  ```bash
+  # Set environment variables
+  export DATABASE_URL=jdbc:postgresql://prod-db:5432/user_db
+  export DATABASE_USERNAME=prod_user
+  export DATABASE_PASSWORD=prod_pass
+  export JWT_SECRET=my-secret-key
+  ```
+
+  ```yaml
+  # Use environment variables
+  spring:
+    datasource:
+      url: ${DATABASE_URL}
+      username: ${DATABASE_USERNAME}
+      password: ${DATABASE_PASSWORD}
+  
+  app:
+    jwt:
+      secret: ${JWT_SECRET}
+  ```
+
+  **Kubernetes ConfigMap:**
+
+  ```yaml
+  # configmap.yaml
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: user-service-config
+  data:
+    application.yml: |
+      server:
+        port: 8080
+      spring:
+        datasource:
+          url: jdbc:postgresql://postgres:5432/user_db
+      app:
+        feature:
+          enabled: true
+  ```
+
+  ```yaml
+  # deployment.yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: user-service
+  spec:
+    template:
+      spec:
+        containers:
+        - name: user-service
+          image: user-service:1.0
+          volumeMounts:
+          - name: config
+            mountPath: /config
+        volumes:
+        - name: config
+          configMap:
+            name: user-service-config
+  ```
+
+  **Kubernetes Secrets:**
+
+  ```yaml
+  # secret.yaml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: user-service-secret
+  type: Opaque
+  data:
+    database-password: cHJvZF9wYXNz  # base64 encoded
+    jwt-secret: bXktc2VjcmV0LWtleQ==
+  ```
+
+  ```yaml
+  # deployment.yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  spec:
+    template:
+      spec:
+        containers:
+        - name: user-service
+          env:
+          - name: DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: user-service-secret
+                key: database-password
+          - name: JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: user-service-secret
+                key: jwt-secret
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use @RefreshScope for dynamic config
+  @RestController
+  @RefreshScope
+  public class ConfigController {
+      @Value("${app.message}")
+      private String message;
+  }
+  
+  // ✅ DO: Use @ConfigurationProperties for type-safe config
+  @ConfigurationProperties(prefix = "app")
+  public class AppProperties {
+      private String name;
+      private Jwt jwt;
+      // Getters and setters
+  }
+  
+  // ✅ DO: Encrypt sensitive data
+  spring:
+    datasource:
+      password: '{cipher}AQA...'
+  
+  // ✅ DO: Use profiles for different environments
+  spring:
+    profiles:
+      active: ${ENVIRONMENT:dev}
+  
+  // ✅ DO: Provide default values
+  @Value("${app.timeout:5000}")
+  private int timeout;
+  
+  // ✅ DO: Validate configuration
+  @ConfigurationProperties(prefix = "app")
+  @Validated
+  public class AppProperties {
+      @NotBlank
+      private String name;
+      
+      @Min(1)
+      private int maxConnections;
+  }
+  
+  // ✅ DO: Use Spring Cloud Bus for automatic refresh
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: busrefresh
+  
+  // ✅ DO: Version your configuration
+  # config-repo/
+  # ├── v1/
+  # │   └── user-service.yml
+  # └── v2/
+  #     └── user-service.yml
+  
+  // ❌ DON'T: Store secrets in plain text
+  spring:
+    datasource:
+      password: mysecretpassword  # Bad!
+  
+  // ❌ DON'T: Hardcode configuration in code
+  private static final String DATABASE_URL = "jdbc:...";  // Bad!
+  
+  // ❌ DON'T: Use @Value for complex configuration
+  @Value("${app.jwt.secret}")
+  private String jwtSecret;
+  @Value("${app.jwt.expiration}")
+  private long jwtExpiration;
+  // Use @ConfigurationProperties instead
+  
+  // ✅ DO: Monitor config changes
+  @Component
+  public class ConfigChangeListener {
+      @EventListener
+      public void handleRefresh(RefreshScopeRefreshedEvent event) {
+          log.info("Configuration refreshed: {}", event.getName());
+      }
+  }
+  
+  // ✅ DO: Use fail-fast for critical config
+  spring:
+    cloud:
+      config:
+        fail-fast: true  // Fail startup if config server unavailable
+  
+  // ✅ DO: Implement retry logic
+  spring:
+    cloud:
+      config:
+        retry:
+          max-attempts: 6
+          initial-interval: 1000
+          multiplier: 1.1
+  ```
+
+  **Summary:**
+  + **Spring Cloud Config** provides centralized configuration
+  + Use **@RefreshScope** for dynamic config updates
+  + **Encrypt** sensitive data with `{cipher}` prefix
+  + Use **profiles** for environment-specific config
+  + Use **@ConfigurationProperties** for type-safe config
+  + Use **Spring Cloud Bus** for automatic refresh
+  + **Externalize** configuration (env vars, ConfigMaps, Secrets)
+  + **Validate** configuration with `@Validated`
+  + **Monitor** config changes with event listeners
+  + Use **fail-fast** and **retry** for resilience
+
+</details>

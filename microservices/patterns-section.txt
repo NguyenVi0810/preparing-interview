@@ -1,0 +1,856 @@
+## Microservices Patterns
+
+<details>
+  <summary>Outbox Pattern</summary>
+  <br/>
+
+  **Outbox Pattern** ensures reliable event publishing when updating a database.
+
+  **Problem:**
+
+  ```java
+  // ❌ Not reliable!
+  @Service
+  public class OrderService {
+      @Transactional
+      public void createOrder(OrderRequest request) {
+          // 1. Save to database
+          Order order = orderRepository.save(new Order(request));
+          
+          // 2. Publish event
+          kafkaTemplate.send("orders", new OrderCreatedEvent(order));
+          
+          // Problem: If Kafka fails, database committed but event lost!
+      }
+  }
+  ```
+
+  **Solution:**
+
+  ```java
+  // Outbox table
+  @Entity
+  @Table(name = "outbox")
+  public class OutboxEvent {
+      @Id
+      private String id;
+      
+      private String aggregateType;  // "Order"
+      private String aggregateId;    // "12345"
+      private String eventType;      // "OrderCreated"
+      
+      @Column(columnDefinition = "TEXT")
+      private String payload;
+      
+      private LocalDateTime createdAt;
+      private boolean published;
+  }
+  
+  // Save event in same transaction
+  @Service
+  public class OrderService {
+      
+      @Transactional
+      public void createOrder(OrderRequest request) {
+          // 1. Save order
+          Order order = orderRepository.save(new Order(request));
+          
+          // 2. Save event to outbox (same transaction)
+          OutboxEvent event = new OutboxEvent();
+          event.setId(UUID.randomUUID().toString());
+          event.setAggregateType("Order");
+          event.setAggregateId(order.getId().toString());
+          event.setEventType("OrderCreated");
+          event.setPayload(toJson(new OrderCreatedEvent(order)));
+          event.setPublished(false);
+          
+          outboxRepository.save(event);
+          
+          // Both commit together atomically!
+      }
+  }
+  
+  // Separate publisher
+  @Service
+  public class OutboxPublisher {
+      
+      @Scheduled(fixedDelay = 1000)
+      @Transactional
+      public void publishEvents() {
+          List<OutboxEvent> unpublished = outboxRepository
+              .findByPublishedFalse(PageRequest.of(0, 100));
+          
+          for (OutboxEvent event : unpublished) {
+              try {
+                  kafkaTemplate.send(
+                      event.getAggregateType() + "-events",
+                      event.getPayload()
+                  ).get();
+                  
+                  event.setPublished(true);
+                  outboxRepository.save(event);
+              } catch (Exception e) {
+                  // Retry later
+              }
+          }
+      }
+  }
+  ```
+
+  **Benefits:**
+  + Atomicity - Database and event storage in same transaction
+  + Reliability - Events never lost
+  + At-least-once delivery guaranteed
+
+</details>
+
+<details>
+  <summary>Strangler Fig Pattern</summary>
+  <br/>
+
+  **Strangler Fig Pattern** gradually migrates from monolith to microservices.
+
+  **Strategy:**
+
+  ```
+  Phase 1: Monolith handles everything
+  ┌─────────────────────────────┐
+  │        Monolith             │
+  │  ┌────┐ ┌────┐ ┌────┐      │
+  │  │User│ │Order│ │Pay│      │
+  │  └────┘ └────┘ └────┘      │
+  └─────────────────────────────┘
+  
+  Phase 2: Extract one service
+  ┌──────────┐    ┌─────────────┐
+  │  Proxy   │───▶│  Monolith   │
+  └────┬─────┘    │ ┌────┐┌────┐│
+       │          │ │Order││Pay││
+       │          │ └────┘└────┘│
+       │          └─────────────┘
+       └─────────▶┌─────────────┐
+                  │ User Service│
+                  └─────────────┘
+  
+  Phase 3: Extract more services
+  ┌──────────┐    ┌─────────────┐
+  │  Proxy   │───▶│  Monolith   │
+  └─┬──┬──┬──┘    │   ┌────┐   │
+    │  │  │       │   │Pay││
+    │  │  │       │   └────┘   │
+    │  │  │       └─────────────┘
+    │  │  └──────▶┌─────────────┐
+    │  │          │ User Service│
+    │  │          └─────────────┘
+    │  └─────────▶┌─────────────┐
+    │             │Order Service│
+    │             └─────────────┘
+    └────────────▶┌─────────────┐
+                  │Pay Service  │
+                  └─────────────┘
+  
+  Phase 4: Retire monolith
+  ┌──────────┐
+  │  Proxy   │
+  └─┬──┬──┬──┘
+    │  │  │
+    ▼  ▼  ▼
+   [User][Order][Payment]
+  ```
+
+  **Implementation:**
+
+  ```java
+  // API Gateway routes requests
+  @Configuration
+  public class StranglerRouting {
+      
+      @Bean
+      public RouteLocator routes(RouteLocatorBuilder builder) {
+          return builder.routes()
+              // New: Route to User microservice
+              .route("user-service", r -> r
+                  .path("/api/users/**")
+                  .uri("lb://user-service")
+              )
+              
+              // New: Route to Order microservice
+              .route("order-service", r -> r
+                  .path("/api/orders/**")
+                  .uri("lb://order-service")
+              )
+              
+              // Old: Everything else to monolith
+              .route("monolith", r -> r
+                  .path("/api/**")
+                  .uri("http://monolith:8080")
+              )
+              .build();
+      }
+  }
+  
+  // Feature toggle for gradual rollout
+  @Service
+  public class OrderService {
+      
+      @Value("${feature.new-order-service.enabled}")
+      private boolean useNewService;
+      
+      public Order createOrder(OrderRequest request) {
+          if (useNewService) {
+              return newOrderService.createOrder(request);
+          } else {
+              return legacyOrderService.createOrder(request);
+          }
+      }
+  }
+  ```
+
+  **Steps:**
+  1. Add proxy/gateway in front of monolith
+  2. Extract one service at a time
+  3. Route new requests to new service
+  4. Migrate data gradually
+  5. Retire monolith when empty
+
+</details>
+
+<details>
+  <summary>Backend for Frontend (BFF)</summary>
+  <br/>
+
+  **BFF Pattern** creates separate API gateways for different client types.
+
+  **Architecture:**
+
+  ```
+  ┌─────────┐     ┌─────────────┐     ┌──────────┐
+  │   Web   │────▶│   Web BFF   │────▶│  User    │
+  │ Browser │     └─────────────┘  │  │ Service  │
+  └─────────┘                      │  └──────────┘
+                                   │
+  ┌─────────┐     ┌─────────────┐ │  ┌──────────┐
+  │ Mobile  │────▶│  Mobile BFF │─┼─▶│  Order   │
+  │   App   │     └─────────────┘ │  │ Service  │
+  └─────────┘                      │  └──────────┘
+                                   │
+  ┌─────────┐     ┌─────────────┐ │  ┌──────────┐
+  │ Partner │────▶│ Partner BFF │─┴─▶│ Product  │
+  │   API   │     └─────────────┘    │ Service  │
+  └─────────┘                        └──────────┘
+  ```
+
+  **Why BFF:**
+  - Different clients need different data
+  - Mobile needs less data (bandwidth)
+  - Web needs more detailed responses
+  - Partners need specific API contracts
+
+  **Web BFF:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/web")
+  public class WebBFFController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @Autowired
+      private OrderService orderService;
+      
+      @Autowired
+      private ProductService productService;
+      
+      // Web needs full details
+      @GetMapping("/dashboard")
+      public WebDashboard getDashboard(@AuthenticationPrincipal User user) {
+          // Aggregate data from multiple services
+          UserProfile profile = userService.getProfile(user.getId());
+          List<Order> recentOrders = orderService.getRecentOrders(user.getId(), 10);
+          List<Product> recommendations = productService.getRecommendations(user.getId());
+          List<Notification> notifications = notificationService.getUnread(user.getId());
+          
+          return WebDashboard.builder()
+              .profile(profile)
+              .recentOrders(recentOrders)
+              .recommendations(recommendations)
+              .notifications(notifications)
+              .build();
+      }
+  }
+  ```
+
+  **Mobile BFF:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/mobile")
+  public class MobileBFFController {
+      
+      @Autowired
+      private UserService userService;
+      
+      @Autowired
+      private OrderService orderService;
+      
+      // Mobile needs minimal data
+      @GetMapping("/dashboard")
+      public MobileDashboard getDashboard(@AuthenticationPrincipal User user) {
+          // Less data for mobile
+          UserSummary profile = userService.getSummary(user.getId());
+          List<OrderSummary> recentOrders = orderService.getOrderSummaries(user.getId(), 5);
+          int unreadCount = notificationService.getUnreadCount(user.getId());
+          
+          return MobileDashboard.builder()
+              .userName(profile.getName())
+              .orderCount(recentOrders.size())
+              .unreadNotifications(unreadCount)
+              .recentOrders(recentOrders)
+              .build();
+      }
+  }
+  ```
+
+  **Partner BFF:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/partner")
+  public class PartnerBFFController {
+      
+      // Partner API with specific contract
+      @PostMapping("/orders")
+      public PartnerOrderResponse createOrder(
+          @RequestHeader("X-Partner-ID") String partnerId,
+          @RequestBody PartnerOrderRequest request
+      ) {
+          // Validate partner
+          Partner partner = partnerService.validate(partnerId);
+          
+          // Transform to internal format
+          OrderRequest internalRequest = transformToInternal(request, partner);
+          
+          // Create order
+          Order order = orderService.createOrder(internalRequest);
+          
+          // Transform to partner format
+          return transformToPartnerFormat(order);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Anti-Corruption Layer (ACL)</summary>
+  <br/>
+
+  **Anti-Corruption Layer** translates between different domain models.
+
+  **Problem:**
+
+  ```
+  Your Clean Domain ◀──X──▶ Legacy System
+                      (Different models, terminology, structure)
+  ```
+
+  **Solution:**
+
+  ```
+  Your Domain ◀──▶ ACL ◀──▶ Legacy System
+              (Translation layer)
+  ```
+
+  **Implementation:**
+
+  ```java
+  // Your domain model
+  @Entity
+  public class Order {
+      private Long id;
+      private Long customerId;
+      private List<OrderItem> items;
+      private BigDecimal total;
+      private OrderStatus status;
+      private LocalDateTime createdAt;
+  }
+  
+  // Legacy system model (different structure)
+  public class LegacyOrder {
+      private String orderNumber;
+      private String customerCode;
+      private String[] productCodes;
+      private double amount;
+      private int statusCode;
+      private String orderDate;
+  }
+  
+  // Anti-Corruption Layer
+  @Service
+  public class LegacyOrderAdapter {
+      
+      @Autowired
+      private LegacySystemClient legacyClient;
+      
+      public Order getOrder(Long orderId) {
+          // Call legacy system
+          LegacyOrder legacyOrder = legacyClient.getOrder(orderId.toString());
+          
+          // Translate to your domain model
+          return translateToDomain(legacyOrder);
+      }
+      
+      public void createOrder(Order order) {
+          // Translate from your domain to legacy format
+          LegacyOrder legacyOrder = translateToLegacy(order);
+          
+          // Call legacy system
+          legacyClient.createOrder(legacyOrder);
+      }
+      
+      private Order translateToDomain(LegacyOrder legacy) {
+          Order order = new Order();
+          order.setId(Long.parseLong(legacy.getOrderNumber()));
+          order.setCustomerId(parseCustomerId(legacy.getCustomerCode()));
+          order.setItems(parseItems(legacy.getProductCodes()));
+          order.setTotal(BigDecimal.valueOf(legacy.getAmount()));
+          order.setStatus(mapStatus(legacy.getStatusCode()));
+          order.setCreatedAt(parseDate(legacy.getOrderDate()));
+          return order;
+      }
+      
+      private LegacyOrder translateToLegacy(Order order) {
+          LegacyOrder legacy = new LegacyOrder();
+          legacy.setOrderNumber(order.getId().toString());
+          legacy.setCustomerCode("CUST-" + order.getCustomerId());
+          legacy.setProductCodes(extractProductCodes(order.getItems()));
+          legacy.setAmount(order.getTotal().doubleValue());
+          legacy.setStatusCode(mapStatusCode(order.getStatus()));
+          legacy.setOrderDate(formatDate(order.getCreatedAt()));
+          return legacy;
+      }
+      
+      private OrderStatus mapStatus(int statusCode) {
+          switch (statusCode) {
+              case 1: return OrderStatus.PENDING;
+              case 2: return OrderStatus.CONFIRMED;
+              case 3: return OrderStatus.SHIPPED;
+              case 4: return OrderStatus.DELIVERED;
+              case 9: return OrderStatus.CANCELLED;
+              default: return OrderStatus.UNKNOWN;
+          }
+      }
+  }
+  
+  // Your service uses clean domain model
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private LegacyOrderAdapter legacyAdapter;
+      
+      public Order getOrder(Long orderId) {
+          // Work with clean domain model
+          return legacyAdapter.getOrder(orderId);
+      }
+  }
+  ```
+
+  **Benefits:**
+  + Protects your domain from legacy complexity
+  + Isolates translation logic
+  + Easier to replace legacy system later
+  + Clean domain model
+
+</details>
+
+<details>
+  <summary>Sidecar Pattern</summary>
+  <br/>
+
+  **Sidecar Pattern** deploys helper components alongside main service.
+
+  **Architecture:**
+
+  ```
+  ┌─────────────────────────────┐
+  │          Pod/Container      │
+  │                             │
+  │  ┌──────────────────────┐  │
+  │  │   Main Application   │  │
+  │  │   (Order Service)    │  │
+  │  └──────────────────────┘  │
+  │            │                │
+  │            ▼                │
+  │  ┌──────────────────────┐  │
+  │  │   Sidecar Container  │  │
+  │  │  - Logging           │  │
+  │  │  - Monitoring        │  │
+  │  │  - Security          │  │
+  │  │  - Service Mesh      │  │
+  │  └──────────────────────┘  │
+  └─────────────────────────────┘
+  ```
+
+  **Use Cases:**
+
+  **1. Logging Sidecar:**
+
+  ```yaml
+  # Kubernetes deployment
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: order-service
+  spec:
+    template:
+      spec:
+        containers:
+        # Main application
+        - name: order-service
+          image: order-service:1.0
+          ports:
+          - containerPort: 8080
+          volumeMounts:
+          - name: logs
+            mountPath: /var/log
+        
+        # Logging sidecar
+        - name: log-shipper
+          image: fluent-bit:latest
+          volumeMounts:
+          - name: logs
+            mountPath: /var/log
+          env:
+          - name: ELASTICSEARCH_HOST
+            value: "elasticsearch:9200"
+        
+        volumes:
+        - name: logs
+          emptyDir: {}
+  ```
+
+  **2. Service Mesh Sidecar (Envoy):**
+
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: order-service
+  spec:
+    template:
+      metadata:
+        annotations:
+          sidecar.istio.io/inject: "true"  # Auto-inject Envoy sidecar
+      spec:
+        containers:
+        - name: order-service
+          image: order-service:1.0
+          ports:
+          - containerPort: 8080
+        
+        # Envoy sidecar (auto-injected by Istio)
+        # Handles:
+        # - Traffic management
+        # - Load balancing
+        # - Circuit breaking
+        # - Mutual TLS
+        # - Observability
+  ```
+
+  **3. Configuration Sidecar:**
+
+  ```java
+  // Main application
+  @SpringBootApplication
+  public class OrderServiceApplication {
+      public static void main(String[] args) {
+          SpringApplication.run(OrderServiceApplication.class, args);
+      }
+  }
+  
+  // Sidecar refreshes config
+  @Component
+  public class ConfigRefreshSidecar {
+      
+      @Scheduled(fixedRate = 30000)
+      public void refreshConfig() {
+          // Fetch latest config from config server
+          Map<String, String> newConfig = configClient.getLatestConfig();
+          
+          // Update application properties
+          updateEnvironment(newConfig);
+          
+          // Notify application of changes
+          applicationEventPublisher.publishEvent(new ConfigRefreshEvent());
+      }
+  }
+  ```
+
+  **4. Security Sidecar:**
+
+  ```yaml
+  containers:
+  # Main application
+  - name: order-service
+    image: order-service:1.0
+  
+  # OAuth proxy sidecar
+  - name: oauth-proxy
+    image: oauth2-proxy:latest
+    args:
+    - --upstream=http://localhost:8080
+    - --provider=google
+    - --email-domain=company.com
+    ports:
+    - containerPort: 4180
+  ```
+
+  **Benefits:**
+  + Separation of concerns
+  + Reusable across services
+  + Independent deployment
+  + Language agnostic
+
+</details>
+
+<details>
+  <summary>API Composition Pattern</summary>
+  <br/>
+
+  **API Composition** aggregates data from multiple services.
+
+  **Problem:**
+
+  ```
+  Client needs:
+  - Order details
+  - Customer info
+  - Product details
+  - Shipping status
+  
+  But data is in 4 different services!
+  ```
+
+  **Solution:**
+
+  ```
+  Client ──▶ API Composer ──┬──▶ Order Service
+                            ├──▶ Customer Service
+                            ├──▶ Product Service
+                            └──▶ Shipping Service
+  ```
+
+  **Implementation:**
+
+  ```java
+  @RestController
+  @RequestMapping("/api/orders")
+  public class OrderCompositionController {
+      
+      @Autowired
+      private OrderService orderService;
+      
+      @Autowired
+      private CustomerService customerService;
+      
+      @Autowired
+      private ProductService productService;
+      
+      @Autowired
+      private ShippingService shippingService;
+      
+      @GetMapping("/{orderId}/details")
+      public OrderDetails getOrderDetails(@PathVariable Long orderId) {
+          // 1. Get order
+          Order order = orderService.getOrder(orderId);
+          
+          // 2. Get customer (parallel)
+          CompletableFuture<Customer> customerFuture = CompletableFuture
+              .supplyAsync(() -> customerService.getCustomer(order.getCustomerId()));
+          
+          // 3. Get products (parallel)
+          CompletableFuture<List<Product>> productsFuture = CompletableFuture
+              .supplyAsync(() -> {
+                  List<Long> productIds = order.getItems().stream()
+                      .map(OrderItem::getProductId)
+                      .collect(Collectors.toList());
+                  return productService.getProducts(productIds);
+              });
+          
+          // 4. Get shipping (parallel)
+          CompletableFuture<ShippingInfo> shippingFuture = CompletableFuture
+              .supplyAsync(() -> shippingService.getShippingInfo(orderId));
+          
+          // 5. Wait for all
+          CompletableFuture.allOf(customerFuture, productsFuture, shippingFuture).join();
+          
+          // 6. Compose response
+          return OrderDetails.builder()
+              .order(order)
+              .customer(customerFuture.join())
+              .products(productsFuture.join())
+              .shipping(shippingFuture.join())
+              .build();
+      }
+  }
+  ```
+
+  **With Resilience:**
+
+  ```java
+  @Service
+  public class ResilientOrderComposer {
+      
+      @CircuitBreaker(name = "orderComposer", fallbackMethod = "getOrderDetailsFallback")
+      @Retry(name = "orderComposer")
+      @Timeout(duration = 5, unit = ChronoUnit.SECONDS)
+      public OrderDetails getOrderDetails(Long orderId) {
+          Order order = orderService.getOrder(orderId);
+          
+          // Parallel calls with fallbacks
+          Customer customer = getCustomerWithFallback(order.getCustomerId());
+          List<Product> products = getProductsWithFallback(order.getItems());
+          ShippingInfo shipping = getShippingWithFallback(orderId);
+          
+          return new OrderDetails(order, customer, products, shipping);
+      }
+      
+      private Customer getCustomerWithFallback(Long customerId) {
+          try {
+              return customerService.getCustomer(customerId);
+          } catch (Exception e) {
+              // Return minimal customer info
+              return Customer.builder()
+                  .id(customerId)
+                  .name("Customer #" + customerId)
+                  .build();
+          }
+      }
+      
+      private OrderDetails getOrderDetailsFallback(Long orderId, Exception e) {
+          // Return partial data
+          Order order = orderService.getOrder(orderId);
+          return OrderDetails.builder()
+              .order(order)
+              .error("Some details unavailable")
+              .build();
+      }
+  }
+  ```
+
+  **GraphQL Alternative:**
+
+  ```java
+  @Component
+  public class OrderGraphQLResolver implements GraphQLQueryResolver {
+      
+      public Order order(Long id) {
+          return orderService.getOrder(id);
+      }
+      
+      // Nested resolvers
+      public Customer customer(Order order) {
+          return customerService.getCustomer(order.getCustomerId());
+      }
+      
+      public List<Product> products(Order order) {
+          List<Long> productIds = order.getItems().stream()
+              .map(OrderItem::getProductId)
+              .collect(Collectors.toList());
+          return productService.getProducts(productIds);
+      }
+      
+      public ShippingInfo shipping(Order order) {
+          return shippingService.getShippingInfo(order.getId());
+      }
+  }
+  ```
+
+  ```graphql
+  # Client queries exactly what it needs
+  query {
+    order(id: 123) {
+      id
+      total
+      customer {
+        name
+        email
+      }
+      products {
+        name
+        price
+      }
+      shipping {
+        status
+        estimatedDelivery
+      }
+    }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use Outbox Pattern for reliable events
+  @Transactional
+  public void createOrder(OrderRequest request) {
+      Order order = orderRepository.save(new Order(request));
+      outboxRepository.save(new OutboxEvent(order));
+  }
+  
+  // ✅ DO: Use BFF for different clients
+  // /api/web/dashboard - Full data for web
+  // /api/mobile/dashboard - Minimal data for mobile
+  
+  // ✅ DO: Use Anti-Corruption Layer for legacy systems
+  @Service
+  public class LegacyAdapter {
+      public Order getOrder(Long id) {
+          LegacyOrder legacy = legacyClient.getOrder(id);
+          return translateToDomain(legacy);
+      }
+  }
+  
+  // ✅ DO: Use Strangler Fig for migration
+  // Gradually extract services from monolith
+  // Route new features to microservices
+  
+  // ✅ DO: Use API Composition with resilience
+  @CircuitBreaker(fallbackMethod = "fallback")
+  public OrderDetails getDetails(Long orderId) {
+      // Aggregate from multiple services
+  }
+  
+  // ✅ DO: Use Sidecar for cross-cutting concerns
+  // Logging, monitoring, security in sidecar
+  
+  // ❌ DON'T: Make synchronous calls in chain
+  // Service A → Service B → Service C (slow!)
+  // Use async messaging or parallel calls
+  
+  // ❌ DON'T: Share database between services
+  // Each service should own its data
+  
+  // ❌ DON'T: Expose internal domain model
+  // Use DTOs and ACL for external APIs
+  ```
+
+  **Summary:**
+  + **Outbox Pattern** - Reliable event publishing with database updates
+  + **Strangler Fig** - Gradual migration from monolith to microservices
+  + **BFF** - Separate API gateways for different client types
+  + **Anti-Corruption Layer** - Translate between different domain models
+  + **Sidecar** - Deploy helper components alongside main service
+  + **API Composition** - Aggregate data from multiple services
+  + Use **parallel calls** for better performance
+  + Implement **fallbacks** for resilience
+  + **Isolate** legacy system complexity with ACL
+  + **Gradually migrate** using Strangler Fig pattern
+
+</details>

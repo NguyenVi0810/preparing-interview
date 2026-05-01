@@ -1,0 +1,961 @@
+## Core Concepts
+
+<details>
+  <summary>Microservices vs Monolith</summary>
+  <br/>
+
+  **Monolithic Architecture:**
+
+  Single deployable unit containing all application functionality.
+
+  ```
+  ┌─────────────────────────────────┐
+  │      Monolithic Application     │
+  │                                 │
+  │  ┌──────────┐  ┌──────────┐   │
+  │  │   User   │  │  Order   │   │
+  │  │ Service  │  │ Service  │   │
+  │  └──────────┘  └──────────┘   │
+  │                                 │
+  │  ┌──────────┐  ┌──────────┐   │
+  │  │ Product  │  │ Payment  │   │
+  │  │ Service  │  │ Service  │   │
+  │  └──────────┘  └──────────┘   │
+  │                                 │
+  │      Single Database            │
+  └─────────────────────────────────┘
+  ```
+
+  **Microservices Architecture:**
+
+  Multiple independent services, each with its own database.
+
+  ```
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │   User   │    │  Order   │    │ Product  │
+  │ Service  │    │ Service  │    │ Service  │
+  │    DB    │    │    DB    │    │    DB    │
+  └──────────┘    └──────────┘    └──────────┘
+       │               │                │
+       └───────────────┼────────────────┘
+                       │
+                  ┌────────┐
+                  │   API  │
+                  │ Gateway│
+                  └────────┘
+  ```
+
+  **Comparison:**
+
+  | Aspect | Monolith | Microservices |
+  |--------|----------|---------------|
+  | **Deployment** | Single unit | Independent services |
+  | **Scaling** | Scale entire app | Scale individual services |
+  | **Technology** | Single stack | Polyglot (multiple stacks) |
+  | **Database** | Shared database | Database per service |
+  | **Development** | Simple initially | Complex coordination |
+  | **Testing** | Easier (single app) | Complex (distributed) |
+  | **Failure** | Entire app fails | Isolated failures |
+  | **Team** | Single team | Multiple teams |
+  | **Deployment Speed** | Slower (entire app) | Faster (individual services) |
+
+  **When to use Monolith:**
+  + Small team (< 10 developers)
+  + Simple application
+  + Tight deadlines
+  + Limited resources
+  + Unclear requirements
+  + Startup/MVP phase
+
+  **When to use Microservices:**
+  + Large team (> 10 developers)
+  + Complex application
+  + Need independent scaling
+  + Different technology requirements
+  + Frequent deployments
+  + Clear bounded contexts
+
+  **Example - E-commerce:**
+
+  **Monolith:**
+  ```java
+  @SpringBootApplication
+  public class EcommerceApplication {
+      // All services in one application
+      @Autowired UserService userService;
+      @Autowired OrderService orderService;
+      @Autowired ProductService productService;
+      @Autowired PaymentService paymentService;
+      
+      // Single database
+      @Autowired DataSource dataSource;
+  }
+  ```
+
+  **Microservices:**
+  ```java
+  // User Service (Port 8081)
+  @SpringBootApplication
+  public class UserServiceApplication {
+      @Autowired UserRepository userRepository;
+  }
+  
+  // Order Service (Port 8082)
+  @SpringBootApplication
+  public class OrderServiceApplication {
+      @Autowired OrderRepository orderRepository;
+      @Autowired RestTemplate restTemplate; // Call other services
+  }
+  
+  // Product Service (Port 8083)
+  @SpringBootApplication
+  public class ProductServiceApplication {
+      @Autowired ProductRepository productRepository;
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Service Decomposition</summary>
+  <br/>
+
+  **Service decomposition** is breaking down a monolith into microservices.
+
+  **Decomposition strategies:**
+
+  **1. Decompose by Business Capability:**
+
+  ```
+  E-commerce Application
+  │
+  ├── User Management
+  │   ├── Registration
+  │   ├── Authentication
+  │   └── Profile Management
+  │
+  ├── Product Catalog
+  │   ├── Product Search
+  │   ├── Product Details
+  │   └── Inventory Management
+  │
+  ├── Order Management
+  │   ├── Cart
+  │   ├── Checkout
+  │   └── Order Tracking
+  │
+  └── Payment Processing
+      ├── Payment Gateway
+      └── Refunds
+  ```
+
+  **2. Decompose by Subdomain (Domain-Driven Design):**
+
+  ```
+  ┌─────────────────────────────────────┐
+  │         Bounded Contexts            │
+  ├─────────────────────────────────────┤
+  │                                     │
+  │  ┌──────────────┐  ┌─────────────┐│
+  │  │   Customer   │  │   Product   ││
+  │  │   Context    │  │   Context   ││
+  │  │              │  │             ││
+  │  │ - User       │  │ - Product   ││
+  │  │ - Profile    │  │ - Inventory ││
+  │  │ - Address    │  │ - Category  ││
+  │  └──────────────┘  └─────────────┘│
+  │                                     │
+  │  ┌──────────────┐  ┌─────────────┐│
+  │  │    Order     │  │   Payment   ││
+  │  │   Context    │  │   Context   ││
+  │  │              │  │             ││
+  │  │ - Order      │  │ - Payment   ││
+  │  │ - OrderItem  │  │ - Invoice   ││
+  │  │ - Shipping   │  │ - Refund    ││
+  │  └──────────────┘  └─────────────┘│
+  └─────────────────────────────────────┘
+  ```
+
+  **3. Decompose by Use Case:**
+
+  ```
+  User Stories → Services
+  
+  "As a customer, I want to browse products"
+  → Product Catalog Service
+  
+  "As a customer, I want to add items to cart"
+  → Shopping Cart Service
+  
+  "As a customer, I want to checkout"
+  → Order Service + Payment Service
+  
+  "As a customer, I want to track my order"
+  → Order Tracking Service
+  ```
+
+  **Bounded Context Example:**
+
+  ```java
+  // Customer Context
+  @Entity
+  public class Customer {
+      private Long id;
+      private String name;
+      private String email;
+      private List<Address> addresses;
+  }
+  
+  // Order Context (different Customer representation)
+  @Entity
+  public class Order {
+      private Long id;
+      private Long customerId;  // Reference, not embedded
+      private String customerName;  // Denormalized
+      private List<OrderItem> items;
+  }
+  
+  // Product Context
+  @Entity
+  public class Product {
+      private Long id;
+      private String name;
+      private BigDecimal price;
+      private Integer stock;
+  }
+  ```
+
+  **Service size guidelines:**
+
+  ```
+  Too Small:
+  - Single function/method
+  - Too many inter-service calls
+  - High network overhead
+
+  Too Large:
+  - Multiple business capabilities
+  - Large team needed
+  - Difficult to deploy independently
+
+  Right Size:
+  - Single business capability
+  - 2-5 developers can maintain
+  - Can be deployed independently
+  - Clear boundaries
+  ```
+
+</details>
+
+<details>
+  <summary>Communication Patterns</summary>
+  <br/>
+
+  **Synchronous Communication:**
+
+  **REST API:**
+
+  ```java
+  // Order Service calls Product Service
+  @Service
+  public class OrderService {
+      @Autowired
+      private RestTemplate restTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          // Call Product Service to check stock
+          String url = "http://product-service/api/products/" + request.getProductId();
+          Product product = restTemplate.getForObject(url, Product.class);
+          
+          if (product.getStock() < request.getQuantity()) {
+              throw new InsufficientStockException();
+          }
+          
+          // Create order
+          Order order = new Order();
+          order.setProductId(request.getProductId());
+          order.setQuantity(request.getQuantity());
+          return orderRepository.save(order);
+      }
+  }
+  ```
+
+  **gRPC:**
+
+  ```protobuf
+  // product.proto
+  syntax = "proto3";
+  
+  service ProductService {
+      rpc GetProduct(ProductRequest) returns (ProductResponse);
+      rpc CheckStock(StockRequest) returns (StockResponse);
+  }
+  
+  message ProductRequest {
+      int64 product_id = 1;
+  }
+  
+  message ProductResponse {
+      int64 id = 1;
+      string name = 2;
+      double price = 3;
+      int32 stock = 4;
+  }
+  ```
+
+  ```java
+  // Java client
+  @Service
+  public class OrderService {
+      @Autowired
+      private ProductServiceGrpc.ProductServiceBlockingStub productStub;
+      
+      public Order createOrder(OrderRequest request) {
+          StockRequest stockRequest = StockRequest.newBuilder()
+              .setProductId(request.getProductId())
+              .setQuantity(request.getQuantity())
+              .build();
+          
+          StockResponse response = productStub.checkStock(stockRequest);
+          
+          if (!response.getAvailable()) {
+              throw new InsufficientStockException();
+          }
+          
+          return orderRepository.save(order);
+      }
+  }
+  ```
+
+  **Asynchronous Communication:**
+
+  **Message Queue (RabbitMQ):**
+
+  ```java
+  // Order Service publishes event
+  @Service
+  public class OrderService {
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          Order order = orderRepository.save(new Order(request));
+          
+          // Publish event
+          OrderCreatedEvent event = new OrderCreatedEvent(
+              order.getId(),
+              order.getCustomerId(),
+              order.getTotal()
+          );
+          
+          rabbitTemplate.convertAndSend(
+              "order.exchange",
+              "order.created",
+              event
+          );
+          
+          return order;
+      }
+  }
+  
+  // Inventory Service consumes event
+  @Service
+  public class InventoryService {
+      @RabbitListener(queues = "inventory.queue")
+      public void handleOrderCreated(OrderCreatedEvent event) {
+          // Update inventory
+          inventoryRepository.decreaseStock(
+              event.getProductId(),
+              event.getQuantity()
+          );
+      }
+  }
+  ```
+
+  **Event Streaming (Kafka):**
+
+  ```java
+  // Order Service produces event
+  @Service
+  public class OrderService {
+      @Autowired
+      private KafkaTemplate<String, OrderCreatedEvent> kafkaTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          Order order = orderRepository.save(new Order(request));
+          
+          // Produce event
+          OrderCreatedEvent event = new OrderCreatedEvent(order);
+          kafkaTemplate.send("order-events", event);
+          
+          return order;
+      }
+  }
+  
+  // Multiple services can consume
+  @Service
+  public class NotificationService {
+      @KafkaListener(topics = "order-events", groupId = "notification-group")
+      public void handleOrderCreated(OrderCreatedEvent event) {
+          // Send notification
+          emailService.sendOrderConfirmation(event);
+      }
+  }
+  
+  @Service
+  public class AnalyticsService {
+      @KafkaListener(topics = "order-events", groupId = "analytics-group")
+      public void handleOrderCreated(OrderCreatedEvent event) {
+          // Update analytics
+          analyticsRepository.recordOrder(event);
+      }
+  }
+  ```
+
+  **Comparison:**
+
+  | Pattern | Use Case | Pros | Cons |
+  |---------|----------|------|------|
+  | **REST** | CRUD operations | Simple, widely supported | Tight coupling, blocking |
+  | **gRPC** | High performance | Fast, type-safe | Complex setup |
+  | **Message Queue** | Async processing | Decoupled, reliable | Eventual consistency |
+  | **Event Streaming** | Event sourcing | Scalable, replay events | Complex, eventual consistency |
+
+</details>
+
+<details>
+  <summary>API Gateway</summary>
+  <br/>
+
+  **API Gateway** is a single entry point for all client requests.
+
+  **Responsibilities:**
+  + Routing requests to services
+  + Authentication and authorization
+  + Rate limiting
+  + Load balancing
+  + Request/response transformation
+  + Caching
+  + Logging and monitoring
+
+  **Architecture:**
+
+  ```
+  ┌─────────┐
+  │ Client  │
+  └────┬────┘
+       │
+       ▼
+  ┌────────────┐
+  │    API     │
+  │  Gateway   │
+  └─────┬──────┘
+        │
+        ├──────────┬──────────┬──────────┐
+        ▼          ▼          ▼          ▼
+  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+  │  User   │ │ Order   │ │Product  │ │Payment  │
+  │ Service │ │ Service │ │Service  │ │Service  │
+  └─────────┘ └─────────┘ └─────────┘ └─────────┘
+  ```
+
+  **Spring Cloud Gateway:**
+
+  ```java
+  @Configuration
+  public class GatewayConfig {
+      
+      @Bean
+      public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+          return builder.routes()
+              // User Service
+              .route("user-service", r -> r
+                  .path("/api/users/**")
+                  .filters(f -> f
+                      .stripPrefix(1)
+                      .addRequestHeader("X-Gateway", "true")
+                  )
+                  .uri("lb://user-service")
+              )
+              
+              // Order Service
+              .route("order-service", r -> r
+                  .path("/api/orders/**")
+                  .filters(f -> f
+                      .stripPrefix(1)
+                      .circuitBreaker(c -> c
+                          .setName("orderCircuitBreaker")
+                          .setFallbackUri("forward:/fallback/orders")
+                      )
+                  )
+                  .uri("lb://order-service")
+              )
+              
+              // Product Service
+              .route("product-service", r -> r
+                  .path("/api/products/**")
+                  .filters(f -> f
+                      .stripPrefix(1)
+                      .retry(config -> config
+                          .setRetries(3)
+                          .setBackoff(Duration.ofMillis(100), Duration.ofMillis(1000), 2, true)
+                      )
+                  )
+                  .uri("lb://product-service")
+              )
+              .build();
+      }
+  }
+  ```
+
+  **Authentication Filter:**
+
+  ```java
+  @Component
+  public class AuthenticationFilter implements GlobalFilter, Ordered {
+      
+      @Autowired
+      private JwtUtil jwtUtil;
+      
+      @Override
+      public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+          ServerHttpRequest request = exchange.getRequest();
+          
+          // Skip authentication for public endpoints
+          if (isPublicEndpoint(request.getPath().toString())) {
+              return chain.filter(exchange);
+          }
+          
+          // Extract token
+          String token = extractToken(request);
+          if (token == null || !jwtUtil.validateToken(token)) {
+              exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+              return exchange.getResponse().setComplete();
+          }
+          
+          // Add user info to headers
+          String userId = jwtUtil.getUserId(token);
+          ServerHttpRequest modifiedRequest = request.mutate()
+              .header("X-User-Id", userId)
+              .build();
+          
+          return chain.filter(exchange.mutate().request(modifiedRequest).build());
+      }
+      
+      @Override
+      public int getOrder() {
+          return -100; // High priority
+      }
+  }
+  ```
+
+  **Rate Limiting:**
+
+  ```java
+  @Configuration
+  public class RateLimitConfig {
+      
+      @Bean
+      public KeyResolver userKeyResolver() {
+          return exchange -> {
+              String userId = exchange.getRequest()
+                  .getHeaders()
+                  .getFirst("X-User-Id");
+              return Mono.just(userId != null ? userId : "anonymous");
+          };
+      }
+      
+      @Bean
+      public RouteLocator rateLimitedRoutes(RouteLocatorBuilder builder) {
+          return builder.routes()
+              .route("rate-limited", r -> r
+                  .path("/api/**")
+                  .filters(f -> f
+                      .requestRateLimiter(config -> config
+                          .setRateLimiter(redisRateLimiter())
+                          .setKeyResolver(userKeyResolver())
+                      )
+                  )
+                  .uri("lb://backend-service")
+              )
+              .build();
+      }
+      
+      @Bean
+      public RedisRateLimiter redisRateLimiter() {
+          return new RedisRateLimiter(10, 20); // 10 requests per second, burst 20
+      }
+  }
+  ```
+
+  **Response Caching:**
+
+  ```java
+  @Component
+  public class CacheFilter implements GlobalFilter, Ordered {
+      
+      @Autowired
+      private RedisTemplate<String, String> redisTemplate;
+      
+      @Override
+      public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+          ServerHttpRequest request = exchange.getRequest();
+          
+          // Only cache GET requests
+          if (!request.getMethod().equals(HttpMethod.GET)) {
+              return chain.filter(exchange);
+          }
+          
+          String cacheKey = "cache:" + request.getPath();
+          String cachedResponse = redisTemplate.opsForValue().get(cacheKey);
+          
+          if (cachedResponse != null) {
+              // Return cached response
+              exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+              DataBuffer buffer = exchange.getResponse()
+                  .bufferFactory()
+                  .wrap(cachedResponse.getBytes());
+              return exchange.getResponse().writeWith(Mono.just(buffer));
+          }
+          
+          // Continue and cache response
+          return chain.filter(exchange);
+      }
+      
+      @Override
+      public int getOrder() {
+          return 0;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Service Discovery</summary>
+  <br/>
+
+  **Service discovery** allows services to find and communicate with each other dynamically.
+
+  **Why needed:**
+  + Services can be deployed on different hosts/ports
+  + Services can scale up/down dynamically
+  + Services can fail and restart
+  + No hardcoded URLs
+
+  **Service Registry Pattern:**
+
+  ```
+  ┌─────────────────────────────────────┐
+  │      Service Registry (Eureka)      │
+  │                                     │
+  │  User Service:    localhost:8081   │
+  │  Order Service:   localhost:8082   │
+  │  Product Service: localhost:8083   │
+  └─────────────────────────────────────┘
+           ▲                    │
+           │ Register           │ Discover
+           │                    ▼
+  ┌─────────────┐        ┌─────────────┐
+  │   Service   │        │   Service   │
+  │  Instance   │───────▶│   Client    │
+  └─────────────┘  Call  └─────────────┘
+  ```
+
+  **Eureka Server:**
+
+  ```java
+  @SpringBootApplication
+  @EnableEurekaServer
+  public class EurekaServerApplication {
+      public static void main(String[] args) {
+          SpringApplication.run(EurekaServerApplication.class, args);
+      }
+  }
+  ```
+
+  ```yaml
+  # application.yml
+  server:
+    port: 8761
+  
+  eureka:
+    client:
+      register-with-eureka: false
+      fetch-registry: false
+    server:
+      enable-self-preservation: false
+  ```
+
+  **Eureka Client (Service Registration):**
+
+  ```java
+  @SpringBootApplication
+  @EnableDiscoveryClient
+  public class OrderServiceApplication {
+      public static void main(String[] args) {
+          SpringApplication.run(OrderServiceApplication.class, args);
+      }
+  }
+  ```
+
+  ```yaml
+  # application.yml
+  spring:
+    application:
+      name: order-service
+  
+  server:
+    port: 8082
+  
+  eureka:
+    client:
+      service-url:
+        defaultZone: http://localhost:8761/eureka/
+    instance:
+      prefer-ip-address: true
+      lease-renewal-interval-in-seconds: 30
+      lease-expiration-duration-in-seconds: 90
+  ```
+
+  **Service Discovery with Load Balancing:**
+
+  ```java
+  @Configuration
+  public class RestTemplateConfig {
+      
+      @Bean
+      @LoadBalanced  // Enable client-side load balancing
+      public RestTemplate restTemplate() {
+          return new RestTemplate();
+      }
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private RestTemplate restTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          // Use service name instead of URL
+          String url = "http://product-service/api/products/" + request.getProductId();
+          Product product = restTemplate.getForObject(url, Product.class);
+          
+          // RestTemplate automatically:
+          // 1. Discovers product-service instances from Eureka
+          // 2. Load balances between instances
+          // 3. Handles failures
+          
+          return orderRepository.save(new Order(product));
+      }
+  }
+  ```
+
+  **Feign Client (Declarative REST Client):**
+
+  ```java
+  @FeignClient(name = "product-service")
+  public interface ProductClient {
+      
+      @GetMapping("/api/products/{id}")
+      Product getProduct(@PathVariable Long id);
+      
+      @PostMapping("/api/products")
+      Product createProduct(@RequestBody ProductRequest request);
+      
+      @PutMapping("/api/products/{id}/stock")
+      void updateStock(@PathVariable Long id, @RequestParam Integer quantity);
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private ProductClient productClient;
+      
+      public Order createOrder(OrderRequest request) {
+          // Simple method call, Feign handles:
+          // - Service discovery
+          // - Load balancing
+          // - HTTP request/response
+          Product product = productClient.getProduct(request.getProductId());
+          
+          return orderRepository.save(new Order(product));
+      }
+  }
+  ```
+
+  **Kubernetes Service Discovery:**
+
+  ```yaml
+  # product-service.yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: product-service
+  spec:
+    selector:
+      app: product
+    ports:
+      - port: 80
+        targetPort: 8080
+    type: ClusterIP
+  
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: product-deployment
+  spec:
+    replicas: 3
+    selector:
+      matchLabels:
+        app: product
+    template:
+      metadata:
+        labels:
+          app: product
+      spec:
+        containers:
+        - name: product
+          image: product-service:1.0
+          ports:
+          - containerPort: 8080
+  ```
+
+  ```java
+  // In Kubernetes, use service name as hostname
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private RestTemplate restTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          // Kubernetes DNS resolves service name
+          String url = "http://product-service/api/products/" + request.getProductId();
+          Product product = restTemplate.getForObject(url, Product.class);
+          
+          return orderRepository.save(new Order(product));
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Design services around business capabilities
+  // User Service - handles user management
+  // Order Service - handles order processing
+  // Product Service - handles product catalog
+  
+  // ✅ DO: Use database per service
+  @Configuration
+  public class OrderServiceConfig {
+      @Bean
+      public DataSource orderDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:postgresql://localhost:5432/order_db")
+              .build();
+      }
+  }
+  
+  // ✅ DO: Use API Gateway for client requests
+  // Clients → API Gateway → Services
+  // Not: Clients → Services directly
+  
+  // ✅ DO: Implement service discovery
+  @EnableDiscoveryClient
+  public class OrderServiceApplication { }
+  
+  // ✅ DO: Use asynchronous communication when possible
+  @Service
+  public class OrderService {
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          Order order = orderRepository.save(new Order(request));
+          kafkaTemplate.send("order-events", new OrderCreatedEvent(order));
+          return order;
+      }
+  }
+  
+  // ✅ DO: Implement circuit breakers
+  @CircuitBreaker(name = "productService", fallbackMethod = "getProductFallback")
+  public Product getProduct(Long id) {
+      return productClient.getProduct(id);
+  }
+  
+  // ✅ DO: Use correlation IDs for tracing
+  @Component
+  public class CorrelationIdFilter implements Filter {
+      @Override
+      public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+          String correlationId = UUID.randomUUID().toString();
+          MDC.put("correlationId", correlationId);
+          chain.doFilter(request, response);
+          MDC.clear();
+      }
+  }
+  
+  // ✅ DO: Implement health checks
+  @RestController
+  public class HealthController {
+      @GetMapping("/health")
+      public ResponseEntity<String> health() {
+          return ResponseEntity.ok("UP");
+      }
+  }
+  
+  // ❌ DON'T: Share databases between services
+  // Each service should have its own database
+  
+  // ❌ DON'T: Make synchronous calls in a chain
+  // Service A → Service B → Service C → Service D (slow!)
+  // Use async messaging instead
+  
+  // ❌ DON'T: Create too many small services
+  // Balance between too many and too few services
+  
+  // ❌ DON'T: Ignore data consistency
+  // Use Saga pattern or event sourcing for distributed transactions
+  
+  // ✅ DO: Version your APIs
+  @GetMapping("/api/v1/products")
+  public List<Product> getProductsV1() { }
+  
+  @GetMapping("/api/v2/products")
+  public List<ProductV2> getProductsV2() { }
+  
+  // ✅ DO: Implement proper logging
+  @Slf4j
+  @Service
+  public class OrderService {
+      public Order createOrder(OrderRequest request) {
+          log.info("Creating order for customer: {}", request.getCustomerId());
+          Order order = orderRepository.save(new Order(request));
+          log.info("Order created: {}", order.getId());
+          return order;
+      }
+  }
+  ```
+
+  **Summary:**
+  + **Microservices** are independent, deployable services
+  + **Decompose** by business capability or domain
+  + Use **API Gateway** as single entry point
+  + Implement **service discovery** for dynamic routing
+  + Use **async communication** when possible
+  + Each service has its **own database**
+  + Implement **circuit breakers** for resilience
+  + Use **correlation IDs** for distributed tracing
+  + **Version** your APIs
+  + Implement proper **logging and monitoring**
+
+</details>

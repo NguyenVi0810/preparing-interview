@@ -1,0 +1,826 @@
+## Resilience Patterns
+
+<details>
+  <summary>Circuit Breaker Pattern</summary>
+  <br/>
+
+  **Circuit Breaker** prevents cascading failures by stopping calls to failing services.
+
+  **States:**
+
+  ```
+  ┌─────────┐
+  │ CLOSED  │ ◄─── Normal operation
+  └────┬────┘
+       │ Failures exceed threshold
+       ▼
+  ┌─────────┐
+  │  OPEN   │ ◄─── Reject all requests
+  └────┬────┘
+       │ After timeout
+       ▼
+  ┌──────────┐
+  │ HALF_OPEN│ ◄─── Test if service recovered
+  └──────────┘
+       │
+       ├─ Success → CLOSED
+       └─ Failure → OPEN
+  ```
+
+  **Resilience4j Implementation:**
+
+  ```java
+  // Dependencies
+  <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-spring-boot2</artifactId>
+  </dependency>
+  ```
+
+  ```yaml
+  # application.yml
+  resilience4j:
+    circuitbreaker:
+      instances:
+        productService:
+          register-health-indicator: true
+          sliding-window-size: 10
+          minimum-number-of-calls: 5
+          permitted-number-of-calls-in-half-open-state: 3
+          wait-duration-in-open-state: 10s
+          failure-rate-threshold: 50
+          slow-call-rate-threshold: 100
+          slow-call-duration-threshold: 2s
+  ```
+
+  ```java
+  @Service
+  @Slf4j
+  public class OrderService {
+      
+      @Autowired
+      private ProductClient productClient;
+      
+      @CircuitBreaker(name = "productService", fallbackMethod = "getProductFallback")
+      public Product getProduct(Long productId) {
+          log.info("Calling product service for product: {}", productId);
+          return productClient.getProduct(productId);
+      }
+      
+      // Fallback method (same signature + Throwable)
+      public Product getProductFallback(Long productId, Throwable throwable) {
+          log.error("Circuit breaker activated for product: {}", productId, throwable);
+          
+          // Return cached data or default
+          return Product.builder()
+              .id(productId)
+              .name("Product Unavailable")
+              .price(BigDecimal.ZERO)
+              .build();
+      }
+  }
+  ```
+
+  **Manual Circuit Breaker:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private CircuitBreakerRegistry circuitBreakerRegistry;
+      
+      public Product getProduct(Long productId) {
+          CircuitBreaker circuitBreaker = circuitBreakerRegistry
+              .circuitBreaker("productService");
+          
+          return circuitBreaker.executeSupplier(() -> {
+              return productClient.getProduct(productId);
+          });
+      }
+  }
+  ```
+
+  **Circuit Breaker Events:**
+
+  ```java
+  @Component
+  public class CircuitBreakerEventListener {
+      
+      @Autowired
+      private CircuitBreakerRegistry circuitBreakerRegistry;
+      
+      @PostConstruct
+      public void init() {
+          circuitBreakerRegistry.circuitBreaker("productService")
+              .getEventPublisher()
+              .onStateTransition(event -> {
+                  log.info("Circuit breaker state changed: {} -> {}",
+                      event.getStateTransition().getFromState(),
+                      event.getStateTransition().getToState());
+              })
+              .onFailureRateExceeded(event -> {
+                  log.warn("Failure rate exceeded: {}%", event.getFailureRate());
+              })
+              .onSlowCallRateExceeded(event -> {
+                  log.warn("Slow call rate exceeded: {}%", event.getSlowCallRate());
+              });
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Retry Pattern</summary>
+  <br/>
+
+  **Retry** automatically retries failed operations.
+
+  **Retry strategies:**
+  + **Fixed delay** - Wait same time between retries
+  + **Exponential backoff** - Increase wait time exponentially
+  + **Random jitter** - Add randomness to avoid thundering herd
+
+  **Resilience4j Retry:**
+
+  ```yaml
+  # application.yml
+  resilience4j:
+    retry:
+      instances:
+        productService:
+          max-attempts: 3
+          wait-duration: 1s
+          enable-exponential-backoff: true
+          exponential-backoff-multiplier: 2
+          retry-exceptions:
+            - java.net.ConnectException
+            - java.net.SocketTimeoutException
+          ignore-exceptions:
+            - com.example.BusinessException
+  ```
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Retry(name = "productService", fallbackMethod = "getProductFallback")
+      public Product getProduct(Long productId) {
+          log.info("Attempting to get product: {}", productId);
+          return productClient.getProduct(productId);
+      }
+      
+      public Product getProductFallback(Long productId, Exception e) {
+          log.error("All retry attempts failed for product: {}", productId, e);
+          return getDefaultProduct(productId);
+      }
+  }
+  ```
+
+  **Custom Retry Logic:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      public Product getProductWithRetry(Long productId) {
+          int maxRetries = 3;
+          int attempt = 0;
+          long waitTime = 1000; // 1 second
+          
+          while (attempt < maxRetries) {
+              try {
+                  return productClient.getProduct(productId);
+              } catch (Exception e) {
+                  attempt++;
+                  if (attempt >= maxRetries) {
+                      throw new ServiceUnavailableException("Product service unavailable", e);
+                  }
+                  
+                  log.warn("Retry attempt {} failed, waiting {}ms", attempt, waitTime);
+                  
+                  try {
+                      Thread.sleep(waitTime);
+                  } catch (InterruptedException ie) {
+                      Thread.currentThread().interrupt();
+                      throw new RuntimeException(ie);
+                  }
+                  
+                  // Exponential backoff
+                  waitTime *= 2;
+              }
+          }
+          
+          throw new ServiceUnavailableException("Product service unavailable");
+      }
+  }
+  ```
+
+  **Spring Retry:**
+
+  ```java
+  @Configuration
+  @EnableRetry
+  public class RetryConfig {
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Retryable(
+          value = {ConnectException.class, SocketTimeoutException.class},
+          maxAttempts = 3,
+          backoff = @Backoff(delay = 1000, multiplier = 2)
+      )
+      public Product getProduct(Long productId) {
+          return productClient.getProduct(productId);
+      }
+      
+      @Recover
+      public Product recover(Exception e, Long productId) {
+          log.error("Recovery method called for product: {}", productId, e);
+          return getDefaultProduct(productId);
+      }
+  }
+  ```
+
+  **Retry with Jitter:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      private final Random random = new Random();
+      
+      public Product getProductWithJitter(Long productId) {
+          int maxRetries = 3;
+          int attempt = 0;
+          long baseWaitTime = 1000;
+          
+          while (attempt < maxRetries) {
+              try {
+                  return productClient.getProduct(productId);
+              } catch (Exception e) {
+                  attempt++;
+                  if (attempt >= maxRetries) {
+                      throw new ServiceUnavailableException("Product service unavailable", e);
+                  }
+                  
+                  // Exponential backoff with jitter
+                  long waitTime = (long) (baseWaitTime * Math.pow(2, attempt));
+                  long jitter = random.nextInt(1000); // 0-1000ms random jitter
+                  long totalWait = waitTime + jitter;
+                  
+                  log.warn("Retry attempt {} failed, waiting {}ms", attempt, totalWait);
+                  
+                  try {
+                      Thread.sleep(totalWait);
+                  } catch (InterruptedException ie) {
+                      Thread.currentThread().interrupt();
+                      throw new RuntimeException(ie);
+                  }
+              }
+          }
+          
+          throw new ServiceUnavailableException("Product service unavailable");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Bulkhead Pattern</summary>
+  <br/>
+
+  **Bulkhead** isolates resources to prevent cascading failures.
+
+  **Thread Pool Bulkhead:**
+
+  ```yaml
+  # application.yml
+  resilience4j:
+    bulkhead:
+      instances:
+        productService:
+          max-concurrent-calls: 10
+          max-wait-duration: 1s
+    
+    thread-pool-bulkhead:
+      instances:
+        productService:
+          max-thread-pool-size: 10
+          core-thread-pool-size: 5
+          queue-capacity: 20
+          keep-alive-duration: 20ms
+  ```
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Bulkhead(name = "productService", type = Bulkhead.Type.THREADPOOL)
+      public CompletableFuture<Product> getProductAsync(Long productId) {
+          return CompletableFuture.supplyAsync(() -> {
+              return productClient.getProduct(productId);
+          });
+      }
+  }
+  ```
+
+  **Semaphore Bulkhead:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Bulkhead(name = "productService", fallbackMethod = "getProductFallback")
+      public Product getProduct(Long productId) {
+          return productClient.getProduct(productId);
+      }
+      
+      public Product getProductFallback(Long productId, BulkheadFullException e) {
+          log.error("Bulkhead is full for product: {}", productId);
+          return getDefaultProduct(productId);
+      }
+  }
+  ```
+
+  **Custom Thread Pool:**
+
+  ```java
+  @Configuration
+  public class ThreadPoolConfig {
+      
+      @Bean("productServiceExecutor")
+      public ThreadPoolTaskExecutor productServiceExecutor() {
+          ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(5);
+          executor.setMaxPoolSize(10);
+          executor.setQueueCapacity(20);
+          executor.setThreadNamePrefix("product-service-");
+          executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+          executor.initialize();
+          return executor;
+      }
+      
+      @Bean("paymentServiceExecutor")
+      public ThreadPoolTaskExecutor paymentServiceExecutor() {
+          ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(3);
+          executor.setMaxPoolSize(5);
+          executor.setQueueCapacity(10);
+          executor.setThreadNamePrefix("payment-service-");
+          executor.initialize();
+          return executor;
+      }
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      @Qualifier("productServiceExecutor")
+      private ThreadPoolTaskExecutor productExecutor;
+      
+      @Autowired
+      @Qualifier("paymentServiceExecutor")
+      private ThreadPoolTaskExecutor paymentExecutor;
+      
+      public CompletableFuture<Product> getProduct(Long productId) {
+          return CompletableFuture.supplyAsync(() -> {
+              return productClient.getProduct(productId);
+          }, productExecutor);
+      }
+      
+      public CompletableFuture<Payment> processPayment(PaymentRequest request) {
+          return CompletableFuture.supplyAsync(() -> {
+              return paymentClient.processPayment(request);
+          }, paymentExecutor);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Timeout Pattern</summary>
+  <br/>
+
+  **Timeout** prevents indefinite waiting for responses.
+
+  **Resilience4j TimeLimiter:**
+
+  ```yaml
+  # application.yml
+  resilience4j:
+    timelimiter:
+      instances:
+        productService:
+          timeout-duration: 2s
+          cancel-running-future: true
+  ```
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @TimeLimiter(name = "productService", fallbackMethod = "getProductFallback")
+      public CompletableFuture<Product> getProduct(Long productId) {
+          return CompletableFuture.supplyAsync(() -> {
+              return productClient.getProduct(productId);
+          });
+      }
+      
+      public CompletableFuture<Product> getProductFallback(Long productId, TimeoutException e) {
+          log.error("Timeout getting product: {}", productId);
+          return CompletableFuture.completedFuture(getDefaultProduct(productId));
+      }
+  }
+  ```
+
+  **RestTemplate Timeout:**
+
+  ```java
+  @Configuration
+  public class RestTemplateConfig {
+      
+      @Bean
+      public RestTemplate restTemplate() {
+          SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+          factory.setConnectTimeout(2000);  // 2 seconds
+          factory.setReadTimeout(5000);     // 5 seconds
+          return new RestTemplate(factory);
+      }
+  }
+  ```
+
+  **WebClient Timeout:**
+
+  ```java
+  @Configuration
+  public class WebClientConfig {
+      
+      @Bean
+      public WebClient webClient() {
+          HttpClient httpClient = HttpClient.create()
+              .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 2000)
+              .responseTimeout(Duration.ofSeconds(5));
+          
+          return WebClient.builder()
+              .clientConnector(new ReactorClientHttpConnector(httpClient))
+              .build();
+      }
+  }
+  ```
+
+  **Feign Timeout:**
+
+  ```yaml
+  # application.yml
+  feign:
+    client:
+      config:
+        product-service:
+          connect-timeout: 2000
+          read-timeout: 5000
+  ```
+
+</details>
+
+<details>
+  <summary>Rate Limiting</summary>
+  <br/>
+
+  **Rate limiting** controls the number of requests to prevent overload.
+
+  **Resilience4j RateLimiter:**
+
+  ```yaml
+  # application.yml
+  resilience4j:
+    ratelimiter:
+      instances:
+        productService:
+          limit-for-period: 10
+          limit-refresh-period: 1s
+          timeout-duration: 0s
+  ```
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @RateLimiter(name = "productService", fallbackMethod = "getProductFallback")
+      public Product getProduct(Long productId) {
+          return productClient.getProduct(productId);
+      }
+      
+      public Product getProductFallback(Long productId, RequestNotPermitted e) {
+          log.error("Rate limit exceeded for product: {}", productId);
+          throw new TooManyRequestsException("Too many requests, please try again later");
+      }
+  }
+  ```
+
+  **Token Bucket Algorithm:**
+
+  ```java
+  @Component
+  public class TokenBucketRateLimiter {
+      
+      private final int capacity;
+      private final int refillRate;
+      private int tokens;
+      private long lastRefillTime;
+      
+      public TokenBucketRateLimiter(int capacity, int refillRate) {
+          this.capacity = capacity;
+          this.refillRate = refillRate;
+          this.tokens = capacity;
+          this.lastRefillTime = System.currentTimeMillis();
+      }
+      
+      public synchronized boolean tryConsume() {
+          refill();
+          
+          if (tokens > 0) {
+              tokens--;
+              return true;
+          }
+          
+          return false;
+      }
+      
+      private void refill() {
+          long now = System.currentTimeMillis();
+          long timePassed = now - lastRefillTime;
+          int tokensToAdd = (int) (timePassed * refillRate / 1000);
+          
+          if (tokensToAdd > 0) {
+              tokens = Math.min(capacity, tokens + tokensToAdd);
+              lastRefillTime = now;
+          }
+      }
+  }
+  ```
+
+  **Redis-based Rate Limiter:**
+
+  ```java
+  @Component
+  public class RedisRateLimiter {
+      
+      @Autowired
+      private RedisTemplate<String, String> redisTemplate;
+      
+      public boolean isAllowed(String key, int maxRequests, Duration window) {
+          String redisKey = "rate_limit:" + key;
+          long now = System.currentTimeMillis();
+          long windowStart = now - window.toMillis();
+          
+          // Remove old entries
+          redisTemplate.opsForZSet().removeRangeByScore(redisKey, 0, windowStart);
+          
+          // Count requests in window
+          Long count = redisTemplate.opsForZSet().count(redisKey, windowStart, now);
+          
+          if (count < maxRequests) {
+              // Add current request
+              redisTemplate.opsForZSet().add(redisKey, String.valueOf(now), now);
+              redisTemplate.expire(redisKey, window);
+              return true;
+          }
+          
+          return false;
+      }
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private RedisRateLimiter rateLimiter;
+      
+      public Product getProduct(Long productId, String userId) {
+          if (!rateLimiter.isAllowed(userId, 10, Duration.ofMinutes(1))) {
+              throw new TooManyRequestsException("Rate limit exceeded");
+          }
+          
+          return productClient.getProduct(productId);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Combining Patterns</summary>
+  <br/>
+
+  **Multiple resilience patterns together:**
+
+  ```yaml
+  # application.yml
+  resilience4j:
+    circuitbreaker:
+      instances:
+        productService:
+          sliding-window-size: 10
+          failure-rate-threshold: 50
+          wait-duration-in-open-state: 10s
+    
+    retry:
+      instances:
+        productService:
+          max-attempts: 3
+          wait-duration: 1s
+    
+    bulkhead:
+      instances:
+        productService:
+          max-concurrent-calls: 10
+    
+    timelimiter:
+      instances:
+        productService:
+          timeout-duration: 2s
+  ```
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      // Order matters: TimeLimiter → CircuitBreaker → Retry → Bulkhead
+      @TimeLimiter(name = "productService")
+      @CircuitBreaker(name = "productService", fallbackMethod = "getProductFallback")
+      @Retry(name = "productService")
+      @Bulkhead(name = "productService")
+      public CompletableFuture<Product> getProduct(Long productId) {
+          return CompletableFuture.supplyAsync(() -> {
+              log.info("Calling product service for product: {}", productId);
+              return productClient.getProduct(productId);
+          });
+      }
+      
+      public CompletableFuture<Product> getProductFallback(Long productId, Throwable throwable) {
+          log.error("Fallback triggered for product: {}", productId, throwable);
+          return CompletableFuture.completedFuture(getDefaultProduct(productId));
+      }
+      
+      private Product getDefaultProduct(Long productId) {
+          return Product.builder()
+              .id(productId)
+              .name("Product Unavailable")
+              .price(BigDecimal.ZERO)
+              .available(false)
+              .build();
+      }
+  }
+  ```
+
+  **Resilience4j Decorators:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private CircuitBreakerRegistry circuitBreakerRegistry;
+      
+      @Autowired
+      private RetryRegistry retryRegistry;
+      
+      @Autowired
+      private BulkheadRegistry bulkheadRegistry;
+      
+      public Product getProduct(Long productId) {
+          Supplier<Product> supplier = () -> productClient.getProduct(productId);
+          
+          // Decorate with multiple patterns
+          Supplier<Product> decoratedSupplier = Decorators.ofSupplier(supplier)
+              .withCircuitBreaker(circuitBreakerRegistry.circuitBreaker("productService"))
+              .withRetry(retryRegistry.retry("productService"))
+              .withBulkhead(bulkheadRegistry.bulkhead("productService"))
+              .withFallback(Arrays.asList(Exception.class), 
+                  e -> getDefaultProduct(productId))
+              .decorate();
+          
+          return decoratedSupplier.get();
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use circuit breaker for external service calls
+  @CircuitBreaker(name = "productService", fallbackMethod = "getProductFallback")
+  public Product getProduct(Long productId) {
+      return productClient.getProduct(productId);
+  }
+  
+  // ✅ DO: Implement retry with exponential backoff
+  @Retry(name = "productService")
+  public Product getProduct(Long productId) {
+      return productClient.getProduct(productId);
+  }
+  
+  // ✅ DO: Use bulkhead to isolate resources
+  @Bulkhead(name = "productService", type = Bulkhead.Type.THREADPOOL)
+  public CompletableFuture<Product> getProductAsync(Long productId) {
+      return CompletableFuture.supplyAsync(() -> productClient.getProduct(productId));
+  }
+  
+  // ✅ DO: Set timeouts for all external calls
+  @TimeLimiter(name = "productService")
+  public CompletableFuture<Product> getProduct(Long productId) {
+      return CompletableFuture.supplyAsync(() -> productClient.getProduct(productId));
+  }
+  
+  // ✅ DO: Implement rate limiting
+  @RateLimiter(name = "productService")
+  public Product getProduct(Long productId) {
+      return productClient.getProduct(productId);
+  }
+  
+  // ✅ DO: Provide meaningful fallback responses
+  public Product getProductFallback(Long productId, Throwable throwable) {
+      log.error("Fallback for product: {}", productId, throwable);
+      return getCachedProduct(productId)
+          .orElse(getDefaultProduct(productId));
+  }
+  
+  // ✅ DO: Monitor circuit breaker metrics
+  @Component
+  public class CircuitBreakerMetrics {
+      @Autowired
+      private CircuitBreakerRegistry registry;
+      
+      @Scheduled(fixedRate = 60000)
+      public void logMetrics() {
+          registry.getAllCircuitBreakers().forEach(cb -> {
+              CircuitBreaker.Metrics metrics = cb.getMetrics();
+              log.info("Circuit Breaker: {}, State: {}, Failure Rate: {}%",
+                  cb.getName(),
+                  cb.getState(),
+                  metrics.getFailureRate());
+          });
+      }
+  }
+  
+  // ✅ DO: Combine patterns appropriately
+  @TimeLimiter(name = "productService")
+  @CircuitBreaker(name = "productService", fallbackMethod = "fallback")
+  @Retry(name = "productService")
+  public CompletableFuture<Product> getProduct(Long productId) {
+      return CompletableFuture.supplyAsync(() -> productClient.getProduct(productId));
+  }
+  
+  // ❌ DON'T: Use retry without circuit breaker
+  // Can overwhelm failing service
+  
+  // ❌ DON'T: Set timeout longer than circuit breaker wait duration
+  // Circuit breaker should open before timeout
+  
+  // ❌ DON'T: Ignore fallback responses
+  // Always provide meaningful fallback
+  
+  // ❌ DON'T: Use same thread pool for all services
+  // Use bulkhead to isolate resources
+  
+  // ✅ DO: Test resilience patterns
+  @Test
+  public void testCircuitBreaker() {
+      // Simulate failures
+      for (int i = 0; i < 10; i++) {
+          try {
+              orderService.getProduct(1L);
+          } catch (Exception e) {
+              // Expected
+          }
+      }
+      
+      // Circuit should be open
+      CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker("productService");
+      assertEquals(CircuitBreaker.State.OPEN, cb.getState());
+  }
+  ```
+
+  **Summary:**
+  + **Circuit Breaker** - Prevent cascading failures
+  + **Retry** - Automatically retry failed operations
+  + **Bulkhead** - Isolate resources to prevent cascading failures
+  + **Timeout** - Prevent indefinite waiting
+  + **Rate Limiting** - Control request rate
+  + **Combine patterns** for comprehensive resilience
+  + **Monitor metrics** to track resilience
+  + **Test patterns** to ensure they work correctly
+  + **Provide fallbacks** for graceful degradation
+
+</details>

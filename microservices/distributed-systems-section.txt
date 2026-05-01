@@ -1,0 +1,1011 @@
+## Distributed Systems
+
+<details>
+  <summary>CAP Theorem</summary>
+  <br/>
+
+  **CAP Theorem** states that a distributed system can only guarantee 2 out of 3 properties:
+
+  **C - Consistency:** All nodes see the same data at the same time
+  **A - Availability:** Every request receives a response (success or failure)
+  **P - Partition Tolerance:** System continues to operate despite network partitions
+
+  **Trade-offs:**
+
+  ```
+  ┌─────────────────────────────────────┐
+  │         CAP Theorem Triangle        │
+  │                                     │
+  │              Consistency            │
+  │                  /\                 │
+  │                 /  \                │
+  │                /    \               │
+  │               /  CP  \              │
+  │              /        \             │
+  │             /          \            │
+  │            /    CA      \           │
+  │           /              \          │
+  │          /                \         │
+  │         /                  \        │
+  │        /                    \       │
+  │       /         AP           \      │
+  │      /________________________\     │
+  │  Availability          Partition   │
+  │                        Tolerance    │
+  └─────────────────────────────────────┘
+  ```
+
+  **CA (Consistency + Availability):**
+  - Traditional RDBMS (single node)
+  - Not partition tolerant
+  - Example: PostgreSQL, MySQL (single instance)
+
+  **CP (Consistency + Partition Tolerance):**
+  - Sacrifices availability during partition
+  - Strong consistency guaranteed
+  - Examples: MongoDB, HBase, Redis, Zookeeper
+
+  **AP (Availability + Partition Tolerance):**
+  - Sacrifices consistency during partition
+  - Eventually consistent
+  - Examples: Cassandra, DynamoDB, CouchDB
+
+  **Real-world example:**
+
+  ```java
+  // CP System (MongoDB) - Consistency over Availability
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private MongoTemplate mongoTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          // Write to primary node
+          // If primary is down, write fails (unavailable)
+          // But data is always consistent
+          Order order = new Order(request);
+          return mongoTemplate.save(order);
+      }
+  }
+  
+  // AP System (Cassandra) - Availability over Consistency
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private CassandraTemplate cassandraTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          // Write to any available node
+          // Always succeeds (available)
+          // But may read stale data temporarily
+          Order order = new Order(request);
+          return cassandraTemplate.insert(order);
+      }
+  }
+  ```
+
+  **Choosing the right system:**
+
+  | Use Case | Choice | Reason |
+  |----------|--------|--------|
+  | Banking transactions | CP | Consistency critical |
+  | Social media posts | AP | Availability critical |
+  | E-commerce inventory | CP | Prevent overselling |
+  | User profiles | AP | Stale data acceptable |
+  | Shopping cart | AP | Always available |
+  | Payment processing | CP | Consistency required |
+
+</details>
+
+<details>
+  <summary>Eventual Consistency</summary>
+  <br/>
+
+  **Eventual Consistency:** System will become consistent over time, but may be temporarily inconsistent.
+
+  **BASE Properties (vs ACID):**
+
+  **B**asically **A**vailable: System appears to work most of the time
+  **S**oft state: State may change over time without input
+  **E**ventual consistency: System will become consistent eventually
+
+  **Example scenario:**
+
+  ```
+  Time: T0
+  User updates profile in US datacenter
+  ┌──────────────┐
+  │  US Region   │  Name: "John Doe"
+  └──────────────┘
+  
+  Time: T1 (immediately after)
+  ┌──────────────┐     ┌──────────────┐
+  │  US Region   │     │  EU Region   │
+  │ Name: "John" │     │ Name: "John  │
+  │              │────▶│  Doe" (old)  │
+  └──────────────┘     └──────────────┘
+  Replication in progress...
+  
+  Time: T2 (after replication)
+  ┌──────────────┐     ┌──────────────┐
+  │  US Region   │     │  EU Region   │
+  │ Name: "John" │     │ Name: "John" │
+  └──────────────┘     └──────────────┘
+  Eventually consistent!
+  ```
+
+  **Implementation patterns:**
+
+  **1. Read-Your-Writes Consistency:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @Autowired
+      private UserRepository primaryRepo;
+      
+      @Autowired
+      private UserRepository replicaRepo;
+      
+      public User updateUser(Long userId, UserRequest request) {
+          // Write to primary
+          User user = primaryRepo.save(new User(request));
+          
+          // Store write timestamp
+          cache.put("user:" + userId + ":write-time", System.currentTimeMillis());
+          
+          return user;
+      }
+      
+      public User getUser(Long userId) {
+          Long writeTime = cache.get("user:" + userId + ":write-time");
+          
+          if (writeTime != null && 
+              System.currentTimeMillis() - writeTime < 5000) {
+              // Recent write, read from primary
+              return primaryRepo.findById(userId);
+          }
+          
+          // Old data, read from replica (faster)
+          return replicaRepo.findById(userId);
+      }
+  }
+  ```
+
+  **2. Version Vectors:**
+
+  ```java
+  @Entity
+  public class User {
+      @Id
+      private Long id;
+      
+      private String name;
+      
+      @ElementCollection
+      private Map<String, Long> versionVector = new HashMap<>();
+      // {"us-datacenter": 5, "eu-datacenter": 3}
+      
+      public boolean isNewerThan(User other) {
+          for (Map.Entry<String, Long> entry : this.versionVector.entrySet()) {
+              Long otherVersion = other.versionVector.get(entry.getKey());
+              if (otherVersion == null || entry.getValue() > otherVersion) {
+                  return true;
+              }
+          }
+          return false;
+      }
+  }
+  ```
+
+  **3. Conflict Resolution:**
+
+  ```java
+  @Service
+  public class ConflictResolver {
+      
+      public User resolveConflict(User version1, User version2) {
+          // Last-Write-Wins (LWW)
+          if (version1.getUpdatedAt().isAfter(version2.getUpdatedAt())) {
+              return version1;
+          }
+          return version2;
+      }
+      
+      public User mergeConflict(User version1, User version2) {
+          // Custom merge logic
+          User merged = new User();
+          merged.setId(version1.getId());
+          
+          // Take newer name
+          merged.setName(
+              version1.getUpdatedAt().isAfter(version2.getUpdatedAt())
+                  ? version1.getName()
+                  : version2.getName()
+          );
+          
+          // Merge tags (union)
+          Set<String> allTags = new HashSet<>();
+          allTags.addAll(version1.getTags());
+          allTags.addAll(version2.getTags());
+          merged.setTags(allTags);
+          
+          return merged;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Distributed Transactions - Saga Pattern</summary>
+  <br/>
+
+  **Saga Pattern:** Manages distributed transactions using a sequence of local transactions.
+
+  **Problem:**
+
+  ```java
+  // This doesn't work in microservices!
+  @Transactional
+  public void createOrder(OrderRequest request) {
+      orderService.createOrder(request);      // Order Service DB
+      inventoryService.reserveStock(request); // Inventory Service DB
+      paymentService.processPayment(request); // Payment Service DB
+      // If payment fails, how to rollback order and inventory?
+  }
+  ```
+
+  **Saga Types:**
+
+  **1. Choreography-based Saga (Event-driven):**
+
+  ```java
+  // Order Service
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public Order createOrder(OrderRequest request) {
+          // Step 1: Create order
+          Order order = orderRepository.save(new Order(request));
+          
+          // Publish event
+          kafkaTemplate.send("order-events", 
+              new OrderCreatedEvent(order.getId(), order.getItems()));
+          
+          return order;
+      }
+      
+      @KafkaListener(topics = "payment-events")
+      public void handlePaymentFailed(PaymentFailedEvent event) {
+          // Compensating transaction
+          Order order = orderRepository.findById(event.getOrderId());
+          order.setStatus(OrderStatus.CANCELLED);
+          orderRepository.save(order);
+      }
+  }
+  
+  // Inventory Service
+  @Service
+  public class InventoryService {
+      
+      @KafkaListener(topics = "order-events")
+      public void handleOrderCreated(OrderCreatedEvent event) {
+          try {
+              // Step 2: Reserve stock
+              inventoryRepository.reserveStock(event.getItems());
+              
+              // Publish success event
+              kafkaTemplate.send("inventory-events",
+                  new StockReservedEvent(event.getOrderId()));
+          } catch (InsufficientStockException e) {
+              // Publish failure event
+              kafkaTemplate.send("inventory-events",
+                  new StockReservationFailedEvent(event.getOrderId()));
+          }
+      }
+      
+      @KafkaListener(topics = "payment-events")
+      public void handlePaymentFailed(PaymentFailedEvent event) {
+          // Compensating transaction
+          inventoryRepository.releaseStock(event.getOrderId());
+      }
+  }
+  
+  // Payment Service
+  @Service
+  public class PaymentService {
+      
+      @KafkaListener(topics = "inventory-events")
+      public void handleStockReserved(StockReservedEvent event) {
+          try {
+              // Step 3: Process payment
+              paymentRepository.processPayment(event.getOrderId());
+              
+              // Publish success event
+              kafkaTemplate.send("payment-events",
+                  new PaymentCompletedEvent(event.getOrderId()));
+          } catch (PaymentException e) {
+              // Publish failure event
+              kafkaTemplate.send("payment-events",
+                  new PaymentFailedEvent(event.getOrderId()));
+          }
+      }
+  }
+  ```
+
+  **2. Orchestration-based Saga (Centralized):**
+
+  ```java
+  // Saga Orchestrator
+  @Service
+  public class OrderSagaOrchestrator {
+      
+      @Autowired
+      private OrderService orderService;
+      
+      @Autowired
+      private InventoryService inventoryService;
+      
+      @Autowired
+      private PaymentService paymentService;
+      
+      public void executeOrderSaga(OrderRequest request) {
+          String sagaId = UUID.randomUUID().toString();
+          
+          try {
+              // Step 1: Create order
+              Order order = orderService.createOrder(request);
+              saveSagaState(sagaId, "ORDER_CREATED", order.getId());
+              
+              // Step 2: Reserve stock
+              inventoryService.reserveStock(order.getId(), request.getItems());
+              saveSagaState(sagaId, "STOCK_RESERVED", order.getId());
+              
+              // Step 3: Process payment
+              paymentService.processPayment(order.getId(), request.getPayment());
+              saveSagaState(sagaId, "PAYMENT_COMPLETED", order.getId());
+              
+              // Success!
+              orderService.completeOrder(order.getId());
+              
+          } catch (InsufficientStockException e) {
+              // Compensate: Cancel order
+              compensateOrderCreation(sagaId);
+              
+          } catch (PaymentException e) {
+              // Compensate: Release stock and cancel order
+              compensateStockReservation(sagaId);
+              compensateOrderCreation(sagaId);
+          }
+      }
+      
+      private void compensateOrderCreation(String sagaId) {
+          SagaState state = getSagaState(sagaId);
+          orderService.cancelOrder(state.getOrderId());
+      }
+      
+      private void compensateStockReservation(String sagaId) {
+          SagaState state = getSagaState(sagaId);
+          inventoryService.releaseStock(state.getOrderId());
+      }
+  }
+  ```
+
+  **Saga State Machine:**
+
+  ```java
+  @Entity
+  public class SagaState {
+      @Id
+      private String sagaId;
+      
+      private String currentStep;
+      private SagaStatus status;
+      private Long orderId;
+      private LocalDateTime createdAt;
+      private LocalDateTime updatedAt;
+      
+      @ElementCollection
+      private List<String> completedSteps = new ArrayList<>();
+      
+      @ElementCollection
+      private List<String> compensatedSteps = new ArrayList<>();
+  }
+  
+  public enum SagaStatus {
+      STARTED,
+      ORDER_CREATED,
+      STOCK_RESERVED,
+      PAYMENT_COMPLETED,
+      COMPLETED,
+      COMPENSATING,
+      COMPENSATED,
+      FAILED
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Event Sourcing</summary>
+  <br/>
+
+  **Event Sourcing:** Store all changes as a sequence of events instead of current state.
+
+  **Traditional approach:**
+
+  ```java
+  // Store current state only
+  @Entity
+  public class Account {
+      @Id
+      private Long id;
+      private BigDecimal balance;  // Current balance only
+  }
+  
+  // Lost history: How did we get to this balance?
+  ```
+
+  **Event Sourcing approach:**
+
+  ```java
+  // Store all events
+  @Entity
+  public class AccountEvent {
+      @Id
+      private Long id;
+      
+      private Long accountId;
+      private String eventType;  // CREATED, DEPOSITED, WITHDRAWN
+      private BigDecimal amount;
+      private LocalDateTime timestamp;
+      private Long version;
+  }
+  
+  // Events:
+  // 1. AccountCreated(accountId=1, balance=0)
+  // 2. MoneyDeposited(accountId=1, amount=100)
+  // 3. MoneyWithdrawn(accountId=1, amount=30)
+  // 4. MoneyDeposited(accountId=1, amount=50)
+  // Current balance = 0 + 100 - 30 + 50 = 120
+  ```
+
+  **Implementation:**
+
+  ```java
+  // Events
+  public interface AccountEvent {
+      Long getAccountId();
+      LocalDateTime getTimestamp();
+  }
+  
+  public class AccountCreatedEvent implements AccountEvent {
+      private Long accountId;
+      private String owner;
+      private LocalDateTime timestamp;
+  }
+  
+  public class MoneyDepositedEvent implements AccountEvent {
+      private Long accountId;
+      private BigDecimal amount;
+      private LocalDateTime timestamp;
+  }
+  
+  public class MoneyWithdrawnEvent implements AccountEvent {
+      private Long accountId;
+      private BigDecimal amount;
+      private LocalDateTime timestamp;
+  }
+  
+  // Event Store
+  @Repository
+  public interface EventStore {
+      void save(AccountEvent event);
+      List<AccountEvent> getEvents(Long accountId);
+      List<AccountEvent> getEventsSince(Long accountId, Long version);
+  }
+  
+  // Aggregate (reconstructed from events)
+  public class Account {
+      private Long id;
+      private String owner;
+      private BigDecimal balance;
+      private Long version;
+      
+      public static Account fromEvents(List<AccountEvent> events) {
+          Account account = new Account();
+          
+          for (AccountEvent event : events) {
+              account.apply(event);
+          }
+          
+          return account;
+      }
+      
+      private void apply(AccountEvent event) {
+          if (event instanceof AccountCreatedEvent) {
+              AccountCreatedEvent e = (AccountCreatedEvent) event;
+              this.id = e.getAccountId();
+              this.owner = e.getOwner();
+              this.balance = BigDecimal.ZERO;
+              this.version = 0L;
+              
+          } else if (event instanceof MoneyDepositedEvent) {
+              MoneyDepositedEvent e = (MoneyDepositedEvent) event;
+              this.balance = this.balance.add(e.getAmount());
+              this.version++;
+              
+          } else if (event instanceof MoneyWithdrawnEvent) {
+              MoneyWithdrawnEvent e = (MoneyWithdrawnEvent) event;
+              this.balance = this.balance.subtract(e.getAmount());
+              this.version++;
+          }
+      }
+  }
+  
+  // Service
+  @Service
+  public class AccountService {
+      
+      @Autowired
+      private EventStore eventStore;
+      
+      public void deposit(Long accountId, BigDecimal amount) {
+          // Load events
+          List<AccountEvent> events = eventStore.getEvents(accountId);
+          
+          // Reconstruct current state
+          Account account = Account.fromEvents(events);
+          
+          // Create new event
+          MoneyDepositedEvent event = new MoneyDepositedEvent(
+              accountId, amount, LocalDateTime.now()
+          );
+          
+          // Save event
+          eventStore.save(event);
+      }
+      
+      public Account getAccount(Long accountId) {
+          List<AccountEvent> events = eventStore.getEvents(accountId);
+          return Account.fromEvents(events);
+      }
+      
+      public Account getAccountAtTime(Long accountId, LocalDateTime timestamp) {
+          List<AccountEvent> events = eventStore.getEvents(accountId)
+              .stream()
+              .filter(e -> e.getTimestamp().isBefore(timestamp))
+              .collect(Collectors.toList());
+          
+          return Account.fromEvents(events);
+      }
+  }
+  ```
+
+  **Benefits:**
+  + Complete audit trail
+  + Time travel (reconstruct state at any point)
+  + Event replay
+  + Debug and troubleshoot
+  + Analytics and reporting
+
+  **Drawbacks:**
+  + Complex queries
+  + Storage overhead
+  + Performance (need snapshots)
+
+  **Snapshots (optimization):**
+
+  ```java
+  @Entity
+  public class AccountSnapshot {
+      @Id
+      private Long id;
+      
+      private Long accountId;
+      private BigDecimal balance;
+      private Long version;
+      private LocalDateTime timestamp;
+  }
+  
+  @Service
+  public class AccountService {
+      
+      public Account getAccount(Long accountId) {
+          // Load latest snapshot
+          AccountSnapshot snapshot = snapshotRepository
+              .findLatestByAccountId(accountId);
+          
+          Account account;
+          if (snapshot != null) {
+              account = Account.fromSnapshot(snapshot);
+              
+              // Load events since snapshot
+              List<AccountEvent> events = eventStore
+                  .getEventsSince(accountId, snapshot.getVersion());
+              
+              // Apply events
+              events.forEach(account::apply);
+          } else {
+              // No snapshot, load all events
+              List<AccountEvent> events = eventStore.getEvents(accountId);
+              account = Account.fromEvents(events);
+          }
+          
+          return account;
+      }
+      
+      @Scheduled(cron = "0 0 * * * *")  // Every hour
+      public void createSnapshots() {
+          // Create snapshots for active accounts
+          List<Long> accountIds = accountRepository.findActiveAccountIds();
+          
+          for (Long accountId : accountIds) {
+              Account account = getAccount(accountId);
+              
+              AccountSnapshot snapshot = new AccountSnapshot();
+              snapshot.setAccountId(accountId);
+              snapshot.setBalance(account.getBalance());
+              snapshot.setVersion(account.getVersion());
+              snapshot.setTimestamp(LocalDateTime.now());
+              
+              snapshotRepository.save(snapshot);
+          }
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>CQRS (Command Query Responsibility Segregation)</summary>
+  <br/>
+
+  **CQRS:** Separate read and write operations into different models.
+
+  **Traditional approach:**
+
+  ```java
+  // Same model for read and write
+  @Entity
+  public class Order {
+      @Id
+      private Long id;
+      private Long customerId;
+      private List<OrderItem> items;
+      private BigDecimal total;
+      private OrderStatus status;
+  }
+  
+  @Service
+  public class OrderService {
+      // Write
+      public Order createOrder(OrderRequest request) {
+          return orderRepository.save(new Order(request));
+      }
+      
+      // Read
+      public Order getOrder(Long id) {
+          return orderRepository.findById(id);
+      }
+      
+      // Complex read
+      public List<OrderSummary> getOrderSummaries(Long customerId) {
+          // Complex joins and aggregations
+          return orderRepository.findOrderSummaries(customerId);
+      }
+  }
+  ```
+
+  **CQRS approach:**
+
+  ```java
+  // Write Model (Command)
+  @Entity
+  @Table(name = "orders")
+  public class Order {
+      @Id
+      private Long id;
+      private Long customerId;
+      
+      @OneToMany
+      private List<OrderItem> items;
+      
+      private BigDecimal total;
+      private OrderStatus status;
+      private LocalDateTime createdAt;
+  }
+  
+  // Read Model (Query) - Denormalized
+  @Entity
+  @Table(name = "order_summaries")
+  public class OrderSummary {
+      @Id
+      private Long id;
+      
+      private Long orderId;
+      private Long customerId;
+      private String customerName;
+      private Integer itemCount;
+      private BigDecimal total;
+      private String status;
+      private LocalDateTime createdAt;
+  }
+  
+  // Command Service (Write)
+  @Service
+  public class OrderCommandService {
+      
+      @Autowired
+      private OrderRepository orderRepository;
+      
+      @Autowired
+      private EventPublisher eventPublisher;
+      
+      public Order createOrder(CreateOrderCommand command) {
+          Order order = new Order();
+          order.setCustomerId(command.getCustomerId());
+          order.setItems(command.getItems());
+          order.setTotal(calculateTotal(command.getItems()));
+          order.setStatus(OrderStatus.PENDING);
+          
+          order = orderRepository.save(order);
+          
+          // Publish event for read model update
+          eventPublisher.publish(new OrderCreatedEvent(order));
+          
+          return order;
+      }
+      
+      public void updateOrderStatus(UpdateOrderStatusCommand command) {
+          Order order = orderRepository.findById(command.getOrderId());
+          order.setStatus(command.getStatus());
+          orderRepository.save(order);
+          
+          eventPublisher.publish(new OrderStatusUpdatedEvent(order));
+      }
+  }
+  
+  // Query Service (Read)
+  @Service
+  public class OrderQueryService {
+      
+      @Autowired
+      private OrderSummaryRepository orderSummaryRepository;
+      
+      public OrderSummary getOrderSummary(Long orderId) {
+          return orderSummaryRepository.findByOrderId(orderId);
+      }
+      
+      public List<OrderSummary> getCustomerOrders(Long customerId) {
+          return orderSummaryRepository.findByCustomerId(customerId);
+      }
+      
+      public Page<OrderSummary> searchOrders(OrderSearchCriteria criteria, Pageable pageable) {
+          return orderSummaryRepository.search(criteria, pageable);
+      }
+  }
+  
+  // Event Handler (Update Read Model)
+  @Service
+  public class OrderEventHandler {
+      
+      @Autowired
+      private OrderSummaryRepository orderSummaryRepository;
+      
+      @Autowired
+      private CustomerService customerService;
+      
+      @EventListener
+      public void handleOrderCreated(OrderCreatedEvent event) {
+          Order order = event.getOrder();
+          Customer customer = customerService.getCustomer(order.getCustomerId());
+          
+          OrderSummary summary = new OrderSummary();
+          summary.setOrderId(order.getId());
+          summary.setCustomerId(order.getCustomerId());
+          summary.setCustomerName(customer.getName());
+          summary.setItemCount(order.getItems().size());
+          summary.setTotal(order.getTotal());
+          summary.setStatus(order.getStatus().name());
+          summary.setCreatedAt(order.getCreatedAt());
+          
+          orderSummaryRepository.save(summary);
+      }
+      
+      @EventListener
+      public void handleOrderStatusUpdated(OrderStatusUpdatedEvent event) {
+          OrderSummary summary = orderSummaryRepository
+              .findByOrderId(event.getOrder().getId());
+          
+          summary.setStatus(event.getOrder().getStatus().name());
+          orderSummaryRepository.save(summary);
+      }
+  }
+  ```
+
+  **CQRS with separate databases:**
+
+  ```java
+  @Configuration
+  public class DatabaseConfig {
+      
+      // Write Database (PostgreSQL)
+      @Bean
+      @Primary
+      public DataSource writeDataSource() {
+          return DataSourceBuilder.create()
+              .url("jdbc:postgresql://write-db:5432/orders")
+              .build();
+      }
+      
+      // Read Database (MongoDB for fast queries)
+      @Bean
+      public MongoTemplate readMongoTemplate() {
+          return new MongoTemplate(
+              new MongoClient("read-db", 27017),
+              "orders_read"
+          );
+      }
+  }
+  
+  @Service
+  public class OrderQueryService {
+      
+      @Autowired
+      private MongoTemplate mongoTemplate;
+      
+      public List<OrderSummary> getCustomerOrders(Long customerId) {
+          Query query = new Query(Criteria.where("customerId").is(customerId));
+          return mongoTemplate.find(query, OrderSummary.class);
+      }
+      
+      public List<OrderSummary> searchOrders(String keyword) {
+          // Full-text search in MongoDB
+          TextCriteria criteria = TextCriteria.forDefaultLanguage()
+              .matchingAny(keyword);
+          Query query = TextQuery.queryText(criteria);
+          return mongoTemplate.find(query, OrderSummary.class);
+      }
+  }
+  ```
+
+  **Benefits:**
+  + Optimized read and write models
+  + Scale read and write independently
+  + Complex queries without affecting writes
+  + Multiple read models for different use cases
+
+  **Drawbacks:**
+  + Increased complexity
+  + Eventual consistency
+  + Data synchronization overhead
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Understand CAP trade-offs
+  // Choose CP for financial transactions
+  // Choose AP for social media, caching
+  
+  // ✅ DO: Implement idempotency for eventual consistency
+  @Service
+  public class OrderService {
+      public void processOrder(String idempotencyKey, OrderRequest request) {
+          if (processedKeys.contains(idempotencyKey)) {
+              return;  // Already processed
+          }
+          
+          // Process order
+          Order order = createOrder(request);
+          
+          // Mark as processed
+          processedKeys.add(idempotencyKey);
+      }
+  }
+  
+  // ✅ DO: Use Saga pattern for distributed transactions
+  // Choreography for simple flows
+  // Orchestration for complex flows
+  
+  // ✅ DO: Implement compensating transactions
+  @Service
+  public class SagaOrchestrator {
+      public void executeOrderSaga(OrderRequest request) {
+          try {
+              orderService.createOrder(request);
+              inventoryService.reserveStock(request);
+              paymentService.processPayment(request);
+          } catch (Exception e) {
+              // Compensate
+              inventoryService.releaseStock(request);
+              orderService.cancelOrder(request);
+          }
+      }
+  }
+  
+  // ✅ DO: Use Event Sourcing for audit trail
+  @Service
+  public class AccountService {
+      public void deposit(Long accountId, BigDecimal amount) {
+          MoneyDepositedEvent event = new MoneyDepositedEvent(accountId, amount);
+          eventStore.save(event);
+      }
+  }
+  
+  // ✅ DO: Create snapshots for Event Sourcing performance
+  @Scheduled(cron = "0 0 * * * *")
+  public void createSnapshots() {
+      // Create snapshots every hour
+  }
+  
+  // ✅ DO: Use CQRS for complex read requirements
+  // Separate write model (normalized)
+  // Separate read model (denormalized)
+  
+  // ✅ DO: Handle eventual consistency in UI
+  // Show "Processing..." message
+  // Poll for updates
+  // Use WebSockets for real-time updates
+  
+  // ✅ DO: Implement conflict resolution
+  @Service
+  public class ConflictResolver {
+      public User resolve(User v1, User v2) {
+          // Last-Write-Wins, Custom merge, etc.
+          return v1.getUpdatedAt().isAfter(v2.getUpdatedAt()) ? v1 : v2;
+      }
+  }
+  
+  // ❌ DON'T: Expect strong consistency in distributed systems
+  // Embrace eventual consistency
+  
+  // ❌ DON'T: Use distributed transactions (2PC) in microservices
+  // Use Saga pattern instead
+  
+  // ❌ DON'T: Store only current state if audit trail is needed
+  // Use Event Sourcing
+  
+  // ✅ DO: Monitor saga execution
+  @Component
+  public class SagaMonitor {
+      @Scheduled(fixedRate = 60000)
+      public void checkStuckSagas() {
+          List<SagaState> stuck = sagaRepository
+              .findByStatusAndCreatedAtBefore(
+                  SagaStatus.STARTED,
+                  LocalDateTime.now().minusMinutes(5)
+              );
+          
+          stuck.forEach(saga -> {
+              log.warn("Stuck saga detected: {}", saga.getSagaId());
+              // Trigger compensation or retry
+          });
+      }
+  }
+  ```
+
+  **Summary:**
+  + **CAP Theorem** - Choose 2 of 3: Consistency, Availability, Partition Tolerance
+  + **Eventual Consistency** - System becomes consistent over time (BASE properties)
+  + **Saga Pattern** - Manage distributed transactions with compensating transactions
+  + **Event Sourcing** - Store all changes as events for complete audit trail
+  + **CQRS** - Separate read and write models for optimization
+  + Use **Choreography** for simple sagas, **Orchestration** for complex ones
+  + Implement **idempotency** for reliable event processing
+  + Create **snapshots** for Event Sourcing performance
+  + **Monitor** saga execution and handle stuck sagas
+  + Embrace **eventual consistency** in distributed systems
+
+</details>

@@ -1,0 +1,1745 @@
+## Messaging
+
+<details>
+  <summary>Apache Kafka - Topics and Partitions</summary>
+  <br/>
+
+  **Apache Kafka** is a distributed event streaming platform for high-throughput, fault-tolerant messaging.
+
+  **Core Concepts:**
+
+  ```
+  ┌─────────────────────────────────────────────────────────┐
+  │                    Kafka Cluster                        │
+  │                                                         │
+  │  Topic: "orders"                                        │
+  │  ┌─────────────┬─────────────┬─────────────┐          │
+  │  │ Partition 0 │ Partition 1 │ Partition 2 │          │
+  │  ├─────────────┼─────────────┼─────────────┤          │
+  │  │ [M1][M2][M3]│ [M4][M5][M6]│ [M7][M8][M9]│          │
+  │  │ offset: 0-2 │ offset: 0-2 │ offset: 0-2 │          │
+  │  └─────────────┴─────────────┴─────────────┘          │
+  │                                                         │
+  │  Replication Factor: 3                                  │
+  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
+  │  │  Broker 1   │  │  Broker 2   │  │  Broker 3   │   │
+  │  │  (Leader)   │  │  (Replica)  │  │  (Replica)  │   │
+  │  └─────────────┘  └─────────────┘  └─────────────┘   │
+  └─────────────────────────────────────────────────────────┘
+  ```
+
+  **Topics:**
+  - Logical channel for messages
+  - Similar to database table
+  - Messages are immutable
+  - Retained for configured time (default 7 days)
+
+  **Partitions:**
+  - Topics split into partitions for parallelism
+  - Each partition is ordered sequence
+  - Messages in partition have unique offset
+  - Partitions distributed across brokers
+
+  **Configuration:**
+
+  ```yaml
+  # application.yml
+  spring:
+    kafka:
+      bootstrap-servers: localhost:9092
+      producer:
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+        acks: all  # Wait for all replicas
+        retries: 3
+        properties:
+          linger.ms: 10  # Batch messages for 10ms
+          batch.size: 16384  # 16KB batch size
+          compression.type: snappy
+      consumer:
+        key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+        value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+        group-id: order-service-group
+        auto-offset-reset: earliest
+        enable-auto-commit: false
+        properties:
+          spring.json.trusted.packages: "*"
+  ```
+
+  **Creating Topics:**
+
+  ```java
+  @Configuration
+  public class KafkaTopicConfig {
+      
+      @Bean
+      public NewTopic orderTopic() {
+          return TopicBuilder.name("orders")
+              .partitions(3)  // 3 partitions for parallelism
+              .replicas(3)    // 3 replicas for fault tolerance
+              .config(TopicConfig.RETENTION_MS_CONFIG, "604800000")  // 7 days
+              .config(TopicConfig.COMPRESSION_TYPE_CONFIG, "snappy")
+              .build();
+      }
+      
+      @Bean
+      public NewTopic orderEventsTopic() {
+          return TopicBuilder.name("order-events")
+              .partitions(5)
+              .replicas(2)
+              .compact()  // Log compaction (keep latest per key)
+              .build();
+      }
+  }
+  ```
+
+  **Partition Key Strategy:**
+
+  ```java
+  @Service
+  public class OrderProducer {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public void sendOrderEvent(OrderEvent event) {
+          // Partition by customer ID - all orders from same customer go to same partition
+          String key = String.valueOf(event.getCustomerId());
+          
+          kafkaTemplate.send("orders", key, event);
+          // Messages with same key always go to same partition (ordering guaranteed)
+      }
+      
+      public void sendWithCustomPartition(OrderEvent event) {
+          // Custom partition selection
+          int partition = event.getOrderId() % 3;  // Round-robin across 3 partitions
+          
+          kafkaTemplate.send("orders", partition, 
+              String.valueOf(event.getCustomerId()), event);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Apache Kafka - Producers</summary>
+  <br/>
+
+  **Producers** send messages to Kafka topics.
+
+  **Basic Producer:**
+
+  ```java
+  @Service
+  @Slf4j
+  public class OrderProducer {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public void sendOrder(OrderEvent event) {
+          kafkaTemplate.send("orders", event);
+      }
+      
+      public void sendOrderWithCallback(OrderEvent event) {
+          kafkaTemplate.send("orders", event)
+              .addCallback(
+                  result -> log.info("Message sent successfully: offset={}", 
+                      result.getRecordMetadata().offset()),
+                  ex -> log.error("Failed to send message", ex)
+              );
+      }
+      
+      public CompletableFuture<SendResult<String, OrderEvent>> sendOrderAsync(OrderEvent event) {
+          return kafkaTemplate.send("orders", 
+              String.valueOf(event.getCustomerId()), 
+              event);
+      }
+  }
+  ```
+
+  **Producer with Headers:**
+
+  ```java
+  @Service
+  public class OrderProducer {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public void sendWithHeaders(OrderEvent event) {
+          ProducerRecord<String, OrderEvent> record = new ProducerRecord<>(
+              "orders",
+              String.valueOf(event.getCustomerId()),
+              event
+          );
+          
+          // Add headers
+          record.headers().add("event-type", "ORDER_CREATED".getBytes());
+          record.headers().add("source", "order-service".getBytes());
+          record.headers().add("correlation-id", UUID.randomUUID().toString().getBytes());
+          record.headers().add("timestamp", String.valueOf(System.currentTimeMillis()).getBytes());
+          
+          kafkaTemplate.send(record);
+      }
+  }
+  ```
+
+  **Transactional Producer:**
+
+  ```java
+  @Configuration
+  public class KafkaProducerConfig {
+      
+      @Bean
+      public ProducerFactory<String, OrderEvent> producerFactory() {
+          Map<String, Object> config = new HashMap<>();
+          config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+          config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+          config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+          
+          // Transactional settings
+          config.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "order-producer-1");
+          config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+          config.put(ProducerConfig.ACKS_CONFIG, "all");
+          
+          return new DefaultKafkaProducerFactory<>(config);
+      }
+  }
+  
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      @Autowired
+      private OrderRepository orderRepository;
+      
+      @Transactional
+      public void createOrder(OrderRequest request) {
+          // Save to database
+          Order order = orderRepository.save(new Order(request));
+          
+          // Send to Kafka (transactional)
+          kafkaTemplate.executeInTransaction(ops -> {
+              ops.send("orders", new OrderCreatedEvent(order));
+              ops.send("notifications", new NotificationEvent(order));
+              return true;
+          });
+          
+          // Both DB and Kafka commit together or rollback together
+      }
+  }
+  ```
+
+  **Batch Producer:**
+
+  ```java
+  @Service
+  public class BatchOrderProducer {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public void sendBatch(List<OrderEvent> events) {
+          List<ProducerRecord<String, OrderEvent>> records = events.stream()
+              .map(event -> new ProducerRecord<String, OrderEvent>(
+                  "orders",
+                  String.valueOf(event.getCustomerId()),
+                  event
+              ))
+              .collect(Collectors.toList());
+          
+          // Send all records
+          records.forEach(kafkaTemplate::send);
+          
+          // Flush to ensure all sent
+          kafkaTemplate.flush();
+      }
+  }
+  ```
+
+  **Producer Configuration Options:**
+
+  ```java
+  @Configuration
+  public class KafkaProducerConfig {
+      
+      @Bean
+      public Map<String, Object> producerConfigs() {
+          Map<String, Object> props = new HashMap<>();
+          
+          // Connection
+          props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+          
+          // Serialization
+          props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+          props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+          
+          // Reliability
+          props.put(ProducerConfig.ACKS_CONFIG, "all");  // Wait for all replicas
+          props.put(ProducerConfig.RETRIES_CONFIG, 3);
+          props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+          
+          // Performance
+          props.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);  // 16KB
+          props.put(ProducerConfig.LINGER_MS_CONFIG, 10);  // Wait 10ms to batch
+          props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy");
+          props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432);  // 32MB
+          
+          // Timeout
+          props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
+          props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 120000);
+          
+          return props;
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Apache Kafka - Consumers and Consumer Groups</summary>
+  <br/>
+
+  **Consumers** read messages from Kafka topics.
+
+  **Consumer Groups:**
+  - Multiple consumers work together
+  - Each partition assigned to one consumer in group
+  - Enables parallel processing
+  - Automatic rebalancing
+
+  ```
+  Topic: "orders" (3 partitions)
+  ┌─────────────┬─────────────┬─────────────┐
+  │ Partition 0 │ Partition 1 │ Partition 2 │
+  └──────┬──────┴──────┬──────┴──────┬───────┘
+         │             │             │
+         ▼             ▼             ▼
+  ┌───────────┐ ┌───────────┐ ┌───────────┐
+  │Consumer 1 │ │Consumer 2 │ │Consumer 3 │
+  └───────────┘ └───────────┘ └───────────┘
+       Consumer Group: "order-processors"
+  
+  If Consumer 2 fails:
+  ┌─────────────┬─────────────┬─────────────┐
+  │ Partition 0 │ Partition 1 │ Partition 2 │
+  └──────┬──────┴──────┬──────┴──────┬───────┘
+         │             │             │
+         ▼             ▼             ▼
+  ┌───────────┐       X         ┌───────────┐
+  │Consumer 1 │               │Consumer 3 │
+  │(P0 + P1)  │               │   (P2)    │
+  └───────────┘               └───────────┘
+  ```
+
+  **Basic Consumer:**
+
+  ```java
+  @Service
+  @Slf4j
+  public class OrderConsumer {
+      
+      @KafkaListener(
+          topics = "orders",
+          groupId = "order-service-group"
+      )
+      public void consumeOrder(OrderEvent event) {
+          log.info("Received order: {}", event.getOrderId());
+          processOrder(event);
+      }
+      
+      @KafkaListener(
+          topics = "orders",
+          groupId = "order-service-group",
+          containerFactory = "kafkaListenerContainerFactory"
+      )
+      public void consumeWithMetadata(
+          @Payload OrderEvent event,
+          @Header(KafkaHeaders.RECEIVED_PARTITION_ID) int partition,
+          @Header(KafkaHeaders.OFFSET) long offset,
+          @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp
+      ) {
+          log.info("Received order {} from partition {} at offset {} (timestamp: {})",
+              event.getOrderId(), partition, offset, timestamp);
+          processOrder(event);
+      }
+  }
+  ```
+
+  **Multiple Consumers in Group:**
+
+  ```java
+  // Consumer 1
+  @Service
+  public class OrderConsumer1 {
+      @KafkaListener(
+          topics = "orders",
+          groupId = "order-processors",
+          id = "consumer-1"
+      )
+      public void consume(OrderEvent event) {
+          log.info("Consumer 1 processing: {}", event.getOrderId());
+      }
+  }
+  
+  // Consumer 2
+  @Service
+  public class OrderConsumer2 {
+      @KafkaListener(
+          topics = "orders",
+          groupId = "order-processors",
+          id = "consumer-2"
+      )
+      public void consume(OrderEvent event) {
+          log.info("Consumer 2 processing: {}", event.getOrderId());
+      }
+  }
+  
+  // Consumer 3
+  @Service
+  public class OrderConsumer3 {
+      @KafkaListener(
+          topics = "orders",
+          groupId = "order-processors",
+          id = "consumer-3"
+      )
+      public void consume(OrderEvent event) {
+          log.info("Consumer 3 processing: {}", event.getOrderId());
+      }
+  }
+  // Each consumer gets different partitions automatically
+  ```
+
+  **Concurrent Consumers:**
+
+  ```java
+  @Configuration
+  public class KafkaConsumerConfig {
+      
+      @Bean
+      public ConcurrentKafkaListenerContainerFactory<String, OrderEvent> 
+          kafkaListenerContainerFactory() {
+          
+          ConcurrentKafkaListenerContainerFactory<String, OrderEvent> factory =
+              new ConcurrentKafkaListenerContainerFactory<>();
+          
+          factory.setConsumerFactory(consumerFactory());
+          factory.setConcurrency(3);  // 3 consumer threads
+          factory.getContainerProperties().setAckMode(AckMode.MANUAL);
+          
+          return factory;
+      }
+  }
+  
+  @Service
+  public class OrderConsumer {
+      
+      @KafkaListener(
+          topics = "orders",
+          groupId = "order-service",
+          concurrency = "3"  // 3 concurrent consumers
+      )
+      public void consume(OrderEvent event) {
+          log.info("Thread {} processing order {}", 
+              Thread.currentThread().getName(), 
+              event.getOrderId());
+      }
+  }
+  ```
+
+  **Consumer with Error Handling:**
+
+  ```java
+  @Service
+  @Slf4j
+  public class OrderConsumer {
+      
+      @KafkaListener(topics = "orders", groupId = "order-service")
+      public void consume(OrderEvent event) {
+          try {
+              processOrder(event);
+          } catch (RetryableException e) {
+              log.warn("Retryable error, will retry: {}", e.getMessage());
+              throw e;  // Retry
+          } catch (NonRetryableException e) {
+              log.error("Non-retryable error, sending to DLQ: {}", e.getMessage());
+              sendToDeadLetterQueue(event);
+          }
+      }
+      
+      @KafkaListener(topics = "orders.DLQ", groupId = "dlq-processor")
+      public void consumeDeadLetter(OrderEvent event) {
+          log.error("Processing dead letter: {}", event.getOrderId());
+          // Manual intervention or special handling
+      }
+  }
+  
+  @Configuration
+  public class KafkaErrorHandlingConfig {
+      
+      @Bean
+      public ConcurrentKafkaListenerContainerFactory<String, OrderEvent> 
+          kafkaListenerContainerFactory() {
+          
+          ConcurrentKafkaListenerContainerFactory<String, OrderEvent> factory =
+              new ConcurrentKafkaListenerContainerFactory<>();
+          
+          factory.setConsumerFactory(consumerFactory());
+          
+          // Retry configuration
+          factory.setCommonErrorHandler(
+              new DefaultErrorHandler(
+                  new DeadLetterPublishingRecoverer(kafkaTemplate()),
+                  new FixedBackOff(1000L, 3L)  // Retry 3 times with 1s delay
+              )
+          );
+          
+          return factory;
+      }
+  }
+  ```
+
+  **Batch Consumer:**
+
+  ```java
+  @Service
+  public class BatchOrderConsumer {
+      
+      @KafkaListener(
+          topics = "orders",
+          groupId = "batch-processor",
+          containerFactory = "batchFactory"
+      )
+      public void consumeBatch(List<OrderEvent> events) {
+          log.info("Processing batch of {} orders", events.size());
+          
+          // Process batch efficiently
+          orderService.processBatch(events);
+      }
+  }
+  
+  @Configuration
+  public class KafkaBatchConfig {
+      
+      @Bean
+      public ConcurrentKafkaListenerContainerFactory<String, OrderEvent> batchFactory() {
+          ConcurrentKafkaListenerContainerFactory<String, OrderEvent> factory =
+              new ConcurrentKafkaListenerContainerFactory<>();
+          
+          factory.setConsumerFactory(consumerFactory());
+          factory.setBatchListener(true);  // Enable batch mode
+          factory.getContainerProperties().setAckMode(AckMode.BATCH);
+          
+          return factory;
+      }
+      
+      @Bean
+      public ConsumerFactory<String, OrderEvent> consumerFactory() {
+          Map<String, Object> props = new HashMap<>();
+          props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+          props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 100);  // Batch size
+          props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1024);  // Wait for 1KB
+          props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);  // Or 500ms
+          
+          return new DefaultKafkaConsumerFactory<>(props);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Apache Kafka - Offset Management</summary>
+  <br/>
+
+  **Offset** is the position of a message in a partition.
+
+  **Offset Commit Strategies:**
+
+  ```
+  Partition: [M0][M1][M2][M3][M4][M5][M6][M7]
+  Offset:     0   1   2   3   4   5   6   7
+                              ↑
+                        Current Offset: 3
+                        (Next read: M4)
+  ```
+
+  **Auto Commit (Default):**
+
+  ```yaml
+  spring:
+    kafka:
+      consumer:
+        enable-auto-commit: true
+        auto-commit-interval: 5000  # Commit every 5 seconds
+  ```
+
+  ```java
+  @Service
+  public class OrderConsumer {
+      
+      @KafkaListener(topics = "orders", groupId = "auto-commit-group")
+      public void consume(OrderEvent event) {
+          // Process message
+          processOrder(event);
+          
+          // Offset automatically committed every 5 seconds
+          // Risk: If crash before commit, messages reprocessed
+      }
+  }
+  ```
+
+  **Manual Commit:**
+
+  ```yaml
+  spring:
+    kafka:
+      consumer:
+        enable-auto-commit: false
+  ```
+
+  ```java
+  @Configuration
+  public class KafkaConsumerConfig {
+      
+      @Bean
+      public ConcurrentKafkaListenerContainerFactory<String, OrderEvent> 
+          kafkaListenerContainerFactory() {
+          
+          ConcurrentKafkaListenerContainerFactory<String, OrderEvent> factory =
+              new ConcurrentKafkaListenerContainerFactory<>();
+          
+          factory.setConsumerFactory(consumerFactory());
+          factory.getContainerProperties().setAckMode(AckMode.MANUAL);
+          
+          return factory;
+      }
+  }
+  
+  @Service
+  public class OrderConsumer {
+      
+      @KafkaListener(topics = "orders", groupId = "manual-commit-group")
+      public void consume(OrderEvent event, Acknowledgment ack) {
+          try {
+              // Process message
+              processOrder(event);
+              
+              // Manually commit offset after successful processing
+              ack.acknowledge();
+              
+          } catch (Exception e) {
+              // Don't commit - message will be reprocessed
+              log.error("Failed to process order, will retry", e);
+          }
+      }
+  }
+  ```
+
+  **Manual Batch Commit:**
+
+  ```java
+  @Service
+  public class BatchOrderConsumer {
+      
+      @KafkaListener(
+          topics = "orders",
+          groupId = "batch-commit-group",
+          containerFactory = "batchFactory"
+      )
+      public void consumeBatch(List<OrderEvent> events, Acknowledgment ack) {
+          try {
+              // Process all messages in batch
+              for (OrderEvent event : events) {
+                  processOrder(event);
+              }
+              
+              // Commit offset for entire batch
+              ack.acknowledge();
+              
+          } catch (Exception e) {
+              // Don't commit - entire batch will be reprocessed
+              log.error("Failed to process batch", e);
+          }
+      }
+  }
+  ```
+
+  **Seeking to Specific Offset:**
+
+  ```java
+  @Service
+  public class OrderConsumer {
+      
+      @Autowired
+      private KafkaListenerEndpointRegistry registry;
+      
+      public void seekToOffset(String topic, int partition, long offset) {
+          MessageListenerContainer container = registry
+              .getListenerContainer("order-consumer");
+          
+          container.stop();
+          
+          ConsumerSeekCallback callback = (consumer, exception) -> {
+              TopicPartition topicPartition = new TopicPartition(topic, partition);
+              consumer.seek(topicPartition, offset);
+          };
+          
+          ((AbstractMessageListenerContainer<?, ?>) container)
+              .getContainerProperties()
+              .setConsumerRebalanceListener(new ConsumerAwareRebalanceListener() {
+                  @Override
+                  public void onPartitionsAssigned(Consumer<?, ?> consumer, 
+                      Collection<TopicPartition> partitions) {
+                      
+                      for (TopicPartition partition : partitions) {
+                          consumer.seek(partition, offset);
+                      }
+                  }
+              });
+          
+          container.start();
+      }
+      
+      public void seekToBeginning(String topic) {
+          // Reprocess all messages from beginning
+          MessageListenerContainer container = registry
+              .getListenerContainer("order-consumer");
+          
+          container.stop();
+          ((AbstractMessageListenerContainer<?, ?>) container)
+              .getContainerProperties()
+              .setConsumerRebalanceListener(new ConsumerAwareRebalanceListener() {
+                  @Override
+                  public void onPartitionsAssigned(Consumer<?, ?> consumer, 
+                      Collection<TopicPartition> partitions) {
+                      consumer.seekToBeginning(partitions);
+                  }
+              });
+          container.start();
+      }
+  }
+  ```
+
+  **Offset Reset Strategy:**
+
+  ```yaml
+  spring:
+    kafka:
+      consumer:
+        auto-offset-reset: earliest  # or latest, none
+  ```
+
+  ```
+  auto-offset-reset: earliest
+  - Start from beginning if no committed offset
+  - Use case: Reprocess all historical data
+  
+  auto-offset-reset: latest
+  - Start from end if no committed offset
+  - Use case: Only process new messages
+  
+  auto-offset-reset: none
+  - Throw exception if no committed offset
+  - Use case: Strict offset management
+  ```
+
+  **Storing Offsets Externally:**
+
+  ```java
+  @Service
+  public class OrderConsumer {
+      
+      @Autowired
+      private OffsetRepository offsetRepository;
+      
+      @KafkaListener(
+          topics = "orders",
+          groupId = "external-offset-group",
+          containerFactory = "manualFactory"
+      )
+      public void consume(
+          OrderEvent event,
+          @Header(KafkaHeaders.RECEIVED_PARTITION_ID) int partition,
+          @Header(KafkaHeaders.OFFSET) long offset,
+          Acknowledgment ack
+      ) {
+          try {
+              // Process message and store offset in database (transactional)
+              processOrderAndStoreOffset(event, partition, offset);
+              
+              // Commit Kafka offset
+              ack.acknowledge();
+              
+          } catch (Exception e) {
+              log.error("Failed to process, will retry", e);
+          }
+      }
+      
+      @Transactional
+      public void processOrderAndStoreOffset(OrderEvent event, int partition, long offset) {
+          // Process order
+          orderService.processOrder(event);
+          
+          // Store offset in database
+          OffsetInfo offsetInfo = new OffsetInfo();
+          offsetInfo.setTopic("orders");
+          offsetInfo.setPartition(partition);
+          offsetInfo.setOffset(offset);
+          offsetInfo.setProcessedAt(LocalDateTime.now());
+          
+          offsetRepository.save(offsetInfo);
+          
+          // Both operations commit together
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>RabbitMQ - Exchanges, Queues, and Routing</summary>
+  <br/>
+
+  **RabbitMQ** is a message broker that implements AMQP (Advanced Message Queuing Protocol).
+
+  **Core Components:**
+
+  ```
+  ┌──────────┐      ┌──────────────┐      ┌─────────┐      ┌──────────┐
+  │ Producer │─────▶│   Exchange   │─────▶│ Queue   │─────▶│ Consumer │
+  └──────────┘      └──────────────┘      └─────────┘      └──────────┘
+                           │
+                      Routing Key
+                      Binding Key
+  ```
+
+  **Exchanges:**
+  - Receives messages from producers
+  - Routes messages to queues based on routing rules
+  - Types: Direct, Fanout, Topic, Headers
+
+  **Queues:**
+  - Stores messages until consumed
+  - FIFO (First In, First Out)
+  - Can be durable or transient
+
+  **Bindings:**
+  - Links between exchanges and queues
+  - Defines routing rules
+
+  **Exchange Types:**
+
+  **1. Direct Exchange:**
+
+  ```
+  Producer ─(routing_key: "error")─▶ Direct Exchange
+                                           │
+                    ┌──────────────────────┼──────────────────────┐
+                    │ (binding: "error")   │ (binding: "info")    │
+                    ▼                      ▼                      ▼
+              ┌──────────┐          ┌──────────┐          ┌──────────┐
+              │  Error   │          │   Info   │          │  Debug   │
+              │  Queue   │          │  Queue   │          │  Queue   │
+              └──────────┘          └──────────┘          └──────────┘
+  
+  Message with routing_key "error" goes to Error Queue only
+  ```
+
+  ```java
+  @Configuration
+  public class RabbitMQDirectConfig {
+      
+      @Bean
+      public DirectExchange directExchange() {
+          return new DirectExchange("logs.direct");
+      }
+      
+      @Bean
+      public Queue errorQueue() {
+          return new Queue("error.queue", true);  // Durable
+      }
+      
+      @Bean
+      public Queue infoQueue() {
+          return new Queue("info.queue", true);
+      }
+      
+      @Bean
+      public Binding errorBinding() {
+          return BindingBuilder
+              .bind(errorQueue())
+              .to(directExchange())
+              .with("error");  // Routing key
+      }
+      
+      @Bean
+      public Binding infoBinding() {
+          return BindingBuilder
+              .bind(infoQueue())
+              .to(directExchange())
+              .with("info");
+      }
+  }
+  
+  @Service
+  public class LogProducer {
+      
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public void sendErrorLog(String message) {
+          rabbitTemplate.convertAndSend("logs.direct", "error", message);
+      }
+      
+      public void sendInfoLog(String message) {
+          rabbitTemplate.convertAndSend("logs.direct", "info", message);
+      }
+  }
+  ```
+
+  **2. Fanout Exchange (Pub/Sub):**
+
+  ```
+  Producer ────▶ Fanout Exchange
+                      │
+         ┌────────────┼────────────┐
+         │            │            │
+         ▼            ▼            ▼
+    ┌────────┐   ┌────────┐   ┌────────┐
+    │Queue 1 │   │Queue 2 │   │Queue 3 │
+    └────────┘   └────────┘   └────────┘
+  
+  Message broadcast to ALL queues (ignores routing key)
+  ```
+
+  ```java
+  @Configuration
+  public class RabbitMQFanoutConfig {
+      
+      @Bean
+      public FanoutExchange fanoutExchange() {
+          return new FanoutExchange("notifications.fanout");
+      }
+      
+      @Bean
+      public Queue emailQueue() {
+          return new Queue("email.queue");
+      }
+      
+      @Bean
+      public Queue smsQueue() {
+          return new Queue("sms.queue");
+      }
+      
+      @Bean
+      public Queue pushQueue() {
+          return new Queue("push.queue");
+      }
+      
+      @Bean
+      public Binding emailBinding() {
+          return BindingBuilder.bind(emailQueue()).to(fanoutExchange());
+      }
+      
+      @Bean
+      public Binding smsBinding() {
+          return BindingBuilder.bind(smsQueue()).to(fanoutExchange());
+      }
+      
+      @Bean
+      public Binding pushBinding() {
+          return BindingBuilder.bind(pushQueue()).to(fanoutExchange());
+      }
+  }
+  
+  @Service
+  public class NotificationProducer {
+      
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public void sendNotification(String message) {
+          // Broadcast to all queues
+          rabbitTemplate.convertAndSend("notifications.fanout", "", message);
+      }
+  }
+  ```
+
+  **3. Topic Exchange (Pattern Matching):**
+
+  ```
+  Producer ─(routing_key: "order.created.us")─▶ Topic Exchange
+                                                      │
+                    ┌─────────────────────────────────┼─────────────────────┐
+                    │ (binding: "order.*")            │ (binding: "*.*.us") │
+                    ▼                                 ▼                     ▼
+              ┌──────────┐                      ┌──────────┐        ┌──────────┐
+              │  Order   │                      │   US     │        │  All     │
+              │  Queue   │                      │  Queue   │        │  Queue   │
+              └──────────┘                      └──────────┘        └──────────┘
+  
+  * matches exactly one word
+  # matches zero or more words
+  ```
+
+  ```java
+  @Configuration
+  public class RabbitMQTopicConfig {
+      
+      @Bean
+      public TopicExchange topicExchange() {
+          return new TopicExchange("events.topic");
+      }
+      
+      @Bean
+      public Queue orderQueue() {
+          return new Queue("order.queue");
+      }
+      
+      @Bean
+      public Queue usQueue() {
+          return new Queue("us.queue");
+      }
+      
+      @Bean
+      public Queue allQueue() {
+          return new Queue("all.queue");
+      }
+      
+      @Bean
+      public Binding orderBinding() {
+          return BindingBuilder
+              .bind(orderQueue())
+              .to(topicExchange())
+              .with("order.*");  // Matches: order.created, order.updated, etc.
+      }
+      
+      @Bean
+      public Binding usBinding() {
+          return BindingBuilder
+              .bind(usQueue())
+              .to(topicExchange())
+              .with("*.*.us");  // Matches: order.created.us, user.updated.us, etc.
+      }
+      
+      @Bean
+      public Binding allBinding() {
+          return BindingBuilder
+              .bind(allQueue())
+              .to(topicExchange())
+              .with("#");  // Matches everything
+      }
+  }
+  
+  @Service
+  public class EventProducer {
+      
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public void sendOrderCreated(String region) {
+          String routingKey = "order.created." + region;
+          rabbitTemplate.convertAndSend("events.topic", routingKey, "Order created");
+      }
+      
+      public void sendUserUpdated(String region) {
+          String routingKey = "user.updated." + region;
+          rabbitTemplate.convertAndSend("events.topic", routingKey, "User updated");
+      }
+  }
+  ```
+
+  **Consumer:**
+
+  ```java
+  @Service
+  @Slf4j
+  public class OrderConsumer {
+      
+      @RabbitListener(queues = "order.queue")
+      public void consumeOrder(String message) {
+          log.info("Received order message: {}", message);
+      }
+      
+      @RabbitListener(queues = "us.queue")
+      public void consumeUsEvents(String message) {
+          log.info("Received US event: {}", message);
+      }
+      
+      @RabbitListener(queues = "all.queue")
+      public void consumeAllEvents(String message) {
+          log.info("Received event: {}", message);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Message Patterns</summary>
+  <br/>
+
+  **1. Publish/Subscribe (Pub/Sub):**
+
+  One message delivered to multiple consumers.
+
+  ```
+  Publisher ────▶ Topic/Exchange
+                      │
+         ┌────────────┼────────────┐
+         │            │            │
+         ▼            ▼            ▼
+    Subscriber 1  Subscriber 2  Subscriber 3
+  
+  All subscribers receive the same message
+  ```
+
+  **Kafka Implementation:**
+
+  ```java
+  // Producer
+  @Service
+  public class OrderEventPublisher {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+      
+      public void publishOrderCreated(OrderEvent event) {
+          kafkaTemplate.send("order-events", event);
+      }
+  }
+  
+  // Multiple consumers (different groups)
+  @Service
+  public class EmailNotificationService {
+      @KafkaListener(topics = "order-events", groupId = "email-service")
+      public void handleOrderCreated(OrderEvent event) {
+          sendEmail(event);
+      }
+  }
+  
+  @Service
+  public class InventoryService {
+      @KafkaListener(topics = "order-events", groupId = "inventory-service")
+      public void handleOrderCreated(OrderEvent event) {
+          updateInventory(event);
+      }
+  }
+  
+  @Service
+  public class AnalyticsService {
+      @KafkaListener(topics = "order-events", groupId = "analytics-service")
+      public void handleOrderCreated(OrderEvent event) {
+          recordAnalytics(event);
+      }
+  }
+  ```
+
+  **RabbitMQ Implementation:**
+
+  ```java
+  // Fanout exchange for pub/sub
+  @Configuration
+  public class PubSubConfig {
+      @Bean
+      public FanoutExchange orderExchange() {
+          return new FanoutExchange("order.events");
+      }
+      
+      @Bean
+      public Queue emailQueue() {
+          return new Queue("email.queue");
+      }
+      
+      @Bean
+      public Queue inventoryQueue() {
+          return new Queue("inventory.queue");
+      }
+      
+      @Bean
+      public Binding emailBinding() {
+          return BindingBuilder.bind(emailQueue()).to(orderExchange());
+      }
+      
+      @Bean
+      public Binding inventoryBinding() {
+          return BindingBuilder.bind(inventoryQueue()).to(orderExchange());
+      }
+  }
+  ```
+
+  **2. Point-to-Point:**
+
+  One message delivered to exactly one consumer.
+
+  ```
+  Producer ────▶ Queue ────▶ Consumer 1
+                   │
+                   └────▶ Consumer 2 (if Consumer 1 busy)
+  
+  Only one consumer processes each message
+  ```
+
+  **Kafka Implementation:**
+
+  ```java
+  // Multiple consumers in same group (load balancing)
+  @Service
+  public class OrderProcessor1 {
+      @KafkaListener(topics = "orders", groupId = "order-processors")
+      public void process(OrderEvent event) {
+          log.info("Processor 1 handling: {}", event.getOrderId());
+      }
+  }
+  
+  @Service
+  public class OrderProcessor2 {
+      @KafkaListener(topics = "orders", groupId = "order-processors")
+      public void process(OrderEvent event) {
+          log.info("Processor 2 handling: {}", event.getOrderId());
+      }
+  }
+  // Each message processed by only one consumer
+  ```
+
+  **RabbitMQ Implementation:**
+
+  ```java
+  @Configuration
+  public class PointToPointConfig {
+      @Bean
+      public Queue taskQueue() {
+          return new Queue("tasks.queue");
+      }
+  }
+  
+  @Service
+  public class TaskProducer {
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public void sendTask(String task) {
+          rabbitTemplate.convertAndSend("tasks.queue", task);
+      }
+  }
+  
+  @Service
+  public class TaskConsumer1 {
+      @RabbitListener(queues = "tasks.queue")
+      public void processTask(String task) {
+          log.info("Consumer 1 processing: {}", task);
+      }
+  }
+  
+  @Service
+  public class TaskConsumer2 {
+      @RabbitListener(queues = "tasks.queue")
+      public void processTask(String task) {
+          log.info("Consumer 2 processing: {}", task);
+      }
+  }
+  ```
+
+  **3. Request-Reply:**
+
+  Synchronous communication over async messaging.
+
+  ```
+  Client ─(request)─▶ Request Queue ─▶ Server
+    ▲                                     │
+    │                                     │
+    └──(reply)─── Reply Queue ◀───────────┘
+  ```
+
+  **Kafka Implementation:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderRequest> kafkaTemplate;
+      
+      public CompletableFuture<OrderResponse> createOrder(OrderRequest request) {
+          String correlationId = UUID.randomUUID().toString();
+          
+          ProducerRecord<String, OrderRequest> record = new ProducerRecord<>(
+              "order-requests",
+              correlationId,
+              request
+          );
+          record.headers().add("reply-topic", "order-responses".getBytes());
+          record.headers().add("correlation-id", correlationId.getBytes());
+          
+          CompletableFuture<OrderResponse> future = new CompletableFuture<>();
+          pendingRequests.put(correlationId, future);
+          
+          kafkaTemplate.send(record);
+          
+          return future;
+      }
+      
+      @KafkaListener(topics = "order-responses")
+      public void handleResponse(
+          OrderResponse response,
+          @Header("correlation-id") String correlationId
+      ) {
+          CompletableFuture<OrderResponse> future = pendingRequests.remove(correlationId);
+          if (future != null) {
+              future.complete(response);
+          }
+      }
+  }
+  
+  @Service
+  public class OrderProcessor {
+      
+      @Autowired
+      private KafkaTemplate<String, OrderResponse> kafkaTemplate;
+      
+      @KafkaListener(topics = "order-requests")
+      public void processOrder(
+          OrderRequest request,
+          @Header("correlation-id") String correlationId,
+          @Header("reply-topic") String replyTopic
+      ) {
+          // Process order
+          OrderResponse response = processOrder(request);
+          
+          // Send response
+          ProducerRecord<String, OrderResponse> record = new ProducerRecord<>(
+              replyTopic,
+              correlationId,
+              response
+          );
+          record.headers().add("correlation-id", correlationId.getBytes());
+          
+          kafkaTemplate.send(record);
+      }
+  }
+  ```
+
+  **RabbitMQ Implementation:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      
+      public OrderResponse createOrder(OrderRequest request) {
+          // Send request and wait for response
+          OrderResponse response = (OrderResponse) rabbitTemplate
+              .convertSendAndReceive("order-requests", request);
+          
+          return response;
+      }
+  }
+  
+  @Service
+  public class OrderProcessor {
+      
+      @RabbitListener(queues = "order-requests")
+      public OrderResponse processOrder(OrderRequest request) {
+          // Process order
+          Order order = orderRepository.save(new Order(request));
+          
+          // Return response (automatically sent to reply queue)
+          return new OrderResponse(order.getId(), "SUCCESS");
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Idempotency - Handling Duplicate Messages</summary>
+  <br/>
+
+  **Idempotency** ensures processing a message multiple times has the same effect as processing it once.
+
+  **Why needed:**
+  - Network failures cause retries
+  - Consumer crashes before committing offset
+  - At-least-once delivery guarantees
+
+  **Strategies:**
+
+  **1. Idempotency Keys:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private OrderRepository orderRepository;
+      
+      @Autowired
+      private ProcessedMessageRepository processedMessageRepository;
+      
+      @KafkaListener(topics = "orders")
+      @Transactional
+      public void processOrder(OrderEvent event, @Header(KafkaHeaders.OFFSET) long offset) {
+          String idempotencyKey = event.getOrderId() + "-" + offset;
+          
+          // Check if already processed
+          if (processedMessageRepository.existsByKey(idempotencyKey)) {
+              log.info("Message already processed: {}", idempotencyKey);
+              return;  // Skip
+          }
+          
+          // Process order
+          Order order = orderRepository.save(new Order(event));
+          
+          // Mark as processed
+          ProcessedMessage processed = new ProcessedMessage();
+          processed.setKey(idempotencyKey);
+          processed.setProcessedAt(LocalDateTime.now());
+          processedMessageRepository.save(processed);
+          
+          // Both operations commit together (transactional)
+      }
+  }
+  
+  @Entity
+  public class ProcessedMessage {
+      @Id
+      private String key;
+      private LocalDateTime processedAt;
+      
+      @Index
+      private LocalDateTime expiresAt;  // For cleanup
+  }
+  ```
+
+  **2. Natural Idempotency:**
+
+  ```java
+  @Service
+  public class UserService {
+      
+      @KafkaListener(topics = "user-updates")
+      public void updateUser(UserUpdateEvent event) {
+          // Idempotent by nature - last update wins
+          User user = userRepository.findById(event.getUserId());
+          user.setName(event.getName());
+          user.setEmail(event.getEmail());
+          userRepository.save(user);
+          
+          // Processing multiple times has same result
+      }
+  }
+  ```
+
+  **3. Version-based Idempotency:**
+
+  ```java
+  @Entity
+  public class Product {
+      @Id
+      private Long id;
+      
+      private String name;
+      private BigDecimal price;
+      
+      @Version
+      private Long version;  // Optimistic locking
+  }
+  
+  @Service
+  public class ProductService {
+      
+      @KafkaListener(topics = "product-updates")
+      public void updateProduct(ProductUpdateEvent event) {
+          try {
+              Product product = productRepository.findById(event.getProductId());
+              
+              // Only update if version matches
+              if (product.getVersion().equals(event.getExpectedVersion())) {
+                  product.setPrice(event.getNewPrice());
+                  productRepository.save(product);  // Version incremented
+              } else {
+                  log.warn("Version mismatch, skipping update");
+              }
+              
+          } catch (OptimisticLockException e) {
+              log.warn("Concurrent update detected, skipping");
+          }
+      }
+  }
+  ```
+
+  **4. Distributed Lock:**
+
+  ```java
+  @Service
+  public class PaymentService {
+      
+      @Autowired
+      private RedissonClient redissonClient;
+      
+      @KafkaListener(topics = "payments")
+      public void processPayment(PaymentEvent event) {
+          String lockKey = "payment:" + event.getPaymentId();
+          RLock lock = redissonClient.getLock(lockKey);
+          
+          try {
+              // Try to acquire lock (wait 10s, auto-release after 30s)
+              if (lock.tryLock(10, 30, TimeUnit.SECONDS)) {
+                  try {
+                      // Check if already processed
+                      if (paymentRepository.existsById(event.getPaymentId())) {
+                          log.info("Payment already processed");
+                          return;
+                      }
+                      
+                      // Process payment
+                      Payment payment = new Payment(event);
+                      paymentRepository.save(payment);
+                      
+                  } finally {
+                      lock.unlock();
+                  }
+              } else {
+                  log.warn("Could not acquire lock for payment: {}", event.getPaymentId());
+              }
+          } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+          }
+      }
+  }
+  ```
+
+  **5. Deduplication Window:**
+
+  ```java
+  @Service
+  public class OrderService {
+      
+      @Autowired
+      private RedisTemplate<String, String> redisTemplate;
+      
+      @KafkaListener(topics = "orders")
+      public void processOrder(OrderEvent event) {
+          String dedupeKey = "order:" + event.getOrderId();
+          
+          // Try to set key with expiration (5 minutes)
+          Boolean isNew = redisTemplate.opsForValue()
+              .setIfAbsent(dedupeKey, "processing", 5, TimeUnit.MINUTES);
+          
+          if (Boolean.TRUE.equals(isNew)) {
+              // First time seeing this message
+              try {
+                  processOrderInternal(event);
+              } catch (Exception e) {
+                  // Remove key on failure to allow retry
+                  redisTemplate.delete(dedupeKey);
+                  throw e;
+              }
+          } else {
+              log.info("Duplicate message detected: {}", event.getOrderId());
+          }
+      }
+  }
+  ```
+
+  **6. Message Fingerprinting:**
+
+  ```java
+  @Service
+  public class EventService {
+      
+      @Autowired
+      private ProcessedEventRepository processedEventRepository;
+      
+      @KafkaListener(topics = "events")
+      @Transactional
+      public void processEvent(Event event) {
+          // Create fingerprint from message content
+          String fingerprint = createFingerprint(event);
+          
+          // Check if already processed
+          if (processedEventRepository.existsByFingerprint(fingerprint)) {
+              log.info("Duplicate event detected");
+              return;
+          }
+          
+          // Process event
+          processEventInternal(event);
+          
+          // Store fingerprint
+          ProcessedEvent processed = new ProcessedEvent();
+          processed.setFingerprint(fingerprint);
+          processed.setProcessedAt(LocalDateTime.now());
+          processedEventRepository.save(processed);
+      }
+      
+      private String createFingerprint(Event event) {
+          String content = event.getEventId() + 
+                          event.getEventType() + 
+                          event.getTimestamp() + 
+                          event.getPayload();
+          
+          return DigestUtils.sha256Hex(content);
+      }
+  }
+  ```
+
+</details>
+
+<details>
+  <summary>Best Practices</summary>
+  <br/>
+
+  ```java
+  // ✅ DO: Use appropriate message pattern
+  // Pub/Sub for broadcasting events
+  // Point-to-Point for task distribution
+  // Request-Reply for synchronous operations
+  
+  // ✅ DO: Implement idempotency
+  @Service
+  public class OrderService {
+      @KafkaListener(topics = "orders")
+      @Transactional
+      public void processOrder(OrderEvent event) {
+          if (alreadyProcessed(event.getOrderId())) {
+              return;  // Skip duplicate
+          }
+          processOrderInternal(event);
+          markAsProcessed(event.getOrderId());
+      }
+  }
+  
+  // ✅ DO: Use manual offset commit for critical operations
+  @KafkaListener(topics = "payments")
+  public void processPayment(PaymentEvent event, Acknowledgment ack) {
+      try {
+          processPaymentInternal(event);
+          ack.acknowledge();  // Commit only after success
+      } catch (Exception e) {
+          // Don't commit - will retry
+      }
+  }
+  
+  // ✅ DO: Implement dead letter queues
+  @Configuration
+  public class KafkaErrorConfig {
+      @Bean
+      public ConcurrentKafkaListenerContainerFactory<String, OrderEvent> 
+          kafkaListenerContainerFactory() {
+          
+          factory.setCommonErrorHandler(
+              new DefaultErrorHandler(
+                  new DeadLetterPublishingRecoverer(kafkaTemplate()),
+                  new FixedBackOff(1000L, 3L)
+              )
+          );
+          return factory;
+      }
+  }
+  
+  // ✅ DO: Add correlation IDs for tracing
+  @Service
+  public class OrderProducer {
+      public void sendOrder(OrderEvent event) {
+          ProducerRecord<String, OrderEvent> record = new ProducerRecord<>("orders", event);
+          record.headers().add("correlation-id", UUID.randomUUID().toString().getBytes());
+          kafkaTemplate.send(record);
+      }
+  }
+  
+  // ✅ DO: Use appropriate partition key
+  @Service
+  public class OrderProducer {
+      public void sendOrder(OrderEvent event) {
+          // Partition by customer ID for ordering guarantee
+          String key = String.valueOf(event.getCustomerId());
+          kafkaTemplate.send("orders", key, event);
+      }
+  }
+  
+  // ✅ DO: Configure appropriate retention
+  @Bean
+  public NewTopic orderTopic() {
+      return TopicBuilder.name("orders")
+          .partitions(3)
+          .replicas(3)
+          .config(TopicConfig.RETENTION_MS_CONFIG, "604800000")  // 7 days
+          .build();
+  }
+  
+  // ✅ DO: Handle poison messages
+  @KafkaListener(topics = "orders")
+  public void processOrder(OrderEvent event) {
+      try {
+          processOrderInternal(event);
+      } catch (UnrecoverableException e) {
+          sendToDeadLetterQueue(event);
+          // Don't retry
+      }
+  }
+  
+  // ✅ DO: Monitor consumer lag
+  @Component
+  public class ConsumerLagMonitor {
+      @Scheduled(fixedRate = 60000)
+      public void checkLag() {
+          // Monitor lag and alert if too high
+          long lag = getConsumerLag();
+          if (lag > 10000) {
+              alertOps("High consumer lag: " + lag);
+          }
+      }
+  }
+  
+  // ❌ DON'T: Use auto-commit for critical operations
+  // Risk: Message marked as processed before actual processing
+  
+  // ❌ DON'T: Ignore duplicate messages
+  // Always implement idempotency
+  
+  // ❌ DON'T: Use synchronous messaging for high-volume events
+  // Use async messaging (Kafka, RabbitMQ)
+  
+  // ❌ DON'T: Create too many partitions
+  // Balance between parallelism and overhead
+  
+  // ✅ DO: Use batch processing for high throughput
+  @KafkaListener(topics = "orders", containerFactory = "batchFactory")
+  public void processBatch(List<OrderEvent> events) {
+      orderService.processBatch(events);
+  }
+  
+  // ✅ DO: Implement circuit breaker for external calls
+  @Service
+  public class OrderConsumer {
+      @KafkaListener(topics = "orders")
+      @CircuitBreaker(name = "paymentService")
+      public void processOrder(OrderEvent event) {
+          paymentService.processPayment(event);
+      }
+  }
+  ```
+
+  **Summary:**
+  + **Kafka** - High-throughput event streaming (topics, partitions, consumer groups, offset management)
+  + **RabbitMQ** - Message broker with flexible routing (exchanges, queues, bindings)
+  + **Pub/Sub** - Broadcast messages to multiple consumers
+  + **Point-to-Point** - Load balance messages across consumers
+  + **Request-Reply** - Synchronous communication over async messaging
+  + **Idempotency** - Handle duplicate messages safely (idempotency keys, natural idempotency, versioning)
+  + Use **manual commit** for critical operations
+  + Implement **dead letter queues** for poison messages
+  + Add **correlation IDs** for distributed tracing
+  + Choose appropriate **partition key** for ordering
+  + **Monitor consumer lag** and alert on issues
+  + Implement **circuit breakers** for resilience
+
+</details>
